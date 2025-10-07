@@ -1286,7 +1286,95 @@ function RuleBuilder({ onSave }) {
 4. **テンプレート**: よくあるパターン（RBAC、Google Docs ライク、GitHub ライクなど）をテンプレートとして提供
 5. **段階的な開示**: 初心者向けにはシンプルモード、上級者向けには高度な機能を提供
 
-#### 6.6 完全な実装例（Next.js + React）
+#### 6.6 内部処理の流れ（参考）
+
+**UIで保存ボタンを押したあと、内部で何が起きるか？**
+
+```
+┌─────────────────┐
+│ ユーザーの入力  │ チェックボックス、ドロップダウンなどで設定
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  DSL文字列生成  │ "entity document { relation owner: user ... }"
+└────────┬────────┘
+         │
+         ▼ writeSchema API呼び出し
+┌─────────────────┐
+│  サーバー受信   │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Lexer(字句解析)│ 文字列を単語（トークン）に分解
+│                 │ ["entity", "document", "{", "relation", "owner", ":", "user", ...]
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Parser(構文解析)│ トークンをツリー構造（AST）に変換
+│                 │ EntityAST → RelationAST → PermissionAST ...
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Validator(検証) │ 文法や意味のチェック
+│                 │ - 未定義のrelationを参照していないか？
+│                 │ - エンティティ名が重複していないか？
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Schema構造体   │ Goのデータ構造に変換
+│   に変換        │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  DBに保存       │ schemas テーブルに保存
+└─────────────────┘
+```
+
+**AST（抽象構文木）とは？**
+
+「Abstract Syntax Tree」の略で、**プログラムの構造をツリー（木構造）で表したもの**です。
+
+例えば `permission edit = owner or editor` という文を：
+
+```
+PermissionAST
+├── 名前: "edit"
+└── ルール: LogicalPermissionAST (or)
+    ├── RelationPermissionAST ("owner")
+    └── RelationPermissionAST ("editor")
+```
+
+このようなツリー構造で表現します。
+
+**なぜ必要？**
+
+- 文字列のままでは「構造」がわからない
+- ツリーにすることで「ownerとeditorをorで結合している」という**意味が明確**になる
+- プログラムで処理しやすくなる（検証、変換、実行など）
+
+**フロントエンド開発者への補足**:
+
+UIからwriteSchemaを呼ぶときは、**DSL文字列を渡すだけ**でOKです。Lexer、Parser、Validatorなどの処理はすべてサーバー側で自動的に行われます。エラーがあれば `response.errors` に詳細が返ってきます。
+
+```typescript
+const response = await client.writeSchema({
+  schema_dsl: generatedDSL  // UIで生成した文字列をそのまま渡す
+});
+
+if (!response.success) {
+  // エラー表示
+  console.error(response.errors);
+  // 例: ["Line 5: undefined relation 'admin' referenced in permission"]
+}
+```
+
+#### 6.7 完全な実装例（Next.js + React）
 
 ```typescript
 // pages/schema-builder.tsx
@@ -1491,6 +1579,128 @@ function generateDSLFromEntities(entities: EntityConfig[]): string {
   return dsl.trim();
 }
 ```
+
+**`generateDSLFromEntities` の入出力例（TypeScriptエンジニア向け）**
+
+この関数は、UIで構築したエンティティ設定（JavaScriptオブジェクト）をDSL文字列に変換します。
+
+**入力例**: Google Docsライクなドキュメント管理システムの設定
+
+```typescript
+const entities: EntityConfig[] = [
+  {
+    name: 'user',
+    relations: [],
+    permissions: [],
+    attributes: [],
+    rules: []
+  },
+  {
+    name: 'document',
+    relations: [
+      { name: 'owner', type: 'user' },
+      { name: 'editor', type: 'user' },
+      { name: 'viewer', type: 'user' }
+    ],
+    permissions: [
+      { name: 'delete', expression: 'owner' },
+      { name: 'edit', expression: 'owner or editor' },
+      { name: 'view', expression: 'owner or editor or viewer' }
+    ],
+    attributes: [],
+    rules: []
+  }
+];
+
+const dsl = generateDSLFromEntities(entities);
+console.log(dsl);
+```
+
+**出力**: 以下のDSL文字列が生成されます
+
+```
+entity user {
+}
+
+entity document {
+  relation owner: user
+  relation editor: user
+  relation viewer: user
+
+  permission delete = owner
+  permission edit = owner or editor
+  permission view = owner or editor or viewer
+}
+```
+
+**ABAC（属性ベース）を含む複雑な例**:
+
+```typescript
+const entitiesWithABAC: EntityConfig[] = [
+  {
+    name: 'user',
+    relations: [],
+    permissions: [],
+    attributes: [],
+    rules: []
+  },
+  {
+    name: 'document',
+    relations: [
+      { name: 'owner', type: 'user' }
+    ],
+    attributes: [
+      { name: 'is_public', type: 'boolean' },
+      { name: 'department', type: 'string' }
+    ],
+    rules: [
+      {
+        name: 'check_public',
+        params: ['is_public'],
+        expression: 'is_public == true'
+      },
+      {
+        name: 'check_department',
+        params: ['department'],
+        expression: 'request.user.department == department'
+      }
+    ],
+    permissions: [
+      { name: 'delete', expression: 'owner' },
+      { name: 'edit', expression: 'owner' },
+      { name: 'view', expression: 'owner or check_public or check_department' }
+    ]
+  }
+];
+
+const dsl = generateDSLFromEntities(entitiesWithABAC);
+```
+
+**出力**:
+
+```
+entity user {
+}
+
+entity document {
+  relation owner: user
+  attribute is_public boolean
+  attribute department string
+
+  rule check_public(is_public) {
+    is_public == true
+  }
+  rule check_department(department) {
+    request.user.department == department
+  }
+
+  permission delete = owner
+  permission edit = owner
+  permission view = owner or check_public or check_department
+}
+```
+
+このDSL文字列を `writeSchema({ schema_dsl: dsl })` でサーバーに送信すると、サーバー側でパース・検証・保存されます。
 
 このように、**技術者でないユーザーでもビジュアルな UI でスキーマを構築**でき、システムが自動的に DSL 文字列を生成します。これが Keruberosu の重要な特徴です。
 
@@ -3721,10 +3931,89 @@ DSL文字列 → Lexer（字句解析） → Tokens → Parser（構文解析）
 
 **処理フロー**:
 
-1. **Lexer**: 文字列をトークン列に分解
-2. **Parser**: トークン列を AST（抽象構文木）に変換
-3. **Validator**: AST の意味的な正しさを検証
-4. **Converter**: AST を内部の `Schema` 構造体に変換
+1. **Lexer（字句解析器）**: 文字列をトークン列に分解
+2. **Parser（構文解析器）**: トークン列を AST（抽象構文木）に変換
+3. **Validator（検証器）**: AST の意味的な正しさを検証
+4. **Converter（変換器）**: AST を内部の `Schema` 構造体に変換
+
+**ASTとは？**
+
+AST（Abstract Syntax Tree：抽象構文木）とは、**プログラムやDSLの構造をツリー（木構造）で表現したもの**です。
+
+例えば、以下のDSL：
+
+```
+entity document {
+  relation owner: user
+  permission edit = owner
+}
+```
+
+これをASTで表現すると：
+
+```
+SchemaAST
+└── EntityAST (name: "document")
+    ├── RelationAST (name: "owner")
+    │   └── RelationTargetAST (type: "user")
+    └── PermissionAST (name: "edit")
+        └── RelationPermissionAST (relation: "owner")
+```
+
+**なぜASTが必要か？**
+
+1. **構造化されたデータ**: 文字列のままでは処理しにくいが、ツリー構造にすることでプログラムで扱いやすくなる
+2. **検証が容易**: 「未定義のrelationを参照していないか」などのチェックが簡単
+3. **変換が容易**: DSL → AST → 内部データ構造（Schema）という段階的な変換ができる
+4. **エラー報告**: どの部分で問題が起きたかを正確に指摘できる
+
+**具体例で理解する**:
+
+DSL文字列:
+```
+permission edit = owner or editor
+```
+
+↓ Lexerでトークンに分解
+
+```
+[TOKEN_PERMISSION, TOKEN_IDENT("edit"), TOKEN_ASSIGN, TOKEN_IDENT("owner"), TOKEN_OR, TOKEN_IDENT("editor")]
+```
+
+↓ ParserでASTに変換
+
+```
+PermissionAST {
+  Name: "edit"
+  Rule: LogicalPermissionAST {
+    Operator: "or"
+    Operands: [
+      RelationPermissionAST { Relation: "owner" },
+      RelationPermissionAST { Relation: "editor" }
+    ]
+  }
+}
+```
+
+↓ Validatorでチェック
+
+- "owner" というrelationは定義されているか？
+- "editor" というrelationは定義されているか？
+
+↓ ConverterでSchema構造体に変換
+
+```go
+Permission{
+  Name: "edit",
+  Rule: &PermissionRule{
+    Type: "logical",
+    Operator: "or",
+    Operands: [...],
+  }
+}
+```
+
+このように、**ASTは文字列とプログラムで使うデータ構造の橋渡し**をする重要な中間表現です。
 
 #### A.2 字句解析（Lexer）
 
