@@ -71,8 +71,10 @@ Phase 1 スコープ: キャッシュ機構を除く完全な実装
 ```text
 keruberosu/
 ├── cmd/
-│   └── server/
-│       └── main.go                    # エントリーポイント
+│   ├── server/
+│   │   └── main.go                    # gRPC サーバーエントリーポイント
+│   └── migrate/
+│       └── main.go                    # DB マイグレーションコマンド
 ├── internal/
 │   ├── entities/                      # ドメインエンティティ
 │   │   ├── schema.go                 # スキーマエンティティ

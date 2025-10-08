@@ -17,9 +17,9 @@ Phase: Phase 1 - キャッシュレス完全実装
 - [x] PRD.md 作成
 - [x] DESIGN.md 作成
 - [x] DEVELOPMENT.md 作成（本ファイル）
-- [ ] go.mod 初期化
-- [ ] .gitignore 作成
-- [ ] README.md 作成
+- [x] go.mod 初期化
+- [x] .gitignore 作成
+- [x] README.md 作成
 
 #### 1.2 インフラストラクチャ
 
@@ -315,10 +315,22 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 ### 8. メインエントリーポイント
 
+#### 8.1 マイグレーションコマンド
+
+- [ ] cmd/migrate/main.go
+  - [ ] 設定読み込み
+  - [ ] DB 接続初期化
+  - [ ] マイグレーションライブラリ（golang-migrate/migrate）統合
+  - [ ] up コマンド実装
+  - [ ] down コマンド実装
+  - [ ] goto コマンド実装
+  - [ ] エラーハンドリング
+
+#### 8.2 gRPC サーバー
+
 - [ ] cmd/server/main.go
   - [ ] 設定読み込み
   - [ ] DB 接続初期化
-  - [ ] マイグレーション実行
   - [ ] Repository 初期化
   - [ ] Service 初期化
   - [ ] Handler 初期化
@@ -400,6 +412,13 @@ Milestone 1: 基盤構築完了（Week 1）
 - PRD.md 完成（schema_version 削除、Permify 互換性確保）
 - DESIGN.md 作成（完全な ABAC/ReBAC 実装スコープ、正しいプロジェクト構造）
 - DEVELOPMENT.md 作成
+- Proto 設計を 3 ファイル構成に変更（common.proto, authorization.proto, audit.proto）
+- PRD.md の markdown 修正（\*\* 削除、コードブロック言語指定子追加）
+- プロジェクト初期化完了
+  - go.mod 初期化
+  - .gitignore 作成（proto 生成ファイルを除外）
+  - README.md 作成
+  - cmd/migrate 構成追加（マイグレーションコマンド）
 
 ---
 
@@ -413,10 +432,12 @@ Milestone 1: 基盤構築完了（Week 1）
 4. スキーマバージョニング: 管理しない
 5. Permify 互換性: entity/relation/subject 構造を完全に維持
 6. CEL: google/cel-go を使用
-7. マイグレーション: golang-migrate/migrate 使用、internal/infrastructure/database/migrations/postgres/ に配置
+7. マイグレーション: golang-migrate/migrate 使用、cmd/migrate でラップして実行、マイグレーションファイルは internal/infrastructure/database/migrations/postgres/ に配置
 8. PostgreSQL: 18.0-alpine3.22
 9. Repository パターン: インターフェースと実装を分離（各リポジトリごとにファイルを分割）
 10. Infrastructure 構造: database/（postgres.go + migrations/postgres/）、config/（config.go）
+11. Proto ファイル構成: 3 ファイル（common.proto, authorization.proto, audit.proto）に分割、proto/keruberosu/v1/ に配置
+12. コマンド構成: cmd/server（gRPC サーバー）、cmd/migrate（DB マイグレーション）
 
 ### 検討中
 
@@ -457,6 +478,7 @@ Milestone 1: 基盤構築完了（Week 1）
 
 ## 更新履歴
 
-| 日付       | 更新者    | 内容                                                        |
-| ---------- | --------- | ----------------------------------------------------------- |
-| 2025-10-08 | @asakaida | 初版作成、プロジェクト構造修正（repository/infrastructure） |
+| 日付       | 更新者    | 内容                                                                                      |
+| ---------- | --------- | ----------------------------------------------------------------------------------------- |
+| 2025-10-08 | @asakaida | 初版作成、プロジェクト構造修正（repository/infrastructure）                               |
+| 2025-10-08 | @asakaida | Proto 3 ファイル構成に変更、cmd/migrate 追加、go.mod 初期化、.gitignore と README.md 作成 |
