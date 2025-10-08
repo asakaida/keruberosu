@@ -264,11 +264,21 @@ keruberosu/
 
 - [PRD.md](PRD.md): 要求仕様書、API 利用ガイド
 - [DESIGN.md](DESIGN.md): 設計ドキュメント、アーキテクチャ
+- [ARCHITECTURE.md](ARCHITECTURE.md): アーキテクチャ図（Mermaid）
 - [DEVELOPMENT.md](DEVELOPMENT.md): 開発進捗管理、タスクリスト
+- [examples/](examples/): API 使用例・サンプルコード
 
 ## 開発状況
 
-現在のフェーズ: Phase 1 - 基盤構築
+現在のフェーズ: Phase 1 - 基盤構築（完了）
+
+### テスト結果
+
+✅ **全 E2E テスト成功: 45/45 テストケース (100% パス率)**
+
+- ReBAC シナリオ（Google Docs 風）: 14/14 ✓
+- ABAC シナリオ（全演算子）: 19/19 ✓
+- Permify 互換性検証: 12/12 ✓
 
 進捗詳細は [DEVELOPMENT.md](DEVELOPMENT.md) を参照してください。
 

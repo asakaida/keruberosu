@@ -28,8 +28,8 @@ Keruberosu は **単一の gRPC サービス（AuthorizationService）** とし�
 **なぜ単一サービスなのか？**
 
 1. **業界標準**: Google Zanzibar、Permify、Auth0 FGA、Ory Keto など、全ての主要な認可システムが単一サービスとして設計されています
-2. **認可の本質**: Schema（ルール定義）、Relations（関係性データ）、Authorization（権限判定）は密接に連携する1つのドメインであり、分離すると複雑性が増します
-3. **クライアントの利便性**: アプリケーション開発者は1つのサービスに接続するだけで、スキーマ定義、データ書き込み、権限チェックの全てが実行できます
+2. **認可の本質**: Schema（ルール定義）、Relations（関係性データ）、Authorization（権限判定）は密接に連携する 1 つのドメインであり、分離すると複雑性が増します
+3. **クライアントの利便性**: アプリケーション開発者は 1 つのサービスに接続するだけで、スキーマ定義、データ書き込み、権限チェックの全てが実行できます
 4. **運用の単純化**: デプロイ、スケーリング、モニタリング、トラブルシューティングが容易です
 5. **Permify 互換性**: Permify の API 設計を完全に踏襲することで、既存のツールやクライアントライブラリがそのまま使えます
 
@@ -41,7 +41,7 @@ Keruberosu は **単一の gRPC サービス（AuthorizationService）** とし�
 - **Data 管理**: WriteRelations, DeleteRelations, WriteAttributes
 - **Authorization**: Check, Expand, LookupEntity, LookupSubject, SubjectPermission
 
-この設計により、クライアントは1つの gRPC サービスに接続するだけで、認可に必要な全ての操作を実行できます。
+この設計により、クライアントは 1 つの gRPC サービスに接続するだけで、認可に必要な全ての操作を実行できます。
 
 ## API 利用ガイド（ステークホルダー向け）
 
