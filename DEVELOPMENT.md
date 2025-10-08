@@ -235,15 +235,24 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 #### 5.1 CEL エンジン
 
-- [ ] internal/services/authorization/cel.go
-  - [ ] CELEngine 構造体
-  - [ ] NewCELEngine（環境初期化）
-  - [ ] Evaluate（式評価）
-  - [ ] エラーハンドリング
-  - [ ] ユニットテスト（全演算子）
-    - [ ] 比較演算子: ==, !=, >, >=, <, <=
-    - [ ] in 演算子
-    - [ ] 論理演算子: &&, ||, !
+- [x] internal/services/authorization/cel.go
+  - [x] CELEngine 構造体
+  - [x] NewCELEngine（環境初期化）
+  - [x] Evaluate（式評価）
+  - [x] ValidateExpression（式検証）
+  - [x] EvaluateWithDefaults（デフォルトコンテキスト評価）
+  - [x] エラーハンドリング
+  - [x] ユニットテスト（48 テスト）
+    - [x] 比較演算子: ==, !=, >, >=, <, <= (16 テスト)
+    - [x] in 演算子 (4 テスト)
+    - [x] 論理演算子: &&, ||, ! (9 テスト)
+    - [x] 複雑な式 (5 テスト)
+    - [x] 文字列操作: contains, startsWith, endsWith (4 テスト)
+    - [x] マルチコンテキスト変数 (2 テスト)
+    - [x] エラーケース (2 テスト)
+    - [x] 式検証 (4 テスト)
+    - [x] 空コンテキスト (1 テスト)
+    - [x] デフォルト評価 (1 テスト)
 
 #### 5.2 ルール評価（Evaluator）
 
@@ -405,7 +414,7 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 ### 現在のステータス
 
-全体進捗: 35% (基盤構築 + ドメインエンティティ + Repository + DSL パーサー完了)
+全体進捗: 40% (基盤構築 + ドメインエンティティ + Repository + DSL パーサー + CEL エンジン完了)
 
 #### 完了タスク
 
@@ -419,10 +428,11 @@ Phase: Phase 1 - キャッシュレス完全実装
 - [x] Repository インターフェース定義（Schema, Relation, Attribute）
 - [x] Repository PostgreSQL 実装（Schema, Relation, Attribute）
 - [x] DSL パーサー実装（Lexer, Parser, Validator）
+- [x] CEL エンジン実装（ABAC ルール評価）
 
 #### 進行中タスク
 
-- [ ] CEL エンジン実装
+- [ ] ルール評価（Evaluator）実装
 
 #### 次のマイルストーン
 
@@ -502,6 +512,26 @@ Milestone 4: 認可エンジン実装完了（Week 4）
     - パーミッション内でのパーミッション参照サポート（permission view = edit）
     - 17 テストケース完了
   - 合計 45 テストケース全て成功
+- CEL エンジン実装完了
+  - google/cel-go v0.26.1 を依存関係に追加
+  - CELEngine 実装（cel.go）
+    - CEL 環境の初期化（resource, subject, request 変数）
+    - Evaluate メソッド（CEL 式評価）
+    - ValidateExpression メソッド（式検証、boolean 型チェック）
+    - EvaluateWithDefaults メソッド（nil コンテキスト対応）
+    - エラーハンドリング（コンパイルエラー、評価エラー、型エラー）
+  - ユニットテスト実装（cel_test.go）
+    - 比較演算子テスト（==, !=, >, >=, <, <=）: 16 テスト
+    - 論理演算子テスト（&&, ||, !）: 9 テスト
+    - in 演算子テスト: 4 テスト
+    - 複雑な式のテスト: 5 テスト
+    - 文字列操作テスト（contains, startsWith, endsWith）: 4 テスト
+    - マルチコンテキスト変数テスト: 2 テスト
+    - エラーケーステスト: 2 テスト
+    - 式検証テスト: 4 テスト
+    - 空コンテキストテスト: 1 テスト
+    - デフォルト評価テスト: 1 テスト
+  - 合計 48 テストケース全て成功
 
 ---
 
