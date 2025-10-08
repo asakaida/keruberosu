@@ -1,0 +1,173 @@
+syntax = "proto3";
+
+package keruberosu.v1;
+
+import "google/protobuf/struct.proto";
+import "keruberosu/v1/common.proto";
+
+option go_package = "github.com/asakaida/keruberosu/proto/keruberosu/v1;keruberosupb";
+
+// ========================================
+// AuthorizationService
+// ========================================
+
+service AuthorizationService {
+  // === スキーマ管理 ===
+  rpc WriteSchema(WriteSchemaRequest) returns (WriteSchemaResponse);
+  rpc ReadSchema(ReadSchemaRequest) returns (ReadSchemaResponse);
+
+  // === データ書き込み ===
+  rpc WriteRelations(WriteRelationsRequest) returns (WriteRelationsResponse);
+  rpc DeleteRelations(DeleteRelationsRequest) returns (DeleteRelationsResponse);
+  rpc WriteAttributes(WriteAttributesRequest) returns (WriteAttributesResponse);
+
+  // === 認可チェック ===
+  rpc Check(CheckRequest) returns (CheckResponse);
+  rpc Expand(ExpandRequest) returns (ExpandResponse);
+  rpc LookupEntity(LookupEntityRequest) returns (LookupEntityResponse);
+  rpc LookupSubject(LookupSubjectRequest) returns (LookupSubjectResponse);
+  rpc LookupEntityStream(LookupEntityRequest) returns (stream LookupEntityStreamResponse);
+  rpc SubjectPermission(SubjectPermissionRequest) returns (SubjectPermissionResponse);
+}
+
+// ========================================
+// スキーマ管理
+// ========================================
+
+message WriteSchemaRequest {
+  string schema_dsl = 1;
+}
+
+message WriteSchemaResponse {
+  bool success = 1;
+  string message = 2;
+  repeated string errors = 3;  // パースエラー詳細
+}
+
+message ReadSchemaRequest {
+  // パラメータなし（常に現在のスキーマを返す）
+}
+
+message ReadSchemaResponse {
+  string schema_dsl = 1;
+  string updated_at = 2;  // ISO8601形式のタイムスタンプ
+}
+
+// ========================================
+// データ書き込み
+// ========================================
+
+message WriteRelationsRequest {
+  repeated RelationTuple tuples = 1;
+}
+
+message WriteRelationsResponse {
+  int32 written_count = 1;
+}
+
+message DeleteRelationsRequest {
+  repeated RelationTuple tuples = 1;
+}
+
+message DeleteRelationsResponse {
+  int32 deleted_count = 1;
+}
+
+message WriteAttributesRequest {
+  repeated AttributeData attributes = 1;
+}
+
+message WriteAttributesResponse {
+  int32 written_count = 1;
+}
+
+// ========================================
+// 認可チェック
+// ========================================
+
+message CheckRequest {
+  PermissionCheckMetadata metadata = 1;  // snap_token, depth
+  Entity entity = 2;                      // 対象リソース
+  string permission = 3;                  // 確認するパーミッション
+  Subject subject = 4;                    // 主体（type, id, relation）
+  Context context = 5;                    // contextual tuples & attributes
+  repeated google.protobuf.Value arguments = 6;  // optional: 計算用引数
+}
+
+message CheckResponse {
+  CheckResult can = 1;                    // ALLOWED or DENIED
+  CheckResponseMetadata metadata = 2;     // check_count など
+}
+
+message CheckResponseMetadata {
+  int32 check_count = 1;  // 実行されたチェック数
+}
+
+message ExpandRequest {
+  PermissionCheckMetadata metadata = 1;  // snap_token, depth
+  Entity entity = 2;                      // 対象エンティティ
+  string permission = 3;                  // 展開するパーミッション
+  Context context = 4;                    // contextual tuples & attributes
+  repeated google.protobuf.Value arguments = 5;  // optional: 計算用引数
+}
+
+message ExpandResponse {
+  ExpandNode tree = 1;  // パーミッションツリー
+}
+
+message ExpandNode {
+  string operation = 1;  // "union", "intersection", "exclusion", "leaf"
+  repeated ExpandNode children = 2;
+  Entity entity = 3;     // leaf nodeの場合のエンティティ
+  Subject subject = 4;   // leaf nodeの場合のsubject
+}
+
+message LookupEntityRequest {
+  PermissionCheckMetadata metadata = 1;  // snap_token, depth
+  string entity_type = 2;                // 検索対象のentity type (e.g., "document")
+  string permission = 3;                 // 権限名 (e.g., "edit")
+  Subject subject = 4;                   // 主体 (type, id, relation)
+  Context context = 5;                   // contextual tuples & attributes
+
+  // ページネーション
+  int32 page_size = 6;                   // 1ページあたりの結果数（1-100）
+  string continuous_token = 7;           // 次ページ取得用トークン
+}
+
+message LookupEntityResponse {
+  repeated string entity_ids = 1;        // 許可されたentityのIDリスト
+  string continuous_token = 2;           // 次ページがある場合のトークン
+}
+
+message LookupEntityStreamResponse {
+  string entity_id = 1;                  // 1件ずつストリーム
+  string continuous_token = 2;           // 次ページ取得用トークン
+}
+
+message LookupSubjectRequest {
+  PermissionCheckMetadata metadata = 1;  // snap_token, depth
+  Entity entity = 2;                     // 対象entity (type, id)
+  string permission = 3;                 // 権限名 (e.g., "edit")
+  SubjectReference subject_reference = 4; // 検索対象のsubject (type, relation)
+  Context context = 5;                   // contextual tuples & attributes
+
+  // ページネーション
+  int32 page_size = 6;                   // 1ページあたりの結果数（1-100）
+  string continuous_token = 7;           // 次ページ取得用トークン
+}
+
+message LookupSubjectResponse {
+  repeated string subject_ids = 1;       // 許可されたsubjectのIDリスト
+  string continuous_token = 2;           // 次ページがある場合のトークン
+}
+
+message SubjectPermissionRequest {
+  PermissionCheckMetadata metadata = 1;  // snap_token, depth, only_permission
+  Entity entity = 2;                     // 対象entity (type, id)
+  Subject subject = 3;                   // 主体 (type, id, relation)
+  Context context = 4;                   // contextual tuples & attributes
+}
+
+message SubjectPermissionResponse {
+  map<string, CheckResult> results = 1;  // permission名 -> ALLOWED/DENIED
+}

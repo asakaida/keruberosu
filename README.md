@@ -68,7 +68,19 @@ DB_PASSWORD=keruberosu_dev_password
 ### 4. Protocol Buffers のコード生成
 
 ```bash
-protoc --go_out=. --go-grpc_out=. proto/keruberosu/v1/*.proto
+./scripts/generate-proto.sh
+```
+
+または直接 protoc を使用する場合:
+
+```bash
+protoc \
+  --proto_path=proto \
+  --go_out=proto \
+  --go_opt=paths=source_relative \
+  --go-grpc_out=proto \
+  --go-grpc_opt=paths=source_relative \
+  proto/keruberosu/v1/*.proto
 ```
 
 ### 5. データベースの起動

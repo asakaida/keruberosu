@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package keruberosu.v1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/asakaida/keruberosu/proto/keruberosu/v1;keruberosupb";
+
+// ========================================
+// AuditService
+// ========================================
+
+service AuditService {
+  rpc WriteAuditLog(WriteAuditLogRequest) returns (WriteAuditLogResponse);
+  rpc ReadAuditLogs(ReadAuditLogsRequest) returns (ReadAuditLogsResponse);
+}
+
+// ========================================
+// 監査ログ
+// ========================================
+
+message WriteAuditLogRequest {
+  string event_type = 1;
+  string actor_id = 2;
+  string actor_type = 3;
+  string resource_type = 4;
+  string resource_id = 5;
+  string action = 6;
+  google.protobuf.Struct details = 7;
+}
+
+message WriteAuditLogResponse {
+  bool success = 1;
+}
+
+message ReadAuditLogsRequest {
+  string event_type = 1;     // フィルタ（オプション）
+  string actor_id = 2;        // フィルタ（オプション）
+  string start_time = 3;      // ISO8601形式
+  string end_time = 4;        // ISO8601形式
+  int32 limit = 5;            // デフォルト: 100
+  string cursor = 6;          // ページネーション用
+}
+
+message AuditLog {
+  string id = 1;
+  string event_type = 2;
+  string actor_id = 3;
+  string actor_type = 4;
+  string resource_type = 5;
+  string resource_id = 6;
+  string action = 7;
+  google.protobuf.Struct details = 8;
+  string timestamp = 9;
+}
+
+message ReadAuditLogsResponse {
+  repeated AuditLog logs = 1;
+  string next_cursor = 2;
+  int32 total_count = 3;
+}

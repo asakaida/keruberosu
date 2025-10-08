@@ -44,28 +44,28 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 #### 1.3 Protocol Buffers 定義
 
-- [ ] proto/keruberosu/v1/common.proto
-  - [ ] Entity メッセージ
-  - [ ] Subject メッセージ
-  - [ ] SubjectReference メッセージ
-  - [ ] RelationTuple メッセージ
-  - [ ] PermissionCheckMetadata メッセージ
-  - [ ] Context メッセージ
-  - [ ] AttributeData メッセージ
-  - [ ] CheckResult enum
-- [ ] proto/keruberosu/v1/authorization.proto
-  - [ ] AuthorizationService 定義
-  - [ ] スキーマ管理 API（WriteSchema/ReadSchema）
-  - [ ] データ書き込み API（WriteRelations/DeleteRelations/WriteAttributes）
-  - [ ] 認可チェック API（Check/Expand/LookupEntity/LookupSubject/SubjectPermission）
-  - [ ] 各 API のリクエスト/レスポンスメッセージ
-- [ ] proto/keruberosu/v1/audit.proto
-  - [ ] AuditService 定義
-  - [ ] WriteAuditLog API
-  - [ ] ReadAuditLogs API
-  - [ ] AuditLog メッセージ
-- [ ] protoc コード生成スクリプト作成
-  - [ ] buf.yaml 作成（推奨）または Makefile
+- [x] proto/keruberosu/v1/common.proto
+  - [x] Entity メッセージ
+  - [x] Subject メッセージ
+  - [x] SubjectReference メッセージ
+  - [x] RelationTuple メッセージ
+  - [x] PermissionCheckMetadata メッセージ
+  - [x] Context メッセージ
+  - [x] AttributeData メッセージ
+  - [x] CheckResult enum
+- [x] proto/keruberosu/v1/authorization.proto
+  - [x] AuthorizationService 定義
+  - [x] スキーマ管理 API（WriteSchema/ReadSchema）
+  - [x] データ書き込み API（WriteRelations/DeleteRelations/WriteAttributes）
+  - [x] 認可チェック API（Check/Expand/LookupEntity/LookupSubject/SubjectPermission）
+  - [x] 各 API のリクエスト/レスポンスメッセージ
+- [x] proto/keruberosu/v1/audit.proto
+  - [x] AuditService 定義
+  - [x] WriteAuditLog API
+  - [x] ReadAuditLogs API
+  - [x] AuditLog メッセージ
+- [x] protoc コード生成スクリプト作成
+  - [x] scripts/generate-proto.sh 作成
 
 ---
 
@@ -381,26 +381,28 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 ### 現在のステータス
 
-全体進捗: 5% (設計フェーズ完了)
+全体進捗: 10% (基盤構築完了)
 
 #### 完了タスク
 
 - [x] PRD.md 作成
 - [x] DESIGN.md 作成
 - [x] DEVELOPMENT.md 作成
+- [x] プロジェクト初期化（go.mod, .gitignore, README.md）
+- [x] インフラストラクチャ（docker-compose, マイグレーション, config, postgres）
+- [x] Protocol Buffers 定義（common, authorization, audit）
 
 #### 進行中タスク
 
-- [ ] プロジェクト初期化
+- [ ] データアクセス層（Repository）
 
 #### 次のマイルストーン
 
-Milestone 1: 基盤構築完了（Week 1）
+Milestone 2: データアクセス層完了（Week 2）
 
-- プロジェクト構造作成
-- docker-compose.yml 作成
-- マイグレーション作成
-- Protocol Buffers 定義
+- Repository インターフェース定義
+- PostgreSQL 実装
+- ユニットテスト作成
 
 ---
 
@@ -419,6 +421,17 @@ Milestone 1: 基盤構築完了（Week 1）
   - .gitignore 作成（proto 生成ファイルを除外）
   - README.md 作成
   - cmd/migrate 構成追加（マイグレーションコマンド）
+- インフラストラクチャ構築完了
+  - docker-compose.yml 作成（postgres-dev: 15432, postgres-test: 25432）
+  - マイグレーションファイル作成（TIMESTAMPTZ 使用）
+  - config.go 作成（viper 使用、環境ごとの .env ファイル対応）
+  - postgres.go 作成（接続管理、マイグレーション実行、ヘルスチェック）
+  - 環境設定ファイル（.env.dev.example, .env.test.example, .env.prod.example）
+- Protocol Buffers 定義完了
+  - common.proto 作成（共通メッセージ型）
+  - authorization.proto 作成（AuthorizationService と全 API）
+  - audit.proto 作成（AuditService）
+  - scripts/generate-proto.sh 作成
 
 ---
 
@@ -438,6 +451,9 @@ Milestone 1: 基盤構築完了（Week 1）
 10. Infrastructure 構造: database/（postgres.go + migrations/postgres/）、config/（config.go）
 11. Proto ファイル構成: 3 ファイル（common.proto, authorization.proto, audit.proto）に分割、proto/keruberosu/v1/ に配置
 12. コマンド構成: cmd/server（gRPC サーバー）、cmd/migrate（DB マイグレーション）
+13. タイムスタンプ型: PostgreSQL では TIMESTAMPTZ を使用（タイムゾーン対応）
+14. Proto コード生成: scripts/generate-proto.sh を使用（Make 不使用）
+15. 環境設定: viper を使用、環境ごとに .env.{env} ファイルで管理（dev/test/prod）
 
 ### 検討中
 

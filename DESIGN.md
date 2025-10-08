@@ -125,6 +125,8 @@ keruberosu/
 │           ├── common.proto          # 共通メッセージ定義
 │           ├── authorization.proto   # AuthorizationService 定義
 │           └── audit.proto           # AuditService 定義
+├── scripts/
+│   └── generate-proto.sh             # Protocol Buffers コード生成スクリプト
 ├── docker-compose.yml                 # PostgreSQL 環境（dev/test）
 ├── go.mod
 ├── go.sum

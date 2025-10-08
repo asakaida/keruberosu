@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package keruberosu.v1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/asakaida/keruberosu/proto/keruberosu/v1;keruberosupb";
+
+// ========================================
+// 共通メッセージ型（全サービスで共有）
+// ========================================
+
+message Entity {
+  string type = 1;  // e.g., "document"
+  string id = 2;    // e.g., "doc1"
+}
+
+message Subject {
+  string type = 1;     // e.g., "user"
+  string id = 2;       // e.g., "alice"
+  string relation = 3; // optional: e.g., "member" for "@organization#member"
+}
+
+message SubjectReference {
+  string type = 1;     // e.g., "user"
+  string relation = 2; // optional: 特定のrelationに限定する場合
+}
+
+message RelationTuple {
+  Entity entity = 1;   // 対象エンティティ（Permify互換）
+  string relation = 2;
+  Entity subject = 3;
+}
+
+message PermissionCheckMetadata {
+  string snap_token = 1;    // スナップショットトークン（optional）
+  int32 depth = 2;          // 再帰クエリの深さ制限（default: 50）
+  bool only_permission = 3; // SubjectPermission用: permissionのみ返す
+}
+
+message Context {
+  repeated RelationTuple tuples = 1;      // contextual tuples
+  repeated AttributeData attributes = 2;  // contextual attributes
+}
+
+message AttributeData {
+  Entity entity = 1;
+  map<string, google.protobuf.Value> data = 2;
+}
+
+enum CheckResult {
+  CHECK_RESULT_UNSPECIFIED = 0;
+  CHECK_RESULT_ALLOWED = 1;
+  CHECK_RESULT_DENIED = 2;
+}
