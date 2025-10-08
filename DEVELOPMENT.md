@@ -410,15 +410,14 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 #### 7.2 Data Handler
 
-- [ ] internal/handlers/data_handler.go
-  - [ ] DataHandler 構造体
-  - [ ] WriteRelation
-  - [ ] DeleteRelation
-  - [ ] ReadRelations
-  - [ ] WriteAttribute
-  - [ ] ReadAttributes
-  - [ ] バリデーション
-  - [ ] ユニットテスト
+- [x] internal/handlers/data_handler.go
+  - [x] DataHandler 構造体
+  - [x] WriteRelations（複数の relation tuple を一括書き込み）
+  - [x] DeleteRelations（複数の relation tuple を一括削除）
+  - [x] WriteAttributes（複数の attributes を書き込み）
+  - [x] Proto → Entities 変換（protoToRelationTuple, protoToAttributes）
+  - [x] バリデーション
+  - [x] ユニットテスト（16 テスト）
 
 #### 7.3 Authorization Handler
 
@@ -784,6 +783,35 @@ Milestone 4: 認可エンジン実装完了（Week 4）
     - WriteSchema テスト（Success/Empty DSL/Parse Error/Validation Error）: 4 テスト
     - ReadSchema テスト（Success/Not Found/No UpdatedAt）: 3 テスト
   - 合計 7 テストケース全て成功
+- Data Handler 実装完了
+  - Data Handler 実装（data_handler.go）
+    - DataHandler 構造体（RelationRepository, AttributeRepository への依存）
+    - NewDataHandler コンストラクタ
+    - WriteRelations（複数 relation tuple の一括書き込み）
+      - proto RelationTuple → entities.RelationTuple 変換
+      - BatchWrite による一括書き込み
+      - Phase 1: 固定 tenant ID "default" を使用
+    - DeleteRelations（複数 relation tuple の一括削除）
+      - BatchDelete による一括削除
+    - WriteAttributes（複数 attributes の書き込み）
+      - proto AttributeData → entities.Attribute 変換（1 つの AttributeData から複数の Attribute に展開）
+      - protobuf Value → Go interface{} 変換
+      - ループで個別に Write 呼び出し
+    - protoToRelationTuple（proto → entities 変換）
+      - バリデーション（entity, relation, subject の必須チェック）
+      - SubjectRelation は空文字列（proto では Subject が Entity 型のため）
+    - protoToAttributes（proto → entities 変換、map を slice に展開）
+    - protoValueToInterface（protobuf Value 型変換）
+      - null, number, string, bool, struct, list のサポート
+  - ユニットテスト実装（data_handler_test.go）
+    - Mock RelationRepository 実装（BatchWrite, BatchDelete）
+    - Mock AttributeRepository 実装（Write）
+    - WriteRelations テスト（Success/Empty/Invalid）: 3 テスト
+    - DeleteRelations テスト（Success/Empty）: 2 テスト
+    - WriteAttributes テスト（Success/Empty/Invalid/Repository Error）: 4 テスト
+    - protoToRelationTuple テスト（valid/missing fields）: 4 テスト
+    - protoToAttributes テスト（valid/missing entity/empty data）: 3 テスト
+  - 合計 16 テストケース全て成功
 
 ---
 
