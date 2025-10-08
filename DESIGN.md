@@ -94,7 +94,9 @@ keruberosu/
 │   │   │   ├── lexer.go             # 字句解析
 │   │   │   ├── parser.go            # 構文解析
 │   │   │   ├── ast.go               # AST 定義
-│   │   │   └── validator.go         # スキーマ検証
+│   │   │   ├── validator.go         # スキーマ検証
+│   │   │   ├── converter.go         # AST ↔ entities.Schema 変換
+│   │   │   └── generator.go         # DSL 文字列生成（AST → DSL）
 │   │   ├── schema_service.go        # スキーマ管理サービス
 │   │   └── authorization/            # 認可処理
 │   │       ├── evaluator.go         # ルール評価（ReBAC + ABAC）
@@ -280,6 +282,8 @@ CREATE INDEX idx_attributes_entity ON attributes(tenant_id, entity_type, entity_
 
 #### 3.1 パース処理フロー
 
+**WriteSchema（DSL → DB 保存）**:
+
 ```text
 DSL文字列
    ↓
@@ -287,10 +291,26 @@ Lexer（字句解析） → Tokens
    ↓
 Parser（構文解析） → AST（抽象構文木）
    ↓
-Validator（検証） → Validated Schema
+Validator（検証） → Validated AST
    ↓
-Schema Entity（内部表現）
+Converter（AST → entities.Schema） → Schema Entity（内部表現）
+   ↓
+DB保存（schema_dsl として保存）
 ```
+
+**ReadSchema（DB 取得 → DSL 生成）**:
+
+```text
+DB取得
+   ↓
+DSL文字列をパース → AST
+   ↓
+Generator（AST → DSL文字列） → DSL文字列
+   ↓
+クライアントに返却
+```
+
+**注**: DB には DSL 文字列（schema_dsl）として保存されるため、ReadSchema では保存された DSL 文字列をそのまま返すことも可能ですが、将来的にスキーマを正規化して保存する場合に備え、AST 経由での生成機能を実装します。
 
 #### 3.2 AST 構造
 
@@ -408,6 +428,59 @@ func (p *Parser) parseEntity() (*EntityAST, error)
 func (p *Parser) parsePermission() (*PermissionAST, error)
 func (p *Parser) parsePermissionRule() (PermissionRuleAST, error)
 ```
+
+#### 3.5 Converter 実装（概要）
+
+```go
+// internal/services/parser/converter.go
+
+// AST → entities.Schema 変換
+func ASTToSchema(tenantID string, ast *SchemaAST) (*entities.Schema, error)
+
+// entities.Schema → AST 変換
+func SchemaToAST(schema *entities.Schema) (*SchemaAST, error)
+
+// 内部ヘルパー関数
+func convertEntity(ast *EntityAST) (*entities.Entity, error)
+func convertPermissionRule(ast PermissionRuleAST) (entities.PermissionRule, error)
+func convertEntityToAST(entity *entities.Entity) (*EntityAST, error)
+func convertPermissionRuleToAST(rule entities.PermissionRule) (PermissionRuleAST, error)
+```
+
+設計ポイント:
+
+- AST と entities.Schema の双方向変換を提供
+- WriteSchema 時: AST → entities.Schema（スキーマ検証で使用）
+- ReadSchema 時（将来拡張用）: entities.Schema → AST → DSL 文字列
+
+#### 3.6 Generator 実装（概要）
+
+```go
+// internal/services/parser/generator.go
+
+type Generator struct {
+    indent string
+}
+
+func NewGenerator() *Generator
+
+// AST から DSL 文字列を生成
+func (g *Generator) Generate(schema *SchemaAST) string
+
+// 内部ヘルパー関数
+func (g *Generator) generateEntity(entity *EntityAST) string
+func (g *Generator) generateRelation(relation *RelationAST) string
+func (g *Generator) generateAttribute(attr *AttributeAST) string
+func (g *Generator) generatePermission(perm *PermissionAST) string
+func (g *Generator) generatePermissionRule(rule PermissionRuleAST) string
+```
+
+設計ポイント:
+
+- AST から正しくフォーマットされた DSL 文字列を生成
+- 演算子の優先順位を考慮した括弧の追加
+- インデント整形（デフォルト 2 スペース）
+- ReadSchema での DSL 文字列生成に使用
 
 ---
 

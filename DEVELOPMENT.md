@@ -229,6 +229,29 @@ Phase: Phase 1 - キャッシュレス完全実装
   - [x] 型整合性チェック
   - [x] ユニットテスト（17 テスト）
 
+#### 4.4 変換（Converter）
+
+- [x] internal/services/parser/converter.go
+  - [x] ASTToSchema（AST → entities.Schema 変換）
+  - [x] SchemaToAST（entities.Schema → AST 変換）
+  - [x] convertEntity（EntityAST → entities.Entity）
+  - [x] convertPermissionRule（PermissionRuleAST → entities.PermissionRule）
+  - [x] convertEntityToAST（entities.Entity → EntityAST）
+  - [x] convertPermissionRuleToAST（entities.PermissionRule → PermissionRuleAST）
+  - [x] ユニットテスト（10 テスト）
+
+#### 4.5 DSL 生成（Generator）
+
+- [x] internal/services/parser/generator.go
+  - [x] Generator 構造体
+  - [x] Generate（AST → DSL 文字列生成）
+  - [x] generateEntity（エンティティ生成）
+  - [x] generateRelation（リレーション生成）
+  - [x] generateAttribute（アトリビュート生成）
+  - [x] generatePermission（パーミッション生成）
+  - [x] generatePermissionRule（ルール生成、演算子優先順位対応）
+  - [x] ユニットテスト（12 テスト）
+
 ---
 
 ### 5. 認可エンジン
@@ -353,12 +376,24 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 #### 6.1 Schema Service
 
-- [ ] internal/services/schema_service.go
-  - [ ] SchemaService 構造体
-  - [ ] WriteSchema（DSL パース → 保存）
-  - [ ] ReadSchema（取得 → DSL 生成）
-  - [ ] ValidateSchema
-  - [ ] ユニットテスト
+- [x] internal/services/schema_service.go
+  - [x] SchemaService 構造体（依存: SchemaRepository, Parser, Validator, Converter, Generator）
+  - [x] WriteSchema（DSL パース → 検証 → 保存）
+    - [x] DSL 文字列を Lexer/Parser でパース → AST
+    - [x] Validator でスキーマ検証
+    - [x] Converter で AST → entities.Schema 変換
+    - [x] SchemaRepository で DB 保存（schema_dsl として保存）
+  - [x] ReadSchema（DB 取得 → DSL 返却）
+    - [x] SchemaRepository で DSL 文字列取得
+    - [x] そのまま返却（Phase 1 では単純実装）
+    - [x] （将来拡張）Parser/Generator 経由で正規化された DSL を生成
+  - [x] ValidateSchema（DSL 検証のみ、保存なし）
+    - [x] DSL 文字列をパース
+    - [x] Validator で検証
+    - [x] 検証結果を返却
+  - [x] DeleteSchema（スキーマ削除）
+  - [x] GetSchemaEntity（内部用スキーマエンティティ取得）
+  - [x] ユニットテスト（17 テスト）
 
 ---
 
@@ -480,12 +515,13 @@ Phase: Phase 1 - キャッシュレス完全実装
 - [x] ドメインエンティティ（スキーマ定義系 + データ系）
 - [x] Repository インターフェース定義（Schema, Relation, Attribute）
 - [x] Repository PostgreSQL 実装（Schema, Relation, Attribute）
-- [x] DSL パーサー実装（Lexer, Parser, Validator）
+- [x] DSL パーサー実装（Lexer, Parser, Validator, Converter, Generator）
 - [x] 認可エンジン実装（CEL エンジン、Evaluator、Checker、Expander、Lookup）
+- [x] Schema Service 実装
 
 #### 進行中タスク
 
-- [ ] Schema Service 実装
+- [ ] gRPC ハンドラー層実装
 
 #### 次のマイルストーン
 
@@ -675,6 +711,59 @@ Milestone 4: 認可エンジン実装完了（Week 4）
     - LookupSubject エラーケーステスト（バリデーション、未定義エンティティ/パーミッション）: 7 テスト
     - LookupSubject 論理演算パーミッションテスト（OR 演算）: 1 テスト
   - 合計 16 テストケース全て成功（10 基本 + 14 エラーケース）
+- Converter 実装完了
+  - Converter 実装（converter.go）
+    - ASTToSchema（AST → entities.Schema 変換）
+    - SchemaToAST（entities.Schema → AST 変換）
+    - convertEntity（EntityAST → entities.Entity）
+    - convertPermissionRule（PermissionRuleAST → entities.PermissionRule、4 種類対応）
+    - convertEntityToAST（entities.Entity → EntityAST）
+    - convertPermissionRuleToAST（entities.PermissionRule → PermissionRuleAST）
+  - ユニットテスト実装（converter_test.go）
+    - AST → Schema 変換テスト（基本、属性、論理ルール、階層ルール、ABAC ルール）: 5 テスト
+    - Schema → AST 変換テスト（基本、論理ルール、階層ルール、ABAC ルール）: 4 テスト
+    - Round-trip テスト（AST → Schema → AST）: 1 テスト
+  - 合計 10 テストケース全て成功
+- Generator 実装完了
+  - Generator 実装（generator.go）
+    - Generator 構造体（インデント設定可能）
+    - Generate（AST → DSL 文字列生成）
+    - generateEntity、generateRelation、generateAttribute、generatePermission
+    - generatePermissionRule（演算子優先順位対応、括弧生成）
+      - OR < AND < NOT の優先順位
+      - OR が AND の中にある場合に括弧を追加: (owner or editor) and admin
+  - ユニットテスト実装（generator_test.go）
+    - 基本エンティティ生成テスト: 1 テスト
+    - リレーション、属性、パーミッション生成テスト: 3 テスト
+    - 論理演算子生成テスト（OR/AND/NOT）: 3 テスト
+    - 演算子優先順位テスト: 1 テスト
+    - 階層的パーミッション生成テスト: 1 テスト
+    - ABAC ルール生成テスト: 1 テスト
+    - 複雑なスキーマ生成テスト: 1 テスト
+    - Round-trip テスト（DSL → Parse → Generate → Parse）: 1 テスト
+  - 合計 12 テストケース全て成功
+- Schema Service 実装完了
+  - Schema Service 実装（schema_service.go）
+    - SchemaService 構造体（SchemaRepository への依存）
+    - WriteSchema（DSL パース → 検証 → 保存）
+      - Lexer/Parser で DSL をパース → AST
+      - Validator でスキーマ検証
+      - Converter で AST → entities.Schema 変換（検証目的）
+      - 既存スキーマがあれば Update、なければ Create
+    - ReadSchema（DB 取得 → DSL 返却）
+      - SchemaRepository で DSL 取得
+      - Phase 1 では保存された DSL をそのまま返却
+    - ValidateSchema（DSL 検証のみ、保存なし）
+    - DeleteSchema（スキーマ削除）
+    - GetSchemaEntity（内部用スキーマエンティティ取得）
+  - ユニットテスト実装（schema_service_test.go）
+    - Mock SchemaRepository 実装（インメモリ）
+    - WriteSchema テスト（Create/Update/Invalid DSL/Validation Error/Missing TenantID/Missing DSL）: 6 テスト
+    - ReadSchema テスト（正常系/Not Found/Missing TenantID）: 3 テスト
+    - ValidateSchema テスト（Valid/Invalid/Missing）: 3 テスト
+    - DeleteSchema テスト（正常系/Missing TenantID）: 2 テスト
+    - GetSchemaEntity テスト（正常系/Not Found/Missing TenantID）: 3 テスト
+  - 合計 17 テストケース全て成功
 
 ---
 
