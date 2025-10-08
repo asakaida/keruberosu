@@ -9,7 +9,7 @@ Permify を模した ReBAC と ABAC をサポートする認可マイクロサ�
 - ブラウザ UI から設定可能な、直感的な認可システムを提供
 - ReBAC と ABAC の両方をサポートし、複雑な認可要件に対応
 - 高性能かつスケーラブルな認可判定
-- **Permify 互換の API とスキーマ DSL をサポート**:
+- Permify 互換の API とスキーマ DSL をサポート:
   - Check（認可チェック）
   - Expand（パーミッションツリー展開）
   - LookupEntity（データフィルタリング）
@@ -25,13 +25,13 @@ Permify を模した ReBAC と ABAC をサポートする認可マイクロサ�
 
 ### 1. 認可モデルの理解
 
-Keruberosu は**ReBAC（関係性ベース）と ABAC（属性ベース）**をネイティブにサポートします。また、ReBAC を使って従来の RBAC パターンも実現できます。
+Keruberosu は ReBAC（関係性ベース）と ABAC（属性ベース）をネイティブにサポートします。また、ReBAC を使って従来の RBAC パターンも実現できます。
 
-#### 1.1 ReBAC (Relationship-Based Access Control) ← **Keruberosu のコア機能**
+#### 1.1 ReBAC (Relationship-Based Access Control) ← Keruberosu のコア機能
 
-**関係性ベースの認可**。ユーザーとリソースの「関係」を元に権限を判定します。
+関係性ベースの認可。ユーザーとリソースの「関係」を元に権限を判定します。
 
-```
+```text
 alice は document#1 の owner
 → ownerは編集・削除・共有ができる
 
@@ -39,52 +39,52 @@ bob は document#1 を view できる relation を持つ
 → bobは閲覧のみ可能
 ```
 
-**メリット**: リソース単位の細かい制御、動的な権限管理、階層構造のサポート
-**用途**: Google Docs、GitHub、Notion 等のリソース共有システム
+メリット: リソース単位の細かい制御、動的な権限管理、階層構造のサポート
+用途: Google Docs、GitHub、Notion 等のリソース共有システム
 
-#### 1.2 ABAC (Attribute-Based Access Control) ← **Keruberosu のコア機能**
+#### 1.2 ABAC (Attribute-Based Access Control) ← Keruberosu のコア機能
 
-**属性ベースの認可**。リソースやユーザーの「属性」を使ってルールを定義します。
+属性ベースの認可。リソースやユーザーの「属性」を使ってルールを定義します。
 
-```
+```text
 ルール: ドキュメントのis_public == trueなら、誰でも閲覧可能
 ルール: ドキュメントのdepartment == ユーザーのdepartmentなら、編集可能
 ルール: 営業時間内（9:00-18:00）のみアクセス可能
 ```
 
-**メリット**: 柔軟なルール定義、コンテキスト依存の制御
-**用途**: 複雑なビジネスルール、動的な条件判定
+メリット: 柔軟なルール定義、コンテキスト依存の制御
+用途: 複雑なビジネスルール、動的な条件判定
 
-#### 1.3 RBAC (Role-Based Access Control) ← **ReBAC で実現可能**
+#### 1.3 RBAC (Role-Based Access Control) ← ReBAC で実現可能
 
-**従来型のロールベース認可**。ユーザーにロールを割り当て、ロールに権限を付与します。
+従来型のロールベース認可。ユーザーにロールを割り当て、ロールに権限を付与します。
 
-```
+```text
 ユーザー → ロール → 権限
 alice → admin → すべての操作が可能
 bob → editor → 編集のみ可能
 ```
 
-**注意**: Keruberosu は RBAC を直接サポートしているわけではありませんが、ReBAC を使って RBAC パターンを実現できます。`role`エンティティを定義し、ユーザーをロールのメンバーとして登録することで、従来の RBAC と同じ動作を実現します（ユースケース 1 参照）。
+注意: Keruberosu は RBAC を直接サポートしているわけではありませんが、ReBAC を使って RBAC パターンを実現できます。`role`エンティティを定義し、ユーザーをロールのメンバーとして登録することで、従来の RBAC と同じ動作を実現します（ユースケース 1 参照）。
 
-**メリット**: シンプルで理解しやすい、既存システムからの移行が容易
-**デメリット**: リソース単位の細かい制御ができない
-**用途**: 管理画面、社内ツールなどシンプルな権限管理
+メリット: シンプルで理解しやすい、既存システムからの移行が容易
+デメリット: リソース単位の細かい制御ができない
+用途: 管理画面、社内ツールなどシンプルな権限管理
 
 ### 2. API の全体像
 
 Keruberosu は以下の API を提供します：
 
-| API                   | 用途                   | 質問形式                                    |
-| --------------------- | ---------------------- | ------------------------------------------- |
-| **Check**             | 認可チェック           | 「alice は doc1 を編集できる？」            |
-| **Expand**            | 権限ツリー展開         | 「doc1 を編集できるのは誰？（ツリー構造）」 |
-| **LookupEntity**      | データフィルタリング   | 「alice が編集できるドキュメント一覧は？」  |
-| **LookupSubject**     | ユーザーフィルタリング | 「doc1 を編集できるユーザー一覧は？」       |
-| **SubjectPermission** | 権限一覧               | 「alice が doc1 に対して持つ権限は？」      |
-| **WriteSchema**       | スキーマ定義           | 認可ルールの定義・更新                      |
-| **WriteRelations**    | 関係性の書き込み       | 「alice を doc1 の owner にする」           |
-| **WriteAttributes**   | 属性の書き込み         | 「doc1 の is_public を true にする」        |
+| API               | 用途                   | 質問形式                                    |
+| ----------------- | ---------------------- | ------------------------------------------- |
+| Check             | 認可チェック           | 「alice は doc1 を編集できる？」            |
+| Expand            | 権限ツリー展開         | 「doc1 を編集できるのは誰？（ツリー構造）」 |
+| LookupEntity      | データフィルタリング   | 「alice が編集できるドキュメント一覧は？」  |
+| LookupSubject     | ユーザーフィルタリング | 「doc1 を編集できるユーザー一覧は？」       |
+| SubjectPermission | 権限一覧               | 「alice が doc1 に対して持つ権限は？」      |
+| WriteSchema       | スキーマ定義           | 認可ルールの定義・更新                      |
+| WriteRelations    | 関係性の書き込み       | 「alice を doc1 の owner にする」           |
+| WriteAttributes   | 属性の書き込み         | 「doc1 の is_public を true にする」        |
 
 ### 3. ユースケース別実例
 
@@ -94,11 +94,11 @@ Keruberosu は以下の API を提供します：
 
 ### ユースケース 1: ReBAC で RBAC パターンを実現 - シンプルな管理画面
 
-**シナリオ**: 社内管理ツールで、admin/editor/viewer の 3 つのロールを管理したい（既存 RBAC システムからの移行パターン）。
+シナリオ: 社内管理ツールで、admin/editor/viewer の 3 つのロールを管理したい（既存 RBAC システムからの移行パターン）。
 
 #### ステップ 1: スキーマ定義
 
-```protobuf
+```text
 // WriteSchemaRequest
 schema_dsl: """
 entity user {}
@@ -113,7 +113,7 @@ entity role {
 """
 ```
 
-**解説**: このスキーマは ReBAC を使って RBAC パターンを実現しています。`role`エンティティを定義し、`user`をその`member`（関係性）として登録することで、従来の RBAC と同じ「ユーザー → ロール → 権限」の構造を表現できます。
+解説: このスキーマは ReBAC を使って RBAC パターンを実現しています。`role`エンティティを定義し、`user`をその`member`（関係性）として登録することで、従来の RBAC と同じ「ユーザー → ロール → 権限」の構造を表現できます。
 
 #### ステップ 2: ロールの割り当て
 
@@ -197,11 +197,11 @@ function AdminPanel() {
 
 ### ユースケース 2: ReBAC - ドキュメント管理システム（Google Docs ライク）
 
-**シナリオ**: ドキュメントごとに owner/editor/viewer を設定でき、owner は他のユーザーを招待できる。
+シナリオ: ドキュメントごとに owner/editor/viewer を設定でき、owner は他のユーザーを招待できる。
 
 #### ステップ 1: スキーマ定義
 
-```protobuf
+```text
 // WriteSchemaRequest
 schema_dsl: """
 entity user {}
@@ -302,7 +302,7 @@ const response = await client.lookupEntity({
 console.log(response.entity_ids); // ["doc1", "doc3", "doc5", ...]
 ```
 
-**フロントエンドでの活用**:
+フロントエンドでの活用:
 
 ```typescript
 // ドキュメント一覧画面
@@ -356,7 +356,7 @@ console.log(response.results);
 // }
 ```
 
-**フロントエンドでの活用**:
+フロントエンドでの活用:
 
 ```typescript
 // ドキュメント詳細画面のアクションボタン
@@ -395,11 +395,11 @@ function DocumentActions({ documentId }) {
 
 ### ユースケース 3: ReBAC 階層構造 - フォルダ/ドキュメント
 
-**シナリオ**: フォルダの権限がドキュメントに継承される。
+シナリオ: フォルダの権限がドキュメントに継承される。
 
 #### スキーマ定義
 
-```protobuf
+```text
 schema_dsl: """
 entity user {}
 
@@ -480,11 +480,11 @@ console.log(result.can); // CHECK_RESULT_ALLOWED（parent.edit経由）
 
 ### ユースケース 4: ABAC - 属性ベースの制御
 
-**シナリオ**: ドキュメントの公開状態や部署に基づいてアクセス制御。
+シナリオ: ドキュメントの公開状態や部署に基づいてアクセス制御。
 
 #### スキーマ定義
 
-```protobuf
+```text
 schema_dsl: """
 entity user {}
 
@@ -576,11 +576,11 @@ console.log(result2.can); // CHECK_RESULT_ALLOWED（営業部のドキュメン�
 
 ### ユースケース 5: 複合 - GitHub ライクな Organization/Repository 管理
 
-**シナリオ**: Organization → Repository の階層構造、複数のロール。
+シナリオ: Organization → Repository の階層構造、複数のロール。
 
 #### スキーマ定義
 
-```protobuf
+```text
 schema_dsl: """
 entity user {}
 
@@ -669,7 +669,7 @@ console.log(result2.can); // CHECK_RESULT_DENIED
 
 ### ユースケース 6: Contextual Tuples - 一時的な権限
 
-**シナリオ**: ドキュメント共有リンクで一時的にアクセス許可。
+シナリオ: ドキュメント共有リンクで一時的にアクセス許可。
 
 ```javascript
 // 「guestユーザーは通常doc1にアクセスできないが、共有リンク経由ならアクセス可能」
@@ -695,11 +695,11 @@ console.log(result.can); // CHECK_RESULT_ALLOWED
 
 ### ユースケース 7: Contextual Attributes - 時間ベースの制御
 
-**シナリオ**: 営業時間内のみアクセス可能。
+シナリオ: 営業時間内のみアクセス可能。
 
 #### スキーマ定義
 
-```protobuf
+```text
 schema_dsl: """
 entity user {}
 
@@ -786,19 +786,19 @@ do {
 
 ### 5. よくある質問
 
-**Q: 既存の RBAC システムから Keruberosu への移行はどうすれば？**
+Q: 既存の RBAC システムから Keruberosu への移行はどうすれば？
 
 A: 段階的に移行できます。Keruberosu は ReBAC を使って RBAC パターンを実現できます（ユースケース 1 参照）。まず既存のロールを`role`エンティティとして定義し、従来と同じ動作を再現します。その後、必要に応じてリソース単位の細かい制御（ReBAC）や属性ベースのルール（ABAC）を追加していくことができます。
 
-**Q: 既存の DB に保存されているユーザー情報をどう扱う？**
+Q: 既存の DB に保存されているユーザー情報をどう扱う？
 
 A: Keruberosu は認可のみを担当します。ユーザー情報（名前、メールなど）は既存 DB に保持し、Keruberosu には ID のみを渡します。
 
-**Q: パフォーマンスは？**
+Q: パフォーマンスは？
 
 A: キャッシュヒット時は 0.1ms 以下、キャッシュミス時でも 10ms 程度です。LookupEntity など複雑なクエリは 100ms 程度かかる場合があります。
 
-**Q: TypeScript/JavaScript クライアントは？**
+Q: TypeScript/JavaScript クライアントは？
 
 A: gRPC-web または Connect-web を使用してブラウザから直接呼び出せます。認証は JWT を metadata に含めることで実現します。
 
@@ -806,23 +806,23 @@ A: gRPC-web または Connect-web を使用してブラウザから直接呼び�
 
 ### 6. スキーマ定義 UI の構築方法（重要）
 
-エンドユーザー（特に非技術者）が直接 DSL を書くのは困難です。そのため、**ビジュアルなスキーマビルダー UI**を提供することが重要です。
+エンドユーザー（特に非技術者）が直接 DSL を書くのは困難です。そのため、ビジュアルなスキーマビルダー UI を提供することが重要です。
 
 #### 6.1 基本的な考え方
 
 DSL 文字列を直接書かせるのではなく、以下のステップで段階的に構築します：
 
-1. **エンティティの追加**: ボタンで追加、名前を入力
-2. **リレーションの定義**: ドロップダウンで型を選択、名前を入力
-3. **パーミッションの定義**: チェックボックスで演算子を選択、ビジュアルエディタで組み合わせ
-4. **ABAC ルールの定義**: フォームで CEL 式を構築
-5. **リアルタイムプレビュー**: 入力内容から DSL を自動生成して表示
+1. エンティティの追加: ボタンで追加、名前を入力
+2. リレーションの定義: ドロップダウンで型を選択、名前を入力
+3. パーミッションの定義: チェックボックスで演算子を選択、ビジュアルエディタで組み合わせ
+4. ABAC ルールの定義: フォームで CEL 式を構築
+5. リアルタイムプレビュー: 入力内容から DSL を自動生成して表示
 
 #### 6.2 シンプルな RBAC スキーマの構築例
 
-**ユーザーの操作**:
+ユーザーの操作:
 
-```
+```json
 [新しいエンティティを追加] ボタンをクリック
 
 ┌─────────────────────────────────┐
@@ -850,9 +850,9 @@ DSL 文字列を直接書かせるのではなく、以下のステップで段�
 └─────────────────────────────────┘
 ```
 
-**自動生成される DSL** (リアルタイムプレビュー):
+自動生成される DSL (リアルタイムプレビュー):
 
-```
+```text
 entity user {}
 
 entity role {
@@ -862,7 +862,7 @@ entity role {
 }
 ```
 
-**フロントエンド実装例**:
+フロントエンド実装例:
 
 ```typescript
 import { useState } from "react";
@@ -1165,9 +1165,9 @@ function PermissionForm({ relations, onAdd, onCancel }) {
 
 #### 6.3 ReBAC 階層構造の構築例
 
-**ユーザーの操作** (ドキュメント管理システム):
+ユーザーの操作 (ドキュメント管理システム):
 
-```
+```text
 エンティティ: document
   リレーション:
     ☑ owner (user)
@@ -1186,9 +1186,9 @@ function PermissionForm({ relations, onAdd, onCancel }) {
       = owner or editor or viewer or parent.view
 ```
 
-**自動生成される DSL**:
+自動生成される DSL:
 
-```
+```text
 entity document {
   relation owner: user
   relation editor: user
@@ -1203,9 +1203,9 @@ entity document {
 
 #### 6.4 ABAC（属性ベース）ルールの構築例
 
-**ユーザーの操作**:
+ユーザーの操作:
 
-```
+```text
 エンティティ: document
   属性:
     ☑ is_public (boolean)
@@ -1223,7 +1223,7 @@ entity document {
       = owner or check_public or check_department
 ```
 
-**ルール構築 UI**:
+ルール構築 UI:
 
 ```typescript
 function RuleBuilder({ onSave }) {
@@ -1280,17 +1280,17 @@ function RuleBuilder({ onSave }) {
 
 #### 6.5 実装のポイント
 
-1. **リアルタイムプレビュー**: ユーザーの入力内容から常に DSL を生成して表示
-2. **バリデーション**: 入力内容の妥当性をチェック（例: エンティティ名の重複、未定義の型の参照など）
-3. **インポート/エクスポート**: 既存の DSL を読み込んで UI に反映、または UI から DSL をエクスポート
-4. **テンプレート**: よくあるパターン（RBAC、Google Docs ライク、GitHub ライクなど）をテンプレートとして提供
-5. **段階的な開示**: 初心者向けにはシンプルモード、上級者向けには高度な機能を提供
+1. リアルタイムプレビュー: ユーザーの入力内容から常に DSL を生成して表示
+2. バリデーション: 入力内容の妥当性をチェック（例: エンティティ名の重複、未定義の型の参照など）
+3. インポート/エクスポート: 既存の DSL を読み込んで UI に反映、または UI から DSL をエクスポート
+4. テンプレート: よくあるパターン（RBAC、Google Docs ライク、GitHub ライクなど）をテンプレートとして提供
+5. 段階的な開示: 初心者向けにはシンプルモード、上級者向けには高度な機能を提供
 
 #### 6.6 内部処理の流れ（参考）
 
-**UIで保存ボタンを押したあと、内部で何が起きるか？**
+UI で保存ボタンを押したあと、内部で何が起きるか？
 
-```
+```text
 ┌─────────────────┐
 │ ユーザーの入力  │ チェックボックス、ドロップダウンなどで設定
 └────────┬────────┘
@@ -1336,13 +1336,13 @@ function RuleBuilder({ onSave }) {
 └─────────────────┘
 ```
 
-**AST（抽象構文木）とは？**
+AST（抽象構文木）とは？
 
-「Abstract Syntax Tree」の略で、**プログラムの構造をツリー（木構造）で表したもの**です。
+「Abstract Syntax Tree」の略で、プログラムの構造をツリー（木構造）で表したものです。
 
 例えば `permission edit = owner or editor` という文を：
 
-```
+```text
 PermissionAST
 ├── 名前: "edit"
 └── ルール: LogicalPermissionAST (or)
@@ -1352,19 +1352,19 @@ PermissionAST
 
 このようなツリー構造で表現します。
 
-**なぜ必要？**
+なぜ必要？
 
 - 文字列のままでは「構造」がわからない
-- ツリーにすることで「ownerとeditorをorで結合している」という**意味が明確**になる
+- ツリーにすることで「owner と editor を or で結合している」という意味が明確になる
 - プログラムで処理しやすくなる（検証、変換、実行など）
 
-**フロントエンド開発者への補足**:
+フロントエンド開発者への補足:
 
-UIからwriteSchemaを呼ぶときは、**DSL文字列を渡すだけ**でOKです。Lexer、Parser、Validatorなどの処理はすべてサーバー側で自動的に行われます。エラーがあれば `response.errors` に詳細が返ってきます。
+UI から writeSchema を呼ぶときは、DSL 文字列を渡すだけで OK です。Lexer、Parser、Validator などの処理はすべてサーバー側で自動的に行われます。エラーがあれば `response.errors` に詳細が返ってきます。
 
 ```typescript
 const response = await client.writeSchema({
-  schema_dsl: generatedDSL  // UIで生成した文字列をそのまま渡す
+  schema_dsl: generatedDSL, // UIで生成した文字列をそのまま渡す
 });
 
 if (!response.success) {
@@ -1580,45 +1580,45 @@ function generateDSLFromEntities(entities: EntityConfig[]): string {
 }
 ```
 
-**`generateDSLFromEntities` の入出力例（TypeScriptエンジニア向け）**
+`generateDSLFromEntities` の入出力例（TypeScript エンジニア向け）
 
-この関数は、UIで構築したエンティティ設定（JavaScriptオブジェクト）をDSL文字列に変換します。
+この関数は、UI で構築したエンティティ設定（JavaScript オブジェクト）を DSL 文字列に変換します。
 
-**入力例**: Google Docsライクなドキュメント管理システムの設定
+入力例: Google Docs ライクなドキュメント管理システムの設定
 
 ```typescript
 const entities: EntityConfig[] = [
   {
-    name: 'user',
+    name: "user",
     relations: [],
     permissions: [],
     attributes: [],
-    rules: []
+    rules: [],
   },
   {
-    name: 'document',
+    name: "document",
     relations: [
-      { name: 'owner', type: 'user' },
-      { name: 'editor', type: 'user' },
-      { name: 'viewer', type: 'user' }
+      { name: "owner", type: "user" },
+      { name: "editor", type: "user" },
+      { name: "viewer", type: "user" },
     ],
     permissions: [
-      { name: 'delete', expression: 'owner' },
-      { name: 'edit', expression: 'owner or editor' },
-      { name: 'view', expression: 'owner or editor or viewer' }
+      { name: "delete", expression: "owner" },
+      { name: "edit", expression: "owner or editor" },
+      { name: "view", expression: "owner or editor or viewer" },
     ],
     attributes: [],
-    rules: []
-  }
+    rules: [],
+  },
 ];
 
 const dsl = generateDSLFromEntities(entities);
 console.log(dsl);
 ```
 
-**出力**: 以下のDSL文字列が生成されます
+出力: 以下の DSL 文字列が生成されます
 
-```
+```text
 entity user {
 }
 
@@ -1633,52 +1633,50 @@ entity document {
 }
 ```
 
-**ABAC（属性ベース）を含む複雑な例**:
+ABAC（属性ベース）を含む複雑な例:
 
 ```typescript
 const entitiesWithABAC: EntityConfig[] = [
   {
-    name: 'user',
+    name: "user",
     relations: [],
     permissions: [],
     attributes: [],
-    rules: []
+    rules: [],
   },
   {
-    name: 'document',
-    relations: [
-      { name: 'owner', type: 'user' }
-    ],
+    name: "document",
+    relations: [{ name: "owner", type: "user" }],
     attributes: [
-      { name: 'is_public', type: 'boolean' },
-      { name: 'department', type: 'string' }
+      { name: "is_public", type: "boolean" },
+      { name: "department", type: "string" },
     ],
     rules: [
       {
-        name: 'check_public',
-        params: ['is_public'],
-        expression: 'is_public == true'
+        name: "check_public",
+        params: ["is_public"],
+        expression: "is_public == true",
       },
       {
-        name: 'check_department',
-        params: ['department'],
-        expression: 'request.user.department == department'
-      }
+        name: "check_department",
+        params: ["department"],
+        expression: "request.user.department == department",
+      },
     ],
     permissions: [
-      { name: 'delete', expression: 'owner' },
-      { name: 'edit', expression: 'owner' },
-      { name: 'view', expression: 'owner or check_public or check_department' }
-    ]
-  }
+      { name: "delete", expression: "owner" },
+      { name: "edit", expression: "owner" },
+      { name: "view", expression: "owner or check_public or check_department" },
+    ],
+  },
 ];
 
 const dsl = generateDSLFromEntities(entitiesWithABAC);
 ```
 
-**出力**:
+出力:
 
-```
+```text
 entity user {
 }
 
@@ -1700,9 +1698,9 @@ entity document {
 }
 ```
 
-このDSL文字列を `writeSchema({ schema_dsl: dsl })` でサーバーに送信すると、サーバー側でパース・検証・保存されます。
+この DSL 文字列を `writeSchema({ schema_dsl: dsl })` でサーバーに送信すると、サーバー側でパース・検証・保存されます。
 
-このように、**技術者でないユーザーでもビジュアルな UI でスキーマを構築**でき、システムが自動的に DSL 文字列を生成します。これが Keruberosu の重要な特徴です。
+このように、技術者でないユーザーでもビジュアルな UI でスキーマを構築でき、システムが自動的に DSL 文字列を生成します。これが Keruberosu の重要な特徴です。
 
 ---
 
@@ -1712,9 +1710,9 @@ entity document {
 
 ### 1. 動作原理
 
-認可システムの本質は、**グラフ探索による関係性の検証**である。
+認可システムの本質は、グラフ探索による関係性の検証である。
 
-```
+```text
 ユーザー → [関係性グラフ] → リソース
              ↓
           認可判定
@@ -1722,13 +1720,13 @@ entity document {
 
 #### 認可判定のフロー
 
-1. **スキーマ定義**: エンティティ、関係性、パーミッションルールを定義
-2. **データ書き込み**: 関係性タプル（subject, relation, object）を保存
-3. **認可チェック**: グラフ探索により、ユーザーがリソースに対して特定のアクションを実行できるか判定
+1. スキーマ定義: エンティティ、関係性、パーミッションルールを定義
+2. データ書き込み: 関係性タプル（subject, relation, object）を保存
+3. 認可チェック: グラフ探索により、ユーザーがリソースに対して特定のアクションを実行できるか判定
 
 #### グラフ探索の例
 
-```
+```text
 質問: user:alice は document:doc1 を view できるか？
 
 スキーマ:
@@ -1754,9 +1752,9 @@ entity document {
 
 Permify 互換の DSL で定義されたスキーマをシステム内部でパース・保存する。
 
-**基本構文**:
+基本構文:
 
-```
+```text
 entity user {}
 
 entity organization {
@@ -1778,9 +1776,9 @@ entity document {
 }
 ```
 
-**ABAC 対応構文**:
+ABAC 対応構文:
 
-```
+```text
 entity document {
   relation owner @user
   relation parent @organization
@@ -1801,7 +1799,7 @@ entity document {
 }
 ```
 
-**内部データ構造**:
+内部データ構造:
 
 ```go
 type Schema struct {
@@ -1861,13 +1859,13 @@ type RuleParameter struct {
 
 関係性は (subject, relation, object) の 3 つ組で表現する。
 
-```
+```text
 (user:alice, owner, document:doc1)
 (user:bob, member, organization:org1)
 (document:doc1, parent, organization:org1)
 ```
 
-**PostgreSQL テーブル設計**:
+PostgreSQL テーブル設計:
 
 ```sql
 CREATE TABLE relations (
@@ -1889,13 +1887,13 @@ CREATE INDEX idx_relations_reverse ON relations(entity_type, entity_id, relation
 CREATE INDEX idx_relations_forward ON relations(subject_type, subject_id, relation);
 ```
 
-**relations テーブルの役割**:
+relations テーブルの役割:
 
-- **用途**: ReBAC の関係性（誰が何とどんな関係にあるか）を保存
-- **例**:
+- 用途: ReBAC の関係性（誰が何とどんな関係にあるか）を保存
+- 例:
   - `(user:alice, owner, document:doc1)` → alice は doc1 の owner
   - `(document:doc1, parent, organization:org1)` → doc1 は org1 に属する
-- **クエリパターン**:
+- クエリパターン:
   - Check: `user:alice`が`document:doc1`の`owner`か？ → WHERE 句で直接検索
   - LookupEntity: `user:alice`が`edit`できる`document`一覧 → 逆引きインデックスを使用
   - ネスト関係: `parent.member`の展開 → 2 段階クエリ（まず parent 取得、次に member 取得）
@@ -1920,15 +1918,15 @@ CREATE TABLE attributes (
 CREATE INDEX idx_attributes_entity ON attributes(entity_type, entity_id);
 ```
 
-**attributes テーブルの役割**:
+attributes テーブルの役割:
 
-- **用途**: ABAC の属性（エンティティの動的な性質）を保存
-- **例**:
+- 用途: ABAC の属性（エンティティの動的な性質）を保存
+- 例:
   - `(document, doc1, "classification", "confidential")` → doc1 の分類は機密
   - `(document, doc1, "is_public", true)` → doc1 は公開
   - `(user, alice, "department", "engineering")` → alice の部署は engineering
-- **データ型**: JSONB を使用することで、string、boolean、integer、array など柔軟に保存
-- **クエリパターン**:
+- データ型: JSONB を使用することで、string、boolean、integer、array など柔軟に保存
+- クエリパターン:
   - Check 時: 認可判定でルール評価に必要な属性を取得
   - 例: `is_confidential(classification)`ルール評価時、document の`classification`属性を取得
 
@@ -1950,28 +1948,28 @@ VALUES (1, '', '{}')
 ON CONFLICT DO NOTHING;
 ```
 
-**schemas テーブルの役割**:
+schemas テーブルの役割:
 
-- **用途**: 現在の認可スキーマ（entity、relation、permission 定義）を保持
-- **schema_dsl**: Permify DSL 形式の元テキスト（人間が読める形式）
-- **schema_json**: パース済みの構造化データ（高速な検証・参照用）
-- **設計方針**: 常に 1 行のみ存在（`CHECK (id = 1)` で強制）
+- 用途: 現在の認可スキーマ（entity、relation、permission 定義）を保持
+- schema_dsl: Permify DSL 形式の元テキスト（人間が読める形式）
+- schema_json: パース済みの構造化データ（高速な検証・参照用）
+- 設計方針: 常に 1 行のみ存在（`CHECK (id = 1)` で強制）
 
-**使用フロー**:
+使用フロー:
 
-1. **書き込み**: `WriteSchema` API → DSL をパース → 両形式で保存（UPDATE）
-2. **読み込み**: 認可チェック時、`SELECT * FROM schemas WHERE id = 1` で取得・キャッシュ
-3. **更新**: スキーマ更新時は既存行を UPDATE
-4. **整合性チェック**: データ書き込み時、現在のスキーマと照合
+1. 書き込み: `WriteSchema` API → DSL をパース → 両形式で保存（UPDATE）
+2. 読み込み: 認可チェック時、`SELECT * FROM schemas WHERE id = 1` で取得・キャッシュ
+3. 更新: スキーマ更新時は既存行を UPDATE
+4. 整合性チェック: データ書き込み時、現在のスキーマと照合
 
-**バージョン管理を行わない理由**:
+バージョン管理を行わない理由:
 
-- **複数環境は別 DB**: 開発・ステージング・本番で異なる DB を使用 → バージョン管理不要
-- **監査は別サービス**: スキーマ変更の履歴は AuditService で記録
-- **YAGNI 原則**: ロールバック機能は未定 → 必要になったら実装
-- **シンプルさ**: 1 行のみで管理が容易、読み込みが高速
+- 複数環境は別 DB: 開発・ステージング・本番で異なる DB を使用 → バージョン管理不要
+- 監査は別サービス: スキーマ変更の履歴は AuditService で記録
+- YAGNI 原則: ロールバック機能は未定 → 必要になったら実装
+- シンプルさ: 1 行のみで管理が容易、読み込みが高速
 
-**なぜ 3 つのテーブルで済むのか？**:
+なぜ 3 つのテーブルで済むのか？:
 
 - `schemas`: 認可の「ルール定義」を保存（常に 1 行のみ）
 - `relations`: 認可の「関係性データ」を保存（誰と誰が繋がっているか）
@@ -2002,7 +2000,7 @@ CREATE TABLE audit_logs (
 );
 ```
 
-**監査ログの例**:
+監査ログの例:
 
 ```json
 // スキーマ更新
@@ -2038,7 +2036,7 @@ CREATE TABLE audit_logs (
 }
 ```
 
-**AuditService API**（別サービスとして実装可能）:
+AuditService API（別サービスとして実装可能）:
 
 ```protobuf
 message WriteAuditLogRequest {
@@ -2083,46 +2081,46 @@ message ReadAuditLogsResponse {
 }
 ```
 
-**監査ログの運用**:
+監査ログの運用:
 
-- **書き込みタイミング**: AuthorizationService が重要な操作後に AuditService を呼び出す
-- **非同期処理**: メッセージキュー（Kafka/RabbitMQ）経由で送信してパフォーマンス影響を最小化
-- **保持期間**: 要件に応じて設定（例: 1 年間保持）
-- **アーカイブ**: 古いログは S3 などに移動
+- 書き込みタイミング: AuthorizationService が重要な操作後に AuditService を呼び出す
+- 非同期処理: メッセージキュー（Kafka/RabbitMQ）経由で送信してパフォーマンス影響を最小化
+- 保持期間: 要件に応じて設定（例: 1 年間保持）
+- アーカイブ: 古いログは S3 などに移動
 
 ### 3. API 設計（gRPC）
 
 #### 3.0 サービス設計方針
 
-**単一サービス（AuthorizationService）を採用**
+単一サービス（AuthorizationService）を採用
 
-**採用理由**:
+採用理由:
 
-1. **キャッシュ戦略との整合性**:
+1. キャッシュ戦略との整合性:
 
    - 認可判定結果を LRU キャッシュで保存し、高速に返す戦略を採用
    - キャッシュヒット時はグラフ探索不要 → トラフィックの大部分をキャッシュで吸収
    - 「認可チェックだけを独立スケール」する必要性が薄い
 
-2. **クライアント体験の最適化**:
+2. クライアント体験の最適化:
 
    - 単一のクライアントオブジェクトですべての API にアクセス可能
    - 複数スタブの管理が不要（ユーザーフレンドリー）
    - 接続管理がシンプル
 
-3. **YAGNI 原則（You Aren't Gonna Need It）**:
+3. YAGNI 原則（You Aren't Gonna Need It）:
 
    - 初期段階から複数サービスに分割するのは過剰設計
    - 必要になったら分割（内部モジュール分離で将来の移行に備える）
    - 開発・運用コストを抑える
 
-4. **内部での責務分離は維持**:
+4. 内部での責務分離は維持:
    - サーバー内部では SchemaManager、DataManager、PermissionChecker をモジュール分離
    - 将来的にサービス分割が必要になったら、このモジュールを切り出すだけ
 
-**パフォーマンス戦略**:
+パフォーマンス戦略:
 
-```
+```text
 リクエスト → LRUキャッシュチェック
                 ↓ ヒット（90%+）
               即座に結果を返す（高速）
@@ -2139,226 +2137,24 @@ message ReadAuditLogsResponse {
 
 #### 3.1 統合 API 定義
 
-```protobuf
-syntax = "proto3";
-package keruberosu.v1;
+```text
+Protocol Buffers 定義は以下の3ファイルに分割されています：
 
-import "google/protobuf/struct.proto";
+- proto/keruberosu/v1/common.proto: 全サービスで共有される基本型（Entity, Subject, RelationTuple など）
+- proto/keruberosu/v1/authorization.proto: AuthorizationService の定義と専用メッセージ型
+- proto/keruberosu/v1/audit.proto: AuditService の定義と専用メッセージ型
 
-// 単一の統合サービス
-service AuthorizationService {
-  // === スキーマ管理 ===
-  rpc WriteSchema(WriteSchemaRequest) returns (WriteSchemaResponse);
-  rpc ReadSchema(ReadSchemaRequest) returns (ReadSchemaResponse);
+完全な定義は Appendix C.1 を参照してください。
 
-  // === データ書き込み ===
-  rpc WriteRelations(WriteRelationsRequest) returns (WriteRelationsResponse);
-  rpc DeleteRelations(DeleteRelationsRequest) returns (DeleteRelationsResponse);
-  rpc WriteAttributes(WriteAttributesRequest) returns (WriteAttributesResponse);
-
-  // === 認可チェック ===
-  rpc Check(CheckRequest) returns (CheckResponse);
-  rpc Expand(ExpandRequest) returns (ExpandResponse);
-  rpc LookupEntity(LookupEntityRequest) returns (LookupEntityResponse);
-  rpc LookupSubject(LookupSubjectRequest) returns (LookupSubjectResponse);
-  rpc LookupEntityStream(LookupEntityRequest) returns (stream LookupEntityStreamResponse);
-  rpc SubjectPermission(SubjectPermissionRequest) returns (SubjectPermissionResponse);
-}
-
-// 別途、監査用のサービス
-service AuditService {
-  // 監査ログの書き込み
-  rpc WriteAuditLog(WriteAuditLogRequest) returns (WriteAuditLogResponse);
-
-  // 監査ログの取得
-  rpc ReadAuditLogs(ReadAuditLogsRequest) returns (ReadAuditLogsResponse);
-}
-
-// ===== 共通メッセージ型 =====
-message Entity {
-  string type = 1;
-  string id = 2;
-}
-
-message Subject {
-  string type = 1;
-  string id = 2;
-  string relation = 3;  // optional: "@organization#member"のmember部分
-}
-
-message SubjectReference {
-  string type = 1;       // e.g., "user"
-  string relation = 2;   // optional: 特定のrelationに限定する場合
-}
-
-message RelationTuple {
-  Entity entity = 1;     // 対象エンティティ（Permify互換）
-  string relation = 2;
-  Entity subject = 3;
-}
-
-message PermissionCheckMetadata {
-  string snap_token = 1;       // スナップショットトークン（一貫性制御）
-  int32 depth = 2;             // 再帰クエリの深さ制限
-}
-
-message Context {
-  repeated RelationTuple tuples = 1;     // contextual tuples
-  repeated Attribute attributes = 2;      // contextual attributes
-}
-
-message Attribute {
-  Entity entity = 1;
-  map<string, google.protobuf.Value> data = 2;
-}
-
-// ===== スキーマ管理 =====
-message WriteSchemaRequest {
-  string schema_dsl = 1;
-}
-
-message WriteSchemaResponse {
-  bool success = 1;
-  string message = 2;  // 成功メッセージまたはエラー詳細
-}
-
-message ReadSchemaRequest {
-  // パラメータなし（常に現在のスキーマを返す）
-}
-
-message ReadSchemaResponse {
-  string schema_dsl = 1;
-  string updated_at = 2;  // ISO8601形式のタイムスタンプ
-}
-
-// ===== データ書き込み =====
-message WriteRelationsRequest {
-  repeated RelationTuple tuples = 1;
-}
-
-message WriteRelationsResponse {
-  int32 written_count = 1;
-}
-
-message DeleteRelationsRequest {
-  repeated RelationTuple tuples = 1;
-}
-
-message DeleteRelationsResponse {
-  int32 deleted_count = 1;
-}
-
-message AttributeData {
-  Entity entity = 1;
-  string key = 2;
-  google.protobuf.Value value = 3;
-}
-
-message WriteAttributesRequest {
-  repeated AttributeData attributes = 1;
-}
-
-message WriteAttributesResponse {
-  int32 written_count = 1;
-}
-
-// ===== 認可チェック =====
-
-message CheckRequest {
-  PermissionCheckMetadata metadata = 1;  // snap_token, depth
-  Entity entity = 2;                      // 対象リソース
-  string permission = 3;                  // 確認するパーミッション
-  Subject subject = 4;                    // 主体（type, id, relation）
-  Context context = 5;                    // contextual tuples & attributes
-  repeated google.protobuf.Value arguments = 6;  // optional: 計算用引数
-}
-
-message CheckResponse {
-  CheckResult can = 1;                    // ALLOWED or DENIED
-  CheckResponseMetadata metadata = 2;     // check_count など
-}
-
-enum CheckResult {
-  CHECK_RESULT_UNSPECIFIED = 0;
-  CHECK_RESULT_ALLOWED = 1;
-  CHECK_RESULT_DENIED = 2;
-}
-
-message CheckResponseMetadata {
-  int32 check_count = 1;  // 実行されたチェック数
-}
-
-message ExpandRequest {
-  PermissionCheckMetadata metadata = 1;  // snap_token, depth
-  Entity entity = 2;                      // 対象エンティティ
-  string permission = 3;                  // 展開するパーミッション
-  Context context = 4;                    // contextual tuples & attributes
-  repeated google.protobuf.Value arguments = 5;  // optional: 計算用引数
-}
-
-message ExpandResponse {
-  ExpandNode tree = 1;  // パーミッションツリー
-}
-
-message ExpandNode {
-  string operation = 1;  // "union", "intersection", "exclusion", "leaf"
-  repeated ExpandNode children = 2;
-  Entity entity = 3;     // leaf nodeの場合のエンティティ
-  Subject subject = 4;   // leaf nodeの場合のsubject
-}
-
-message LookupEntityRequest {
-  PermissionCheckMetadata metadata = 1;  // snap_token, depth
-  string entity_type = 2;                // 検索対象のentity type (e.g., "document")
-  string permission = 3;                 // 権限名 (e.g., "edit")
-  Subject subject = 4;                   // 主体 (type, id, relation)
-  Context context = 5;                   // contextual tuples & attributes
-
-  // ページネーション
-  int32 page_size = 6;                   // 1ページあたりの結果数（1-100）
-  string continuous_token = 7;           // 次ページ取得用トークン
-}
-
-message LookupEntityResponse {
-  repeated string entity_ids = 1;        // 許可されたentityのIDリスト
-  string continuous_token = 2;           // 次ページがある場合のトークン
-}
-
-message LookupEntityStreamResponse {
-  string entity_id = 1;                  // 1件ずつストリーム
-  string continuous_token = 2;           // 次ページ取得用トークン
-}
-
-message LookupSubjectRequest {
-  PermissionCheckMetadata metadata = 1;  // snap_token, depth
-  Entity entity = 2;                     // 対象entity (type, id)
-  string permission = 3;                 // 権限名 (e.g., "edit")
-  SubjectReference subject_reference = 4; // 検索対象のsubject (type, relation)
-  Context context = 5;                   // contextual tuples & attributes
-
-  // ページネーション
-  int32 page_size = 6;                   // 1ページあたりの結果数（1-100）
-  string continuous_token = 7;           // 次ページ取得用トークン
-}
-
-message LookupSubjectResponse {
-  repeated string subject_ids = 1;       // 許可されたsubjectのIDリスト
-  string continuous_token = 2;           // 次ページがある場合のトークン
-}
-
-message SubjectPermissionRequest {
-  PermissionCheckMetadata metadata = 1;  // snap_token, depth, only_permission
-  Entity entity = 2;                     // 対象entity (type, id)
-  Subject subject = 3;                   // 主体 (type, id, relation)
-  Context context = 4;                   // contextual tuples & attributes
-}
-
-message SubjectPermissionResponse {
-  map<string, CheckResult> results = 1;  // permission名 -> ALLOWED/DENIED
-}
+この設計により：
+- サービスの境界が明確になる
+- 共通型は他プロジェクトから import 可能
+- クライアントは必要なサービスだけを選択可能
+- メンテナンス性が向上
+- Google API Design Guide に準拠
 ```
 
-**各 API のユースケース**:
+各 API のユースケース:
 
 | API               | 質問形式                          | 例                                       | 用途               |
 | ----------------- | --------------------------------- | ---------------------------------------- | ------------------ |
@@ -2368,23 +2164,23 @@ message SubjectPermissionResponse {
 | LookupSubject     | Y の Z を持つ X は誰？            | doc1 を edit できる user は？            | 共有設定 UI        |
 | SubjectPermission | X は Y に対してどの権限を持つか？ | alice は doc1 に対してどの権限を持つか？ | 権限一覧表示       |
 
-**各 API の説明**:
+各 API の説明:
 
-| API カテゴリ       | メソッド           | 用途                        | 例                                    |
-| ------------------ | ------------------ | --------------------------- | ------------------------------------- |
-| **スキーマ管理**   | WriteSchema        | スキーマ定義の登録・更新    | DSL を送信してスキーマ作成            |
-|                    | ReadSchema         | スキーマ定義の取得          | 現在のスキーマを取得                  |
-| **データ書き込み** | WriteRelations     | 関係性タプルの書き込み      | alice を doc1 の owner に             |
-|                    | DeleteRelations    | 関係性タプルの削除          | alice の owner 権限を削除             |
-|                    | WriteAttributes    | 属性データの書き込み        | doc1 を confidential に               |
-| **認可チェック**   | Check              | 認可判定                    | alice は doc1 を edit できる？        |
-|                    | Expand             | パーミッションツリー展開    | doc1 の edit 権限を持つユーザーツリー |
-|                    | LookupEntity       | 許可された Entity 一覧      | alice が edit できる document は？    |
-|                    | LookupSubject      | 許可された Subject 一覧     | doc1 を edit できる user は？         |
-|                    | LookupEntityStream | LookupEntity のストリーム版 | 大量結果をストリームで取得            |
-|                    | SubjectPermission  | Subject の権限一覧          | alice が doc1 に対して持つ権限一覧    |
+| API カテゴリ   | メソッド           | 用途                        | 例                                    |
+| -------------- | ------------------ | --------------------------- | ------------------------------------- |
+| スキーマ管理   | WriteSchema        | スキーマ定義の登録・更新    | DSL を送信してスキーマ作成            |
+|                | ReadSchema         | スキーマ定義の取得          | 現在のスキーマを取得                  |
+| データ書き込み | WriteRelations     | 関係性タプルの書き込み      | alice を doc1 の owner に             |
+|                | DeleteRelations    | 関係性タプルの削除          | alice の owner 権限を削除             |
+|                | WriteAttributes    | 属性データの書き込み        | doc1 を confidential に               |
+| 認可チェック   | Check              | 認可判定                    | alice は doc1 を edit できる？        |
+|                | Expand             | パーミッションツリー展開    | doc1 の edit 権限を持つユーザーツリー |
+|                | LookupEntity       | 許可された Entity 一覧      | alice が edit できる document は？    |
+|                | LookupSubject      | 許可された Subject 一覧     | doc1 を edit できる user は？         |
+|                | LookupEntityStream | LookupEntity のストリーム版 | 大量結果をストリームで取得            |
+|                | SubjectPermission  | Subject の権限一覧          | alice が doc1 に対して持つ権限一覧    |
 
-**クライアント使用例**:
+クライアント使用例:
 
 ```typescript
 // TypeScript
@@ -2492,9 +2288,9 @@ fmt.Println(permissions.Results) // map[string]CheckResult{"edit": ALLOWED, ...}
 
 #### 4.0 L1/L2 キャッシュによるパフォーマンス最適化
 
-**基本方針**: ネストしたグラフ探索は重い処理のため、認可判定結果を L1（ローカルメモリ）/L2（Redis）の 2 層キャッシュに保存して高速化。
+基本方針: ネストしたグラフ探索は重い処理のため、認可判定結果を L1（ローカルメモリ）/L2（Redis）の 2 層キャッシュに保存して高速化。
 
-**キャッシュの詳細実装は Section 6.1 を参照**。ここでは統合された`AuthorizationCache`インターフェースの使用方法を示す。
+キャッシュの詳細実装は Section 6.1 を参照。ここでは統合された`AuthorizationCache`インターフェースの使用方法を示す。
 
 ```go
 type CacheKey struct {
@@ -2541,7 +2337,7 @@ func (c *AuthorizationCache) Set(ctx context.Context, key CacheKey, allowed bool
 }
 ```
 
-**サーバー実装**:
+サーバー実装:
 
 ```go
 type Server struct {
@@ -2581,7 +2377,7 @@ func (s *Server) Check(ctx context.Context, req *pb.CheckRequest) (*pb.CheckResp
 }
 ```
 
-**キャッシュ無効化戦略**:
+キャッシュ無効化戦略:
 
 データ書き込み時に関連するキャッシュを無効化（複数インスタンス対応）：
 
@@ -2603,15 +2399,15 @@ func (s *Server) WriteRelations(ctx context.Context, req *pb.WriteRelationsReque
 }
 ```
 
-**キャッシュサイズと TTL 設定**:
+キャッシュサイズと TTL 設定:
 
-- **L1 (ローカルメモリ)**:
+- L1 (ローカルメモリ):
 
   - デフォルトサイズ: 10,000 エントリ/インスタンス
   - TTL: 1 分（短めで不整合を最小化）
   - メモリ使用量目安: 約 10MB/インスタンス
 
-- **L2 (Redis)**:
+- L2 (Redis):
   - 容量: Redis の設定に依存（推奨: 1GB 以上）
   - TTL: 5 分
   - Redis Cluster で高可用性を確保
@@ -2711,23 +2507,23 @@ func (e *Engine) hasNestedRelation(ctx context.Context, subject Entity, path str
 
 #### 5.1 キャッシュ戦略（最重要）
 
-**分散環境における 3 層キャッシュアーキテクチャ**:
+分散環境における 3 層キャッシュアーキテクチャ:
 
-1. **L1: 認可判定結果キャッシュ（ローカルメモリ LRU）**
+1. L1: 認可判定結果キャッシュ（ローカルメモリ LRU）
 
    - Check API の結果を各インスタンスのメモリに直接キャッシュ
    - 最もヒット率が高く、最速（ネットワーク I/O 不要）
    - TTL: 1 分（短めに設定し、インスタンス間の不整合を最小化）
    - 自前実装（`sync.RWMutex` + `container/list`）
 
-2. **L2: 認可判定結果の分散キャッシュ（Redis）**
+2. L2: 認可判定結果の分散キャッシュ（Redis）
 
    - 複数のサーバーインスタンス間で共有される認可結果
    - L1 ミス時のフォールバック
    - TTL: 5 分
    - Redis Cluster 推奨（高可用性）
 
-3. **L3: スキーマキャッシュ（In-Memory）**
+3. L3: スキーマキャッシュ（In-Memory）
 
    - アクティブなスキーマを各インスタンスのメモリに保持
    - スキーマ更新時のみ無効化
@@ -2780,11 +2576,11 @@ func (s *Server) CheckBatch(ctx context.Context, requests []*CheckRequest) ([]*C
 
 #### 6.1 2 層キャッシュアーキテクチャ（L1/L2）
 
-**冗長化要件**: 複数のサーバーインスタンスが並行稼働する環境を想定（例: 16 コア × 複数インスタンス）
+冗長化要件: 複数のサーバーインスタンスが並行稼働する環境を想定（例: 16 コア × 複数インスタンス）
 
-この構成では、インスタンス間でキャッシュを共有する必要があるため、**自前の L1/L2 キャッシュ実装が必須**となる。
+この構成では、インスタンス間でキャッシュを共有する必要があるため、自前の L1/L2 キャッシュ実装が必須となる。
 
-```
+```text
 リクエスト → L1 (ローカルメモリ) → L2 (Redis) → DB + グラフ探索
                ↓ ヒット              ↓ ヒット       ↓ ミス
              即座に返す            高速に返す      結果を返す
@@ -3037,7 +2833,7 @@ func (c *AuthorizationCache) InvalidateByObject(ctx context.Context, obj *Entity
 }
 ```
 
-**キャッシュ無効化の通知（複数インスタンス対応）**:
+キャッシュ無効化の通知（複数インスタンス対応）:
 
 複数サーバーインスタンスが稼働している場合、L1 キャッシュの無効化をすべてのインスタンスに伝播させる必要がある。Redis Pub/Sub を使用。
 
@@ -3081,7 +2877,7 @@ func (ci *CacheInvalidator) Invalidate(ctx context.Context) error {
 }
 ```
 
-**L1/L2 キャッシュの TTL 設定例**:
+L1/L2 キャッシュの TTL 設定例:
 
 ```go
 // L1: 短い TTL（インスタンス間の不整合を最小化）
@@ -3188,7 +2984,7 @@ func NewDB(connStr string, numCPU int) (*sql.DB, error) {
 }
 ```
 
-**接続プール設定の指針**:
+接続プール設定の指針:
 
 | 設定項目          | 推奨値            | 理由                                     |
 | ----------------- | ----------------- | ---------------------------------------- |
@@ -3197,7 +2993,7 @@ func NewDB(connStr string, numCPU int) (*sql.DB, error) {
 | `ConnMaxLifetime` | 30 分〜1 時間     | 接続のリークを防止                       |
 | `ConnMaxIdleTime` | 5〜10 分          | 未使用接続のリソース解放                 |
 
-**16 コア CPU の場合の推奨設定**:
+16 コア CPU の場合の推奨設定:
 
 ```go
 db.SetMaxOpenConns(64)   // 16 × 4
@@ -3256,12 +3052,12 @@ func (dm *DataManager) WriteRelations(ctx context.Context, tuples []*RelationTup
 }
 ```
 
-**トランザクション分離レベルの選択**:
+トランザクション分離レベルの選択:
 
 | 分離レベル         | 用途                           | パフォーマンス |
 | ------------------ | ------------------------------ | -------------- |
 | `READ UNCOMMITTED` | 使用しない（整合性リスク）     | 最速           |
-| `READ COMMITTED`   | **推奨**: 書き込みに使用       | 高速           |
+| `READ COMMITTED`   | 推奨: 書き込みに使用           | 高速           |
 | `REPEATABLE READ`  | 複雑な多段階読み込みが必要な時 | 中速           |
 | `SERIALIZABLE`     | 完全な一貫性が必要な時         | 低速           |
 
@@ -3299,32 +3095,32 @@ func (pc *PermissionChecker) evaluate(ctx context.Context, schema *Schema, req *
 }
 ```
 
-**重要な設計原則**:
+重要な設計原則:
 
-- ✅ **各ゴルーチンは独立した状態を持つ**（`visited` マップをゴルーチンローカルに保持）
-- ✅ **PermissionChecker はステートレス**（共有状態を持たない）
-- ✅ **DB クエリは並行実行可能**（接続プールにより自動的に調整）
+- ✅ 各ゴルーチンは独立した状態を持つ（`visited` マップをゴルーチンローカルに保持）
+- ✅ PermissionChecker はステートレス（共有状態を持たない）
+- ✅ DB クエリは並行実行可能（接続プールにより自動的に調整）
 
 #### 6.6 並行アクセスパターンのまとめ
 
-| コンポーネント         | 並行実行        | スレッド安全性の実現方法                    | 注意点                                       |
-| ---------------------- | --------------- | ------------------------------------------- | -------------------------------------------- |
-| **L1 キャッシュ**      | 読み書き並行 OK | `sync.RWMutex` による排他制御               | 自前実装、各インスタンス独立                 |
-| **L2 キャッシュ**      | 読み書き並行 OK | Redis の内部管理                            | ネットワーク遅延あり、エラー時フォールバック |
-| **スキーマキャッシュ** | 読み書き並行 OK | `atomic.Pointer` によるロックフリー読み込み | 更新は稀、読み込みは頻繁                     |
-| **DB 接続プール**      | 並行 OK         | `database/sql` の内部管理                   | `MaxOpenConns` を適切に設定                  |
-| **トランザクション**   | 独立            | 各 TX は独立した接続を使用                  | 長時間保持しない（デッドロック防止）         |
-| **グラフ探索**         | 並行 OK         | ゴルーチンローカルな状態のみ使用            | 共有状態を持たない設計                       |
+| コンポーネント     | 並行実行        | スレッド安全性の実現方法                    | 注意点                                       |
+| ------------------ | --------------- | ------------------------------------------- | -------------------------------------------- |
+| L1 キャッシュ      | 読み書き並行 OK | `sync.RWMutex` による排他制御               | 自前実装、各インスタンス独立                 |
+| L2 キャッシュ      | 読み書き並行 OK | Redis の内部管理                            | ネットワーク遅延あり、エラー時フォールバック |
+| スキーマキャッシュ | 読み書き並行 OK | `atomic.Pointer` によるロックフリー読み込み | 更新は稀、読み込みは頻繁                     |
+| DB 接続プール      | 並行 OK         | `database/sql` の内部管理                   | `MaxOpenConns` を適切に設定                  |
+| トランザクション   | 独立            | 各 TX は独立した接続を使用                  | 長時間保持しない（デッドロック防止）         |
+| グラフ探索         | 並行 OK         | ゴルーチンローカルな状態のみ使用            | 共有状態を持たない設計                       |
 
 #### 6.7 パフォーマンステスト推奨項目
 
 16 コア並行で実行する前に、以下をテスト:
 
-1. **ロードテスト**: 並行 Check リクエスト（100〜1000 RPS）
-2. **キャッシュヒット率**: 90%+ を目標
-3. **データベース接続プール**: 接続が枯渇しないか確認
-4. **メモリ使用量**: キャッシュサイズに応じて監視
-5. **レース検出**: `go test -race` でデータレースを検出
+1. ロードテスト: 並行 Check リクエスト（100〜1000 RPS）
+2. キャッシュヒット率: 90%+ を目標
+3. データベース接続プール: 接続が枯渇しないか確認
+4. メモリ使用量: キャッシュサイズに応じて監視
+5. レース検出: `go test -race` でデータレースを検出
 
 ```bash
 # データレース検出付きでテスト実行
@@ -3338,7 +3134,7 @@ go test -bench=. -benchmem ./...
 
 #### 7.1 基本的なフロー
 
-```
+```text
 1. ブラウザUI (TypeScript)
    ↓ ユーザーがUIで設定
 
@@ -3369,7 +3165,7 @@ go test -bench=. -benchmem ./...
 
 ABAC 設定を UI で構築する方法を段階的に設計する。
 
-**設計方針**: 複雑な DSL 構文を直接書かせるのではなく、段階的な設定 UI で構築する。
+設計方針: 複雑な DSL 構文を直接書かせるのではなく、段階的な設定 UI で構築する。
 
 ##### ステップ 1: エンティティ定義
 
@@ -3386,7 +3182,7 @@ interface EntityEditor {
 
 UI レイアウト:
 
-```
+```text
 ┌─ Entity: document ──────────────────┐
 │                                      │
 │ [Relations] [Attributes] [Rules]    │
@@ -3408,7 +3204,7 @@ interface RelationConfig {
 
 UI コンポーネント例:
 
-```
+```text
 Relation: owner
   ├─ Target: [User ▼]
   ├─ Target: [Organization ▼] → [member ▼]  (relation locking)
@@ -3426,7 +3222,7 @@ interface AttributeConfig {
 
 UI コンポーネント例:
 
-```
+```text
 ┌─ Attributes ─────────────────┐
 │ Name: classification         │
 │ Type: [String ▼]             │
@@ -3459,7 +3255,7 @@ interface ExpressionNode {
 
 UI コンポーネント例（ビジュアルルールビルダー）:
 
-```
+```text
 Rule: is_confidential
   Parameters:
     - classification (string)
@@ -3503,7 +3299,7 @@ interface PermissionNode {
 
 UI コンポーネント例（ビジュアルパーミッションビルダー）:
 
-```
+```text
 Permission: view
 
 Expression Builder:
@@ -3623,34 +3419,34 @@ class PermifyDSLBuilder {
 
 ##### UI 実装のポイント
 
-1. **段階的な設定**: 初心者は簡単な Relation-based から始め、上級者は ABAC ルールまで設定可能
-2. **リアルタイムプレビュー**: 設定中の DSL をリアルタイムで表示
-3. **バリデーション**:
+1. 段階的な設定: 初心者は簡単な Relation-based から始め、上級者は ABAC ルールまで設定可能
+2. リアルタイムプレビュー: 設定中の DSL をリアルタイムで表示
+3. バリデーション:
    - 存在しない relation の参照チェック
    - 型の整合性チェック
    - 循環参照のチェック
-4. **テンプレート**: よくあるパターン（RBAC、document sharing 等）のプリセット
-5. **インポート/エクスポート**: DSL 文字列との相互変換
+4. テンプレート: よくあるパターン（RBAC、document sharing 等）のプリセット
+5. インポート/エクスポート: DSL 文字列との相互変換
 
 ## 実装技術スタック
 
-- **言語**: Go (1.21+)
-- **API**: gRPC + Protocol Buffers
-- **データベース**: PostgreSQL (14+)
-- **キャッシュ**:
+- 言語: Go (1.21+)
+- API: gRPC + Protocol Buffers
+- データベース: PostgreSQL (14+)
+- キャッシュ:
   - L1: 自前 LRU 実装（`sync.RWMutex` + `container/list`）
   - L2: Redis (7+) / Redis Cluster
   - 無効化通知: Redis Pub/Sub
-- **ABAC エンジン**: `github.com/google/cel-go`
-- **Redis クライアント**: `github.com/redis/go-redis/v9`
-- **並行性制御**: `sync.RWMutex`, `sync/atomic.Pointer`
-- **DSL パーサー**: 独自パーサー（Go）
+- ABAC エンジン: `github.com/google/cel-go`
+- Redis クライアント: `github.com/redis/go-redis/v9`
+- 並行性制御: `sync.RWMutex`, `sync/atomic.Pointer`
+- DSL パーサー: 独自パーサー（Go）
 
 ## Permify DSL 構文まとめ
 
 ### 基本構文
 
-```
+```text
 entity [entity_name] {
   // 関係性の定義
   relation [relation_name] @[type1] @[type2] @[type3]#[relation]
@@ -3690,15 +3486,15 @@ entity [entity_name] {
 
 #### サポートするデータ型
 
-- **boolean**: `true`, `false`
-- **string**: `'text'`, `"text"`
-- **integer**: `123`, `-456`
-- **double**: `3.14`, `-2.5`
-- **配列**: `['a', 'b']`, `[1, 2, 3]`
+- boolean: `true`, `false`
+- string: `'text'`, `"text"`
+- integer: `123`, `-456`
+- double: `3.14`, `-2.5`
+- 配列: `['a', 'b']`, `[1, 2, 3]`
 
 #### 複合式の例
 
-```
+```text
 // 基本的な比較
 rule is_adult(age integer) {
   age >= 18
@@ -3735,7 +3531,7 @@ rule can_access(clearance_level integer, classification string) {
 
 `context.data.field` でリクエスト時の動的な値を参照可能:
 
-```
+```text
 rule check_ip_range(allowed_ips string[]) {
   context.data.ip_address in allowed_ips
 }
@@ -3770,13 +3566,13 @@ CEL ベースなので、将来的に以下もサポート可能:
 
 #### CEL 評価エンジンの選定
 
-**採用: google/cel-go**
+採用: google/cel-go
 
 理由:
 
-1. **実績**: Google 内部で使用、Kubernetes でも採用
-2. **機能**: 型安全、サンドボックス化、パフォーマンス最適化済み
-3. **拡張性**: カスタム関数の追加が容易
+1. 実績: Google 内部で使用、Kubernetes でも採用
+2. 機能: 型安全、サンドボックス化、パフォーマンス最適化済み
+3. 拡張性: カスタム関数の追加が容易
 
 ```go
 import (
@@ -3825,94 +3621,94 @@ func evaluateRule(prg cel.Program, attributes map[string]interface{}, context ma
 
 ### 既に決定した事項
 
-✅ **サービス設計**: 単一の AuthorizationService（クライアント体験を最優先）
-✅ **パフォーマンス戦略**: L1/L2 キャッシュによる高速化（キャッシュヒット率 90%+ 目標）
-✅ **キャッシュ実装**: 自前 LRU（L1: ローカルメモリ）+ Redis（L2: 分散キャッシュ）
-✅ **フロントエンド UI 設計**: ビジュアルビルダーで段階的に DSL を構築
-✅ **DB テーブル設計**: schemas, relations, attributes の 3 テーブル構成
-✅ **List 系 API**: LookupEntity、LookupSubject、SubjectPermission を実装
-✅ **Permify 互換 API**: metadata（snap_token, depth）、context（tuples, attributes）をサポート
-✅ **Subject/SubjectReference**: Permify と同様の型定義（type, id, relation）
-✅ **CheckResult enum**: ALLOWED/DENIED の明示的な列挙型
-✅ **ページネーション**: continuous_token による一貫性のあるページング
-✅ **ABAC 比較演算子**: CEL 式で `==`, `!=`, `>`, `>=`, `<`, `<=`, `in` をサポート
-✅ **CEL 評価エンジン**: google/cel-go を採用
-✅ **並行性**: 16+コアでのスレッドセーフな実装（sync.RWMutex、atomic.Pointer）
+✅ サービス設計: 単一の AuthorizationService（クライアント体験を最優先）
+✅ パフォーマンス戦略: L1/L2 キャッシュによる高速化（キャッシュヒット率 90%+ 目標）
+✅ キャッシュ実装: 自前 LRU（L1: ローカルメモリ）+ Redis（L2: 分散キャッシュ）
+✅ フロントエンド UI 設計: ビジュアルビルダーで段階的に DSL を構築
+✅ DB テーブル設計: schemas, relations, attributes の 3 テーブル構成
+✅ List 系 API: LookupEntity、LookupSubject、SubjectPermission を実装
+✅ Permify 互換 API: metadata（snap_token, depth）、context（tuples, attributes）をサポート
+✅ Subject/SubjectReference: Permify と同様の型定義（type, id, relation）
+✅ CheckResult enum: ALLOWED/DENIED の明示的な列挙型
+✅ ページネーション: continuous_token による一貫性のあるページング
+✅ ABAC 比較演算子: CEL 式で `==`, `!=`, `>`, `>=`, `<`, `<=`, `in` をサポート
+✅ CEL 評価エンジン: google/cel-go を採用
+✅ 並行性: 16+コアでのスレッドセーフな実装（sync.RWMutex、atomic.Pointer）
 
 ### 今後議論・実装が必要な事項
 
-1. **Metadata（snap_token, depth）の実装**:
+1. Metadata（snap_token, depth）の実装:
 
    - snap_token: スナップショット分離の実装方法（PostgreSQL の txid_snapshot 利用？）
    - depth: 再帰深さ制限の実装とデフォルト値（Permify は 50）
 
-2. **Context（contextual tuples & attributes）の実装**:
+2. Context（contextual tuples & attributes）の実装:
 
    - contextual tuples: リクエスト時に一時的な関係性を追加
    - contextual attributes: リクエスト時に一時的な属性を追加
    - DB との統合方法（メモリ上でマージ？）
 
-3. **Arguments の実装**:
+3. Arguments の実装:
 
    - optional な計算用引数の用途
    - ABAC ルール評価時の引数注入方法
 
-4. **SubjectPermission の実装詳細**:
+4. SubjectPermission の実装詳細:
 
    - 全パーミッションを効率的に評価する方法
    - キャッシュ戦略（個別チェックとの統合）
 
-5. **トランザクション管理**:
+5. トランザクション管理:
 
    - 複数の関係性を原子的に書き込む方法（実装済み）
    - ロールバック戦略
 
-6. **整合性チェック**:
+6. 整合性チェック:
 
    - スキーマに存在しない関係性の書き込みを拒否するか
    - 型チェックのレベル（厳密 vs 緩和）
 
-7. **パフォーマンス最適化**:
+7. パフォーマンス最適化:
 
    - 深いネスト関係の探索をどこまで最適化するか
    - LookupEntity の効率的なクエリ戦略
    - インデックスチューニング
 
-8. **キャッシュ無効化の最適化**:
+8. キャッシュ無効化の最適化:
 
    - セカンダリインデックスによる部分無効化
    - Redis Pub/Sub による複数インスタンス間の通知（実装済み）
    - キャッシュウォームアップ戦略
 
-9. **監査ログ**:
+9. 監査ログ:
 
    - 認可判定の履歴をどう記録するか
    - 保存期間・削除ポリシー
    - パフォーマンスへの影響
 
-10. **マルチテナンシー**:
+10. マルチテナンシー:
 
     - テナント分離をどう実現するか（DB 分離 vs スキーマ分離 vs テーブル内分離）
     - テナント間のデータ漏洩防止
     - Permify の tenant_id 概念の導入
 
-11. **Relation Locking 実装**:
+11. Relation Locking 実装:
 
     - `@organization#member` の実装詳細
     - クエリ最適化
 
-12. **DSL パーサー実装**:
+12. DSL パーサー実装:
 
     - 字句解析・構文解析の詳細
     - エラーハンドリング・エラーメッセージ
 
-13. **セキュリティ**:
+13. セキュリティ:
 
     - gRPC 認証・認可
     - レート制限
     - DoS 対策
 
-14. **運用**:
+14. 運用:
     - メトリクス収集（Prometheus 等）
     - ヘルスチェック
     - グレースフルシャットダウン
@@ -3925,33 +3721,33 @@ func evaluateRule(prg cel.Program, attributes map[string]interface{}, context ma
 
 #### A.1 パーサーアーキテクチャ
 
-```
+```text
 DSL文字列 → Lexer（字句解析） → Tokens → Parser（構文解析） → AST → Validator（検証） → Schema構造体
 ```
 
-**処理フロー**:
+処理フロー:
 
-1. **Lexer（字句解析器）**: 文字列をトークン列に分解
-2. **Parser（構文解析器）**: トークン列を AST（抽象構文木）に変換
-3. **Validator（検証器）**: AST の意味的な正しさを検証
-4. **Converter（変換器）**: AST を内部の `Schema` 構造体に変換
+1. Lexer（字句解析器）: 文字列をトークン列に分解
+2. Parser（構文解析器）: トークン列を AST（抽象構文木）に変換
+3. Validator（検証器）: AST の意味的な正しさを検証
+4. Converter（変換器）: AST を内部の `Schema` 構造体に変換
 
-**ASTとは？**
+AST とは？
 
-AST（Abstract Syntax Tree：抽象構文木）とは、**プログラムやDSLの構造をツリー（木構造）で表現したもの**です。
+AST（Abstract Syntax Tree：抽象構文木）とは、プログラムや DSL の構造をツリー（木構造）で表現したものです。
 
-例えば、以下のDSL：
+例えば、以下の DSL：
 
-```
+```text
 entity document {
   relation owner: user
   permission edit = owner
 }
 ```
 
-これをASTで表現すると：
+これを AST で表現すると：
 
-```
+```text
 SchemaAST
 └── EntityAST (name: "document")
     ├── RelationAST (name: "owner")
@@ -3960,29 +3756,30 @@ SchemaAST
         └── RelationPermissionAST (relation: "owner")
 ```
 
-**なぜASTが必要か？**
+なぜ AST が必要か？
 
-1. **構造化されたデータ**: 文字列のままでは処理しにくいが、ツリー構造にすることでプログラムで扱いやすくなる
-2. **検証が容易**: 「未定義のrelationを参照していないか」などのチェックが簡単
-3. **変換が容易**: DSL → AST → 内部データ構造（Schema）という段階的な変換ができる
-4. **エラー報告**: どの部分で問題が起きたかを正確に指摘できる
+1. 構造化されたデータ: 文字列のままでは処理しにくいが、ツリー構造にすることでプログラムで扱いやすくなる
+2. 検証が容易: 「未定義の relation を参照していないか」などのチェックが簡単
+3. 変換が容易: DSL → AST → 内部データ構造（Schema）という段階的な変換ができる
+4. エラー報告: どの部分で問題が起きたかを正確に指摘できる
 
-**具体例で理解する**:
+具体例で理解する:
 
-DSL文字列:
-```
+DSL 文字列:
+
+```text
 permission edit = owner or editor
 ```
 
-↓ Lexerでトークンに分解
+↓ Lexer でトークンに分解
 
-```
+```json
 [TOKEN_PERMISSION, TOKEN_IDENT("edit"), TOKEN_ASSIGN, TOKEN_IDENT("owner"), TOKEN_OR, TOKEN_IDENT("editor")]
 ```
 
-↓ ParserでASTに変換
+↓ Parser で AST に変換
 
-```
+```text
 PermissionAST {
   Name: "edit"
   Rule: LogicalPermissionAST {
@@ -3995,12 +3792,12 @@ PermissionAST {
 }
 ```
 
-↓ Validatorでチェック
+↓ Validator でチェック
 
-- "owner" というrelationは定義されているか？
-- "editor" というrelationは定義されているか？
+- "owner" という relation は定義されているか？
+- "editor" という relation は定義されているか？
 
-↓ ConverterでSchema構造体に変換
+↓ Converter で Schema 構造体に変換
 
 ```go
 Permission{
@@ -4013,11 +3810,11 @@ Permission{
 }
 ```
 
-このように、**ASTは文字列とプログラムで使うデータ構造の橋渡し**をする重要な中間表現です。
+このように、AST は文字列とプログラムで使うデータ構造の橋渡しをする重要な中間表現です。
 
 #### A.2 字句解析（Lexer）
 
-**トークン定義**:
+トークン定義:
 
 ```go
 type TokenType int
@@ -4075,7 +3872,7 @@ type Token struct {
 }
 ```
 
-**Lexer 実装**:
+Lexer 実装:
 
 ```go
 type Lexer struct {
@@ -4301,7 +4098,7 @@ func lookupKeyword(ident string) TokenType {
 
 #### A.3 構文解析（Parser）
 
-**AST 定義**:
+AST 定義:
 
 ```go
 // AST ノードのベースインターフェース
@@ -4409,7 +4206,7 @@ type LogicalPermissionAST struct {
 }
 ```
 
-**Parser 実装**:
+Parser 実装:
 
 ```go
 type Parser struct {
@@ -5228,7 +5025,7 @@ entity document {
 
 #### B.1 設計方針
 
-**最小限で動かすことを優先**:
+最小限で動かすことを優先:
 
 - VARCHAR 使用、正規化なし
 - 後から段階的に最適化可能
@@ -5272,7 +5069,7 @@ CREATE TRIGGER trigger_schemas_updated_at
     EXECUTE FUNCTION update_schemas_updated_at();
 ```
 
-**設計理由**:
+設計理由:
 
 - `schema_dsl`: 人間が読める形式（UI 表示用）
 - `schema_json`: パース済み JSON（検証・参照用）
@@ -5311,13 +5108,13 @@ CREATE INDEX idx_relations_lookup_subject
     ON relations(entity_type, entity_id, relation, subject_type, subject_id);
 ```
 
-**設計理由**:
+設計理由:
 
 - VARCHAR(255): 実装がシンプル、人間が読みやすい
 - UNIQUE 制約: 重複を防止
 - 4 つのインデックス: 各 API 用に最適化
 
-**インデックス戦略**:
+インデックス戦略:
 
 | インデックス                   | 用途                 | カラム順序の理由                                                |
 | ------------------------------ | -------------------- | --------------------------------------------------------------- |
@@ -5326,13 +5123,13 @@ CREATE INDEX idx_relations_lookup_subject
 | `idx_relations_lookup_entity`  | LookupEntity 最適化  | 全カラム含む - Index-Only Scan                                  |
 | `idx_relations_lookup_subject` | LookupSubject 最適化 | 全カラム含む - Index-Only Scan                                  |
 
-**1 行のサイズ概算**:
+1 行のサイズ概算:
 
 - BIGSERIAL: 8 bytes
 - VARCHAR(255) × 5: 平均 50 bytes × 5 = 250 bytes
 - TIMESTAMP: 8 bytes
 - 合計: 約 266 bytes/行
-- **1 億行で約 25GB**（許容範囲）
+- 1 億行で約 25GB（許容範囲）
 
 ##### B.2.3 attributes テーブル
 
@@ -5394,14 +5191,14 @@ CREATE TRIGGER trigger_attributes_updated_at
     EXECUTE FUNCTION update_attributes_updated_at();
 ```
 
-**設計理由**:
+設計理由:
 
-- **型別カラム採用**: ABAC はアクセス頻度が高いため、JSONB/BYTEA より高速
+- 型別カラム採用: ABAC はアクセス頻度が高いため、JSONB/BYTEA より高速
 - `value_type`: どのカラムを使うか識別
 - 部分インデックス: 型ごとに最適化
 - CHECK 制約: データ整合性保証
 
-**型の定義**:
+型の定義:
 
 | value_type | 型           | 使用カラム   | 用途           |
 | ---------- | ------------ | ------------ | -------------- |
@@ -5434,7 +5231,7 @@ CREATE INDEX idx_audit_logs_event_type
     ON audit_logs(event_type, timestamp DESC);
 ```
 
-**設計理由**:
+設計理由:
 
 - コンプライアンス用
 - 高トラフィック時はサンプリング推奨
@@ -5523,7 +5320,7 @@ CREATE INDEX idx_relations_hash
 -- Step 4: アプリケーション側でハッシュ使用に切り替え
 ```
 
-**効果**: クエリ速度 2-3 倍、インデックスサイズ 60%削減
+効果: クエリ速度 2-3 倍、インデックスサイズ 60%削減
 
 ##### オプション 2: パーティショニング（大規模時）
 
@@ -5540,7 +5337,7 @@ CREATE TABLE relations_folder PARTITION OF relations_partitioned
     FOR VALUES IN ('folder');
 ```
 
-**効果**: クエリ速度向上（関連パーティションのみスキャン）
+効果: クエリ速度向上（関連パーティションのみスキャン）
 
 ##### オプション 3: 正規化（計画的なダウンタイムが必要）
 
@@ -5580,7 +5377,67 @@ default_statistics_target = 100
 
 #### C.1 Protocol Buffers 定義
 
-完全な`.proto`ファイルを以下に示す：
+Protocol Buffers 定義は 3 ファイルに分割されています。
+
+##### C.1.1 common.proto
+
+```protobuf
+syntax = "proto3";
+
+package keruberosu.v1;
+
+option go_package = "github.com/asakaida/keruberosu/gen/proto/keruberosu/v1;keruberosupb";
+
+// ========================================
+// 共通メッセージ型（全サービスで共有）
+// ========================================
+
+message Entity {
+  string type = 1;  // e.g., "document"
+  string id = 2;    // e.g., "doc1"
+}
+
+message Subject {
+  string type = 1;     // e.g., "user"
+  string id = 2;       // e.g., "alice"
+  string relation = 3; // optional: e.g., "member" for "@organization#member"
+}
+
+message SubjectReference {
+  string type = 1;     // e.g., "user"
+  string relation = 2; // optional: 特定のrelationに限定する場合
+}
+
+message RelationTuple {
+  Entity entity = 1;   // 対象エンティティ（Permify互換）
+  string relation = 2;
+  Entity subject = 3;
+}
+
+message PermissionCheckMetadata {
+  string snap_token = 1;    // スナップショットトークン（optional）
+  int32 depth = 2;          // 再帰クエリの深さ制限（default: 50）
+  bool only_permission = 3; // SubjectPermission用: permissionのみ返す
+}
+
+message Context {
+  repeated RelationTuple tuples = 1;      // contextual tuples
+  repeated AttributeData attributes = 2;  // contextual attributes
+}
+
+message AttributeData {
+  Entity entity = 1;
+  map<string, google.protobuf.Value> data = 2;
+}
+
+enum CheckResult {
+  CHECK_RESULT_UNSPECIFIED = 0;
+  CHECK_RESULT_ALLOWED = 1;
+  CHECK_RESULT_DENIED = 2;
+}
+```
+
+##### C.1.2 authorization.proto
 
 ```protobuf
 syntax = "proto3";
@@ -5588,11 +5445,12 @@ syntax = "proto3";
 package keruberosu.v1;
 
 import "google/protobuf/struct.proto";
+import "keruberosu/v1/common.proto";
 
-option go_package = "github.com/asakaida/keruberosu/gen/proto;keruberosu";
+option go_package = "github.com/asakaida/keruberosu/gen/proto/keruberosu/v1;keruberosupb";
 
 // ========================================
-// Services
+// AuthorizationService
 // ========================================
 
 service AuthorizationService {
@@ -5614,53 +5472,6 @@ service AuthorizationService {
   rpc SubjectPermission(SubjectPermissionRequest) returns (SubjectPermissionResponse);
 }
 
-service AuditService {
-  rpc WriteAuditLog(WriteAuditLogRequest) returns (WriteAuditLogResponse);
-  rpc ReadAuditLogs(ReadAuditLogsRequest) returns (ReadAuditLogsResponse);
-}
-
-// ========================================
-// 共通メッセージ型
-// ========================================
-
-message Entity {
-  string type = 1;  // e.g., "document"
-  string id = 2;    // e.g., "doc1"
-}
-
-message Subject {
-  string type = 1;     // e.g., "user"
-  string id = 2;       // e.g., "alice"
-  string relation = 3; // optional: e.g., "member" for "@organization#member"
-}
-
-message SubjectReference {
-  string type = 1;     // e.g., "user"
-  string relation = 2; // optional: 特定のrelationに限定する場合
-}
-
-message RelationTuple {
-  Entity entity = 1;     // 対象エンティティ（Permify互換）
-  string relation = 2;
-  Entity subject = 3;
-}
-
-message PermissionCheckMetadata {
-  string snap_token = 1;       // スナップショットトークン（optional）
-  int32 depth = 2;             // 再帰クエリの深さ制限（default: 50）
-  bool only_permission = 3;    // SubjectPermission用: permissionのみ返す
-}
-
-message Context {
-  repeated RelationTuple tuples = 1;     // contextual tuples
-  repeated AttributeData attributes = 2;  // contextual attributes
-}
-
-message AttributeData {
-  Entity entity = 1;
-  map<string, google.protobuf.Value> data = 2;
-}
-
 // ========================================
 // スキーマ管理
 // ========================================
@@ -5676,12 +5487,12 @@ message WriteSchemaResponse {
 }
 
 message ReadSchemaRequest {
-  // パラメータなし
+  // パラメータなし（常に現在のスキーマを返す）
 }
 
 message ReadSchemaResponse {
   string schema_dsl = 1;
-  string updated_at = 2;      // ISO8601形式
+  string updated_at = 2;  // ISO8601形式のタイムスタンプ
 }
 
 // ========================================
@@ -5717,93 +5528,111 @@ message WriteAttributesResponse {
 // ========================================
 
 message CheckRequest {
-  PermissionCheckMetadata metadata = 1;
-  Entity entity = 2;
-  string permission = 3;
-  Subject subject = 4;
-  Context context = 5;
-  repeated google.protobuf.Value arguments = 6;  // optional
+  PermissionCheckMetadata metadata = 1;  // snap_token, depth
+  Entity entity = 2;                      // 対象リソース
+  string permission = 3;                  // 確認するパーミッション
+  Subject subject = 4;                    // 主体（type, id, relation）
+  Context context = 5;                    // contextual tuples & attributes
+  repeated google.protobuf.Value arguments = 6;  // optional: 計算用引数
 }
 
 message CheckResponse {
-  CheckResult can = 1;
-  CheckResponseMetadata metadata = 2;
-}
-
-enum CheckResult {
-  CHECK_RESULT_UNSPECIFIED = 0;
-  CHECK_RESULT_ALLOWED = 1;
-  CHECK_RESULT_DENIED = 2;
+  CheckResult can = 1;                    // ALLOWED or DENIED
+  CheckResponseMetadata metadata = 2;     // check_count など
 }
 
 message CheckResponseMetadata {
   int32 check_count = 1;  // 実行されたチェック数
-  bool cached = 2;        // キャッシュヒットしたか
 }
 
 message ExpandRequest {
-  PermissionCheckMetadata metadata = 1;
-  Entity entity = 2;
-  string permission = 3;
-  Context context = 4;
-  repeated google.protobuf.Value arguments = 5;
+  PermissionCheckMetadata metadata = 1;  // snap_token, depth
+  Entity entity = 2;                      // 対象エンティティ
+  string permission = 3;                  // 展開するパーミッション
+  Context context = 4;                    // contextual tuples & attributes
+  repeated google.protobuf.Value arguments = 5;  // optional: 計算用引数
 }
 
 message ExpandResponse {
-  ExpandNode tree = 1;
+  ExpandNode tree = 1;  // パーミッションツリー
 }
 
 message ExpandNode {
   string operation = 1;  // "union", "intersection", "exclusion", "leaf"
   repeated ExpandNode children = 2;
-  Entity entity = 3;     // leaf nodeの場合
-  Subject subject = 4;   // leaf nodeの場合
+  Entity entity = 3;     // leaf nodeの場合のエンティティ
+  Subject subject = 4;   // leaf nodeの場合のsubject
 }
 
 message LookupEntityRequest {
-  PermissionCheckMetadata metadata = 1;
-  string entity_type = 2;
-  string permission = 3;
-  Subject subject = 4;
-  Context context = 5;
-  int32 page_size = 6;           // 1-100
-  string continuous_token = 7;
+  PermissionCheckMetadata metadata = 1;  // snap_token, depth
+  string entity_type = 2;                // 検索対象のentity type (e.g., "document")
+  string permission = 3;                 // 権限名 (e.g., "edit")
+  Subject subject = 4;                   // 主体 (type, id, relation)
+  Context context = 5;                   // contextual tuples & attributes
+
+  // ページネーション
+  int32 page_size = 6;                   // 1ページあたりの結果数（1-100）
+  string continuous_token = 7;           // 次ページ取得用トークン
 }
 
 message LookupEntityResponse {
-  repeated string entity_ids = 1;
-  string continuous_token = 2;
+  repeated string entity_ids = 1;        // 許可されたentityのIDリスト
+  string continuous_token = 2;           // 次ページがある場合のトークン
 }
 
 message LookupEntityStreamResponse {
-  string entity_id = 1;
-  string continuous_token = 2;
+  string entity_id = 1;                  // 1件ずつストリーム
+  string continuous_token = 2;           // 次ページ取得用トークン
 }
 
 message LookupSubjectRequest {
-  PermissionCheckMetadata metadata = 1;
-  Entity entity = 2;
-  string permission = 3;
-  SubjectReference subject_reference = 4;
-  Context context = 5;
-  int32 page_size = 6;
-  string continuous_token = 7;
+  PermissionCheckMetadata metadata = 1;  // snap_token, depth
+  Entity entity = 2;                     // 対象entity (type, id)
+  string permission = 3;                 // 権限名 (e.g., "edit")
+  SubjectReference subject_reference = 4; // 検索対象のsubject (type, relation)
+  Context context = 5;                   // contextual tuples & attributes
+
+  // ページネーション
+  int32 page_size = 6;                   // 1ページあたりの結果数（1-100）
+  string continuous_token = 7;           // 次ページ取得用トークン
 }
 
 message LookupSubjectResponse {
-  repeated string subject_ids = 1;
-  string continuous_token = 2;
+  repeated string subject_ids = 1;       // 許可されたsubjectのIDリスト
+  string continuous_token = 2;           // 次ページがある場合のトークン
 }
 
 message SubjectPermissionRequest {
-  PermissionCheckMetadata metadata = 1;
-  Entity entity = 2;
-  Subject subject = 3;
-  Context context = 4;
+  PermissionCheckMetadata metadata = 1;  // snap_token, depth, only_permission
+  Entity entity = 2;                     // 対象entity (type, id)
+  Subject subject = 3;                   // 主体 (type, id, relation)
+  Context context = 4;                   // contextual tuples & attributes
 }
 
 message SubjectPermissionResponse {
-  map<string, CheckResult> results = 1;
+  map<string, CheckResult> results = 1;  // permission名 -> ALLOWED/DENIED
+}
+```
+
+##### C.1.3 audit.proto
+
+```protobuf
+syntax = "proto3";
+
+package keruberosu.v1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/asakaida/keruberosu/gen/proto/keruberosu/v1;keruberosupb";
+
+// ========================================
+// AuditService
+// ========================================
+
+service AuditService {
+  rpc WriteAuditLog(WriteAuditLogRequest) returns (WriteAuditLogResponse);
+  rpc ReadAuditLogs(ReadAuditLogsRequest) returns (ReadAuditLogsResponse);
 }
 
 // ========================================
@@ -5825,12 +5654,12 @@ message WriteAuditLogResponse {
 }
 
 message ReadAuditLogsRequest {
-  string event_type = 1;
-  string actor_id = 2;
-  string start_time = 3;  // ISO8601
-  string end_time = 4;    // ISO8601
-  int32 limit = 5;        // default: 100
-  string cursor = 6;
+  string event_type = 1;     // フィルタ（オプション）
+  string actor_id = 2;        // フィルタ（オプション）
+  string start_time = 3;      // ISO8601形式
+  string end_time = 4;        // ISO8601形式
+  int32 limit = 5;            // デフォルト: 100
+  string cursor = 6;          // ページネーション用
 }
 
 message AuditLog {
@@ -5850,6 +5679,24 @@ message ReadAuditLogsResponse {
   string next_cursor = 2;
   int32 total_count = 3;
 }
+```
+
+##### クライアントコード生成
+
+```bash
+protoc \
+  --go_out=gen/go \
+  --go-grpc_out=gen/go \
+  proto/keruberosu/v1/*.proto
+```
+
+生成されたコードは単一パッケージとして利用可能：
+
+```go
+import pb "github.com/asakaida/keruberosu/gen/proto/keruberosu/v1"
+
+client := pb.NewAuthorizationServiceClient(conn)
+auditClient := pb.NewAuditServiceClient(conn)
 ```
 
 #### C.2 gRPC 実装パターン
