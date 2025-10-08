@@ -139,23 +139,28 @@ Phase: Phase 1 - キャッシュレス完全実装
 #### 3.1 スキーマ定義系エンティティ
 
 - [x] internal/entities/schema.go
+
   - [x] Schema 構造体
   - [x] GetEntity ヘルパーメソッド
   - [x] GetPermission ヘルパーメソッド
 
 - [x] internal/entities/entity.go
+
   - [x] Entity 構造体
   - [x] GetRelation ヘルパーメソッド
   - [x] GetPermission ヘルパーメソッド
   - [x] GetAttributeSchema ヘルパーメソッド
 
 - [x] internal/entities/relation.go
+
   - [x] Relation 構造体（スキーマ内のリレーション定義）
 
 - [x] internal/entities/attribute_schema.go
+
   - [x] AttributeSchema 構造体（属性型定義）
 
 - [x] internal/entities/permission.go
+
   - [x] Permission 構造体（権限定義）
 
 - [x] internal/entities/rule.go
@@ -168,6 +173,7 @@ Phase: Phase 1 - キャッシュレス完全実装
 #### 3.2 データ系エンティティ
 
 - [x] internal/entities/relation_tuple.go
+
   - [x] RelationTuple 構造体（実際のリレーションデータ）
   - [x] Validate メソッド
   - [x] String メソッド
@@ -184,40 +190,44 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 #### 4.1 字句解析（Lexer）
 
-- [ ] internal/services/parser/lexer.go
-  - [ ] Token 型定義
-  - [ ] Lexer 構造体
-  - [ ] NextToken 実装
-  - [ ] キーワード認識（entity, relation, permission, rule）
-  - [ ] 演算子認識（or, and, not, =）
-  - [ ] ユニットテスト
+- [x] internal/services/parser/lexer.go
+  - [x] Token 型定義
+  - [x] Lexer 構造体
+  - [x] NextToken 実装
+  - [x] キーワード認識（entity, relation, permission, rule）
+  - [x] 演算子認識（or, and, not, =）
+  - [x] コメント処理（// 形式）
+  - [x] ユニットテスト（11 テスト）
 
 #### 4.2 構文解析（Parser）
 
-- [ ] internal/services/parser/ast.go
+- [x] internal/services/parser/ast.go
 
-  - [ ] AST 構造体定義（SchemaAST, EntityAST 等）
-  - [ ] PermissionRuleAST インターフェース実装
+  - [x] AST 構造体定義（SchemaAST, EntityAST 等）
+  - [x] PermissionRuleAST インターフェース実装
 
-- [ ] internal/services/parser/parser.go
-  - [ ] Parser 構造体
-  - [ ] Parse（メインエントリーポイント）
-  - [ ] parseEntity
-  - [ ] parseRelation
-  - [ ] parseAttribute
-  - [ ] parsePermission
-  - [ ] parsePermissionRule（再帰的）
-  - [ ] エラーハンドリング
-  - [ ] ユニットテスト
+- [x] internal/services/parser/parser.go
+  - [x] Parser 構造体
+  - [x] Parse（メインエントリーポイント）
+  - [x] parseEntity
+  - [x] parseRelation
+  - [x] parseAttribute
+  - [x] parsePermission
+  - [x] parsePermissionRule（再帰的、演算子優先順位対応）
+  - [x] parseRuleExpression（CEL 式パース）
+  - [x] エラーハンドリング
+  - [x] ユニットテスト（17 テスト）
 
 #### 4.3 検証（Validator）
 
-- [ ] internal/services/parser/validator.go
-  - [ ] スキーマ検証
-  - [ ] 関係性の循環参照チェック
-  - [ ] 未定義の関係参照チェック
-  - [ ] 型整合性チェック
-  - [ ] ユニットテスト
+- [x] internal/services/parser/validator.go
+  - [x] スキーマ検証（重複名チェック、型検証）
+  - [x] 同一エンティティ内の循環参照チェック
+  - [x] 未定義の関係参照チェック
+  - [x] 未定義のエンティティ参照チェック
+  - [x] 階層的パーミッション検証
+  - [x] 型整合性チェック
+  - [x] ユニットテスト（17 テスト）
 
 ---
 
@@ -395,7 +405,7 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 ### 現在のステータス
 
-全体進捗: 25% (基盤構築 + ドメインエンティティ + Repository 完了)
+全体進捗: 35% (基盤構築 + ドメインエンティティ + Repository + DSL パーサー完了)
 
 #### 完了タスク
 
@@ -408,18 +418,21 @@ Phase: Phase 1 - キャッシュレス完全実装
 - [x] ドメインエンティティ（スキーマ定義系 + データ系）
 - [x] Repository インターフェース定義（Schema, Relation, Attribute）
 - [x] Repository PostgreSQL 実装（Schema, Relation, Attribute）
+- [x] DSL パーサー実装（Lexer, Parser, Validator）
 
 #### 進行中タスク
 
-- [ ] DSL パーサー実装
+- [ ] CEL エンジン実装
 
 #### 次のマイルストーン
 
-Milestone 3: DSL パーサー実装完了（Week 3）
+Milestone 4: 認可エンジン実装完了（Week 4）
 
-- Lexer 実装
-- Parser 実装
-- Validator 実装
+- CEL エンジン実装
+- ルール評価（Evaluator）実装
+- Check 実装
+- Expand 実装
+- Lookup 実装
 
 ---
 
@@ -450,7 +463,7 @@ Milestone 3: DSL パーサー実装完了（Week 3）
   - audit.proto 作成（AuditService）
   - scripts/generate-proto.sh 作成
 - ドメインエンティティ実装完了（Go ベストプラクティスに準拠）
-  - entities 層の再設計（1ファイル1構造体の原則）
+  - entities 層の再設計（1 ファイル 1 構造体の原則）
   - スキーマ定義系: schema.go, entity.go, relation.go, attribute_schema.go, permission.go, rule.go
   - データ系: relation_tuple.go, attribute.go
   - DESIGN.md と DEVELOPMENT.md を新構造に更新
@@ -459,14 +472,36 @@ Milestone 3: DSL パーサー実装完了（Week 3）
   - PostgreSQL 実装（postgres/schema_repository.go, postgres/relation_repository.go, postgres/attribute_repository.go）
   - RelationFilter 構造体による柔軟なクエリフィルタリング
   - Batch 操作のトランザクション対応
-  - ユニットテスト完了（49テストケース全て成功）
-    - SchemaRepository: 8テスト（正常系・異常系）
-    - RelationRepository: 24テスト（正常系・異常系）
-    - AttributeRepository: 17テスト（正常系・異常系）
+  - ユニットテスト完了（49 テストケース全て成功）
+    - SchemaRepository: 8 テスト（正常系・異常系）
+    - RelationRepository: 24 テスト（正常系・異常系）
+    - AttributeRepository: 17 テスト（正常系・異常系）
 - テスト環境の整備
   - config.go にプロジェクトルート自動検出機能追加（go.mod を基準）
   - docker-compose.yml の healthcheck を活用（--wait フラグ）
   - README.md にテスト実施方法を追加
+- DSL パーサー実装完了
+  - Lexer 実装（lexer.go）
+    - Token 型定義（キーワード、演算子、デリミタ）
+    - コメント処理（// 形式）
+    - 行・列番号追跡
+    - 11 テストケース完了
+  - Parser 実装（ast.go, parser.go）
+    - AST 構造体定義（SchemaAST, EntityAST, RelationAST, AttributeAST, PermissionAST）
+    - PermissionRuleAST インターフェース（RelationPermissionAST, LogicalPermissionAST, HierarchicalPermissionAST, RulePermissionAST）
+    - 演算子優先順位パース（or < and < not）
+    - 再帰下降パーサー実装
+    - CEL 式パース（rule() 内の式）
+    - エラーハンドリング（無限ループ対策）
+    - 17 テストケース完了
+  - Validator 実装（validator.go）
+    - スキーマ検証（重複名、型検証）
+    - 循環参照チェック（同一エンティティ内のパーミッション参照）
+    - 未定義参照チェック（リレーション、エンティティ、パーミッション）
+    - 階層的パーミッション検証（parent.permission 形式）
+    - パーミッション内でのパーミッション参照サポート（permission view = edit）
+    - 17 テストケース完了
+  - 合計 45 テストケース全て成功
 
 ---
 
@@ -489,7 +524,7 @@ Milestone 3: DSL パーサー実装完了（Week 3）
 13. タイムスタンプ型: PostgreSQL では TIMESTAMPTZ を使用（タイムゾーン対応）
 14. Proto コード生成: scripts/generate-proto.sh を使用（Make 不使用）
 15. 環境設定: viper を使用、環境ごとに .env.{env} ファイルで管理（dev/test/prod）
-16. Entities 設計: 1ファイル1構造体の原則に従う（Go ベストプラクティス準拠）
+16. Entities 設計: 1 ファイル 1 構造体の原則に従う（Go ベストプラクティス準拠）
     - スキーマ定義系と実際のデータを明確に分離
     - ファイル名と内容の一貫性を保つ（例: permission.go には Permission 構造体）
 17. テスト環境: test 環境で実行、.env.test から設定を読み込む

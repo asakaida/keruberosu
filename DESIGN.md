@@ -143,9 +143,10 @@ keruberosu/
 
 #### entities 層の設計
 
-entities 層は1ファイル1構造体の原則に従い、責務を明確に分離しています。
+entities 層は 1 ファイル 1 構造体の原則に従い、責務を明確に分離しています。
 
-**スキーマ定義系**（DSLから生成される内部表現）：
+**スキーマ定義系**（DSL から生成される内部表現）：
+
 - `schema.go`: Schema - スキーマ全体を表現
 - `entity.go`: Entity - エンティティ定義（例: "document", "user"）
 - `relation.go`: Relation - リレーション定義（例: "owner: user"）
@@ -154,6 +155,7 @@ entities 層は1ファイル1構造体の原則に従い、責務を明確に分
 - `rule.go`: PermissionRule インターフェース + 各ルール実装（RelationRule, LogicalRule, HierarchicalRule, ABACRule）
 
 **データ系**（実際に保存されるデータ）：
+
 - `relation_tuple.go`: RelationTuple - 関係データ（例: document:1#owner@user:alice）
 - `attribute.go`: Attribute - 属性データ（例: document:1.public = true）
 
