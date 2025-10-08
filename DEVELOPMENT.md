@@ -256,15 +256,26 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 #### 5.2 ルール評価（Evaluator）
 
-- [ ] internal/services/authorization/evaluator.go
-  - [ ] Evaluator 構造体
-  - [ ] NewEvaluator
-  - [ ] EvaluateRule（ルール評価ディスパッチャ）
-  - [ ] evaluateRelation（関係性チェック）
-  - [ ] evaluateLogical（OR/AND/NOT）
-  - [ ] evaluateHierarchical（parent.permission）
-  - [ ] evaluateABAC（CEL 呼び出し）
-  - [ ] ユニットテスト
+- [x] internal/services/authorization/evaluator.go
+  - [x] Evaluator 構造体
+  - [x] NewEvaluator
+  - [x] EvaluateRule（ルール評価ディスパッチャ）
+  - [x] evaluateRelation（関係性チェック、contextualTuples 対応）
+  - [x] evaluateLogical（OR/AND/NOT、短絡評価）
+  - [x] evaluateHierarchical（parent.permission、再帰評価）
+  - [x] evaluateABAC（CEL 呼び出し、resource/subject 属性統合）
+  - [x] 深さ制限チェック（MaxDepth = 100）
+  - [x] ユニットテスト（57 テスト）
+    - [x] RelationRule テスト (2 テスト)
+    - [x] LogicalRule OR テスト (2 テスト)
+    - [x] LogicalRule AND テスト (2 テスト)
+    - [x] LogicalRule NOT テスト (2 テスト)
+    - [x] HierarchicalRule テスト (2 テスト)
+    - [x] ABACRule テスト (2 テスト)
+    - [x] ContextualTuples テスト (1 テスト)
+    - [x] MaxDepth エラーテスト (1 テスト)
+    - [x] 複雑なルールテスト (2 テスト)
+    - [x] CEL エンジンテスト (48 テスト、再掲)
 
 #### 5.3 Check 実装
 
@@ -414,7 +425,7 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 ### 現在のステータス
 
-全体進捗: 40% (基盤構築 + ドメインエンティティ + Repository + DSL パーサー + CEL エンジン完了)
+全体進捗: 45% (基盤構築 + ドメインエンティティ + Repository + DSL パーサー + CEL エンジン + Evaluator 完了)
 
 #### 完了タスク
 
@@ -429,10 +440,11 @@ Phase: Phase 1 - キャッシュレス完全実装
 - [x] Repository PostgreSQL 実装（Schema, Relation, Attribute）
 - [x] DSL パーサー実装（Lexer, Parser, Validator）
 - [x] CEL エンジン実装（ABAC ルール評価）
+- [x] Evaluator 実装（ルール評価エンジン）
 
 #### 進行中タスク
 
-- [ ] ルール評価（Evaluator）実装
+- [ ] Check 実装
 
 #### 次のマイルストーン
 
@@ -532,6 +544,30 @@ Milestone 4: 認可エンジン実装完了（Week 4）
     - 空コンテキストテスト: 1 テスト
     - デフォルト評価テスト: 1 テスト
   - 合計 48 テストケース全て成功
+- Evaluator 実装完了
+  - Evaluator 実装（evaluator.go）
+    - EvaluationRequest 構造体（評価コンテキスト）
+    - EvaluateRule メソッド（ルール評価ディスパッチャ）
+    - evaluateRelation（RelationRule 評価、contextualTuples 対応）
+    - evaluateLogical（LogicalRule 評価、OR/AND/NOT、短絡評価）
+    - evaluateHierarchical（HierarchicalRule 評価、parent.permission、再帰評価）
+    - evaluateABAC（ABACRule 評価、CEL 呼び出し、resource/subject 属性統合）
+    - 深さ制限チェック（MaxDepth = 100、循環参照対策）
+  - モックリポジトリ実装（evaluator_test.go）
+    - mockSchemaRepository（インメモリスキーマ）
+    - mockRelationRepository（インメモリリレーション、フィルタリング対応）
+    - mockAttributeRepository（インメモリ属性）
+  - ユニットテスト実装（evaluator_test.go）
+    - RelationRule テスト: 2 テスト
+    - LogicalRule OR テスト: 2 テスト
+    - LogicalRule AND テスト: 2 テスト
+    - LogicalRule NOT テスト: 2 テスト
+    - HierarchicalRule テスト: 2 テスト
+    - ABACRule テスト: 2 テスト
+    - ContextualTuples テスト: 1 テスト
+    - MaxDepth エラーテスト: 1 テスト
+    - 複雑なルールテスト（(owner or editor) and rule(...)）: 2 テスト
+  - 合計 16 テストケース全て成功
 
 ---
 
