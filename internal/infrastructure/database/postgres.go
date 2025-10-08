@@ -8,6 +8,7 @@ import (
 
 	"github.com/asakaida/keruberosu/internal/infrastructure/config"
 	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/lib/pq"
@@ -81,4 +82,13 @@ func (p *Postgres) Close() error {
 		return p.DB.Close()
 	}
 	return nil
+}
+
+// NewMigrateDriver creates a new migrate database driver
+func NewMigrateDriver(db *sql.DB) (database.Driver, error) {
+	driver, err := postgres.WithInstance(db, &postgres.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create migration driver: %w", err)
+	}
+	return driver, nil
 }

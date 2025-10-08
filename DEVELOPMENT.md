@@ -438,14 +438,18 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 #### 8.1 マイグレーションコマンド
 
-- [ ] cmd/migrate/main.go
-  - [ ] 設定読み込み
-  - [ ] DB 接続初期化
-  - [ ] マイグレーションライブラリ（golang-migrate/migrate）統合
-  - [ ] up コマンド実装
-  - [ ] down コマンド実装
-  - [ ] goto コマンド実装
-  - [ ] エラーハンドリング
+- [x] cmd/migrate/main.go
+  - [x] 設定読み込み
+  - [x] DB 接続初期化
+  - [x] マイグレーションライブラリ（golang-migrate/migrate）統合
+  - [x] up コマンド実装
+  - [x] down コマンド実装
+  - [x] goto コマンド実装
+  - [x] version コマンド実装
+  - [x] force コマンド実装
+  - [x] エラーハンドリング
+- [x] internal/infrastructure/database/postgres.go
+  - [x] NewMigrateDriver 関数追加
 
 #### 8.2 gRPC サーバー
 
@@ -524,6 +528,7 @@ Phase: Phase 1 - キャッシュレス完全実装
 - [ ] gRPC ハンドラー層実装
 
 #### 次のマイルストーン
+
 Ï
 Milestone 4: 認可エンジン実装完了（Week 4）
 
@@ -841,7 +846,7 @@ Milestone 4: 認可エンジン実装完了（Week 4）
     - SubjectPermission（サブジェクトの全権限チェック）
       - スキーマから対象エンティティの全パーミッションを取得
       - 各パーミッションに対して Check を実行
-      - 結果を map[permission名]CheckResult で返却
+      - 結果を map[permission 名]CheckResult で返却
     - LookupEntityStream（ストリーミング版）
       - Phase 1 では未実装（Unimplemented エラー）
     - protoContextToTuples（Context → RelationTuple 変換）
@@ -854,6 +859,30 @@ Milestone 4: 認可エンジン実装完了（Week 4）
     - LookupSubject テスト（Success）: 1 テスト
     - SubjectPermission テスト（Success/Schema Not Found/Entity Not Found）: 3 テスト
   - 合計 11 テストケース全て成功
+- Migration Command 実装完了
+  - Migration Command 実装（cmd/migrate/main.go）
+    - コマンド引数パース（up/down/goto/version/force）
+    - 環境変数対応（ENV=dev|test|prod、デフォルト: dev）
+    - 設定読み込み（config.InitConfig、config.Load）
+    - DB 接続初期化（database.NewPostgres）
+    - プロジェクトルート検出（findProjectRoot、go.mod を基準）
+    - マイグレーションパス解決（internal/infrastructure/database/migrations/postgres）
+    - up コマンド実装（全マイグレーション適用）
+    - down コマンド実装（指定ステップ数ロールバック、デフォルト: 1）
+    - goto コマンド実装（指定バージョンへ移行）
+    - version コマンド実装（現在のマイグレーションバージョン表示、dirty 状態対応）
+    - force コマンド実装（強制的にバージョン設定）
+    - エラーハンドリング（migrate.ErrNoChange 対応）
+    - Usage 表示（printUsage 関数）
+  - Database Package 拡張（internal/infrastructure/database/postgres.go）
+    - NewMigrateDriver 関数追加（database.Driver 返却）
+    - golang-migrate/migrate/v4/database パッケージ import 追加
+  - 動作確認
+    - ENV=test ./bin/migrate version → バージョン 3 確認
+    - ENV=test ./bin/migrate down → バージョン 2 へロールバック確認
+    - ENV=test ./bin/migrate up → バージョン 3 へ再適用確認
+    - ENV=test ./bin/migrate goto 1 → バージョン 1 へ移行確認
+    - ENV=test ./bin/migrate up → 最新バージョンへ復元確認
 
 ---
 
