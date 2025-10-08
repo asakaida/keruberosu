@@ -279,31 +279,73 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 #### 5.3 Check 実装
 
-- [ ] internal/services/authorization/checker.go
-  - [ ] Checker 構造体
-  - [ ] NewChecker
-  - [ ] Check（メインエントリーポイント）
-  - [ ] 深さ制限チェック
-  - [ ] contextualTuples 統合
-  - [ ] ユニットテスト
+- [x] internal/services/authorization/checker.go
+  - [x] Checker 構造体
+  - [x] NewChecker
+  - [x] Check（メインエントリーポイント）
+  - [x] CheckRequest/CheckResponse 構造体
+  - [x] validateRequest（リクエスト検証）
+  - [x] CheckMultiple（複数パーミッション一括チェック）
+  - [x] 深さ制限チェック（Evaluator で実装済み）
+  - [x] contextualTuples 統合
+  - [x] ユニットテスト（13 テスト）
+    - [x] 基本パーミッションテスト (2 テスト)
+    - [x] 論理演算パーミッションテスト (1 テスト)
+    - [x] 階層的パーミッションテスト (1 テスト)
+    - [x] ABAC パーミッションテスト (2 テスト)
+    - [x] ContextualTuples テスト (1 テスト)
+    - [x] エラーケーステスト (4 テスト)
+    - [x] CheckMultiple テスト (3 テスト)
 
 #### 5.4 Expand 実装
 
-- [ ] internal/services/authorization/expander.go
-  - [ ] Expander 構造体
-  - [ ] ExpandNode 構造体
-  - [ ] Expand（権限ツリー構築）
-  - [ ] expandRule（ルールごとのノード構築）
-  - [ ] ユニットテスト
+- [x] internal/services/authorization/expander.go
+  - [x] Expander 構造体
+  - [x] ExpandNode 構造体（union/intersection/exclusion/leaf）
+  - [x] Expand（権限ツリー構築）
+  - [x] expandRule（ルールごとのノード構築）
+  - [x] expandRelation（関係ベース展開）
+  - [x] expandLogical（論理演算展開）
+  - [x] expandHierarchical（階層的展開）
+  - [x] expandABAC（ABAC ルール展開）
+  - [x] parseEntityRef（エンティティ参照パース）
+  - [x] validateRequest（リクエスト検証）
+  - [x] 深さ制限チェック（MaxDepth = 100）
+  - [x] ユニットテスト（15 テスト）
+    - [x] 基本リレーション展開テスト (1 テスト)
+    - [x] 論理演算 OR 展開テスト (1 テスト)
+    - [x] 論理演算 AND 展開テスト (1 テスト)
+    - [x] 論理演算 NOT 展開テスト (1 テスト)
+    - [x] 階層的パーミッション展開テスト (1 テスト)
+    - [x] ABAC ルール展開テスト (1 テスト)
+    - [x] 空リレーション展開テスト (1 テスト)
+    - [x] 複雑なネスト構造展開テスト (1 テスト)
+    - [x] エラーケーステスト (6 テスト)
+    - [x] parseEntityRef テスト (5 テスト)
+    - [x] MaxDepth エラーテスト (1 テスト)
 
 #### 5.5 Lookup 実装
 
-- [ ] internal/services/authorization/lookup.go
-  - [ ] Lookup 構造体
-  - [ ] LookupEntity（許可されたエンティティ検索）
-  - [ ] LookupSubject（許可されたサブジェクト検索）
-  - [ ] ページネーション対応
-  - [ ] ユニットテスト
+- [x] internal/services/authorization/lookup.go
+  - [x] Lookup 構造体
+  - [x] LookupEntity（許可されたエンティティ検索）
+  - [x] LookupSubject（許可されたサブジェクト検索）
+  - [x] getCandidateEntityIDs（候補エンティティ ID 取得）
+  - [x] getCandidateSubjectIDs（候補サブジェクト ID 取得）
+  - [x] validateLookupEntityRequest（リクエスト検証）
+  - [x] validateLookupSubjectRequest（リクエスト検証）
+  - [x] ページネーション対応（PageSize/PageToken）
+  - [x] ユニットテスト（16 テスト）
+    - [x] LookupEntity 基本テスト (1 テスト)
+    - [x] LookupEntity アクセスなしテスト (1 テスト)
+    - [x] LookupEntity ページネーションテスト (1 テスト)
+    - [x] LookupEntity ContextualTuples テスト (1 テスト)
+    - [x] LookupSubject 基本テスト (1 テスト)
+    - [x] LookupSubject アクセスなしテスト (1 テスト)
+    - [x] LookupSubject ページネーションテスト (1 テスト)
+    - [x] LookupEntity エラーケーステスト (7 テスト)
+    - [x] LookupSubject エラーケーステスト (7 テスト)
+    - [x] LookupSubject 論理演算パーミッションテスト (1 テスト)
 
 ---
 
@@ -425,7 +467,7 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 ### 現在のステータス
 
-全体進捗: 45% (基盤構築 + ドメインエンティティ + Repository + DSL パーサー + CEL エンジン + Evaluator 完了)
+全体進捗: 50% (基盤構築 + ドメインエンティティ + Repository + DSL パーサー + 認可エンジン完了)
 
 #### 完了タスク
 
@@ -439,12 +481,11 @@ Phase: Phase 1 - キャッシュレス完全実装
 - [x] Repository インターフェース定義（Schema, Relation, Attribute）
 - [x] Repository PostgreSQL 実装（Schema, Relation, Attribute）
 - [x] DSL パーサー実装（Lexer, Parser, Validator）
-- [x] CEL エンジン実装（ABAC ルール評価）
-- [x] Evaluator 実装（ルール評価エンジン）
+- [x] 認可エンジン実装（CEL エンジン、Evaluator、Checker、Expander、Lookup）
 
 #### 進行中タスク
 
-- [ ] Check 実装
+- [ ] Schema Service 実装
 
 #### 次のマイルストーン
 
@@ -568,6 +609,72 @@ Milestone 4: 認可エンジン実装完了（Week 4）
     - MaxDepth エラーテスト: 1 テスト
     - 複雑なルールテスト（(owner or editor) and rule(...)）: 2 テスト
   - 合計 16 テストケース全て成功
+- Checker 実装完了
+  - Checker 実装（checker.go）
+    - CheckRequest/CheckResponse 構造体（リクエスト/レスポンス定義）
+    - Check メソッド（パーミッションチェックのメインエントリーポイント）
+    - validateRequest（リクエストパラメータ検証）
+    - CheckMultiple（複数パーミッション一括チェック）
+    - Evaluator との統合（ルール評価委譲）
+    - スキーマ/エンティティ/パーミッション解決
+    - contextualTuples 対応
+  - ユニットテスト実装（checker_test.go）
+    - 基本パーミッションテスト（owner/non-owner）: 2 テスト
+    - 論理演算パーミッションテスト（OR）: 1 テスト
+    - 階層的パーミッションテスト（parent.view）: 1 テスト
+    - ABAC パーミッションテスト（public document）: 2 テスト
+    - ContextualTuples テスト: 1 テスト
+    - エラーケーステスト（バリデーション、未定義エンティティ/パーミッション）: 4 テスト
+    - CheckMultiple テスト（一括チェック、部分アクセス、存在しないパーミッション）: 3 テスト
+  - 合計 14 テストケース全て成功
+- Expander 実装完了
+  - Expander 実装（expander.go）
+    - ExpandNode 構造体（union/intersection/exclusion/leaf ノードタイプ）
+    - Expand メソッド（権限ツリー構築のメインエントリーポイント）
+    - expandRule（ルールタイプに応じた展開ディスパッチ）
+    - expandRelation（関係ベースルールの展開、全サブジェクト列挙）
+    - expandLogical（論理演算ルールの展開、OR/AND/NOT）
+    - expandHierarchical（階層的ルールの展開、親エンティティの再帰的展開）
+    - expandABAC（ABAC ルールの展開、leaf ノードで式を返す）
+    - parseEntityRef（エンティティ参照パース、"type:id" 形式）
+    - validateRequest（リクエストパラメータ検証）
+    - 深さ制限チェック（MaxDepth = 100、循環参照対策）
+  - ユニットテスト実装（expander_test.go）
+    - 基本リレーション展開テスト（複数サブジェクトの union ノード）: 1 テスト
+    - 論理演算 OR 展開テスト（union ノード）: 1 テスト
+    - 論理演算 AND 展開テスト（intersection ノード）: 1 テスト
+    - 論理演算 NOT 展開テスト（exclusion ノード）: 1 テスト
+    - 階層的パーミッション展開テスト（parent.view の再帰展開）: 1 テスト
+    - ABAC ルール展開テスト（leaf ノードで式を返す）: 1 テスト
+    - 空リレーション展開テスト（子なし union ノード）: 1 テスト
+    - 複雑なネスト構造展開テスト（owner and (editor or admin)）: 1 テスト
+    - エラーケーステスト（バリデーション、未定義エンティティ/パーミッション）: 6 テスト
+    - parseEntityRef テスト（正常系・異常系）: 5 テスト
+    - MaxDepth エラーテスト: 1 テスト
+  - 合計 15 テストケース全て成功（11 Expand + 4 parseEntityRef）
+- Lookup 実装完了
+  - Lookup 実装（lookup.go）
+    - Lookup 構造体（Checker、SchemaRepository、RelationRepository への依存）
+    - LookupEntity（許可されたエンティティ検索のメインエントリーポイント）
+    - LookupSubject（許可されたサブジェクト検索のメインエントリーポイント）
+    - getCandidateEntityIDs（候補エンティティ ID 取得、DB から全 tuple 検索）
+    - getCandidateSubjectIDs（候補サブジェクト ID 取得、DB から全 tuple 検索）
+    - validateLookupEntityRequest（リクエストパラメータ検証）
+    - validateLookupSubjectRequest（リクエストパラメータ検証）
+    - ページネーション対応（PageSize/PageToken サポート）
+    - ブルートフォース実装（Phase 1、キャッシュなし）
+  - ユニットテスト実装（lookup_test.go）
+    - LookupEntity 基本テスト（複数エンティティへのアクセス検索）: 1 テスト
+    - LookupEntity アクセスなしテスト（アクセス権なしの場合）: 1 テスト
+    - LookupEntity ページネーションテスト（PageSize 制限）: 1 テスト
+    - LookupEntity ContextualTuples テスト（一時的な tuple 対応）: 1 テスト
+    - LookupSubject 基本テスト（複数サブジェクトへのアクセス検索）: 1 テスト
+    - LookupSubject アクセスなしテスト（アクセス権なしの場合）: 1 テスト
+    - LookupSubject ページネーションテスト（PageSize 制限）: 1 テスト
+    - LookupEntity エラーケーステスト（バリデーション、未定義エンティティ/パーミッション）: 7 テスト
+    - LookupSubject エラーケーステスト（バリデーション、未定義エンティティ/パーミッション）: 7 テスト
+    - LookupSubject 論理演算パーミッションテスト（OR 演算）: 1 テスト
+  - 合計 16 テストケース全て成功（10 基本 + 14 エラーケース）
 
 ---
 
