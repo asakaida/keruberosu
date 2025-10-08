@@ -69,8 +69,8 @@ Keruberosu は **単一の gRPC サービス（AuthorizationService）** とし�
 **理由**：
 
 1. **業界標準に準拠**: Google Zanzibar、Permify、Auth0 FGA、Ory Keto など、全ての主要な認可システムが単一サービスアプローチを採用
-2. **ドメインの不可分性**: 認可は Schema（定義）、Relations（データ）、Authorization（判定）が密接に連携する1つのドメイン
-3. **クライアント利便性**: 1つのサービスに接続するだけで全操作が可能
+2. **ドメインの不可分性**: 認可は Schema（定義）、Relations（データ）、Authorization（判定）が密接に連携する 1 つのドメイン
+3. **クライアント利便性**: 1 つのサービスに接続するだけで全操作が可能
 4. **運用の単純化**: デプロイ、モニタリング、トラブルシューティングが容易
 5. **Permify 互換性**: Permify の API 設計を完全に踏襲
 
@@ -186,8 +186,20 @@ entities 層は 1 ファイル 1 構造体の原則に従い、責務を明確�
 
 services 層は機能ごとに分割し、ABAC/ReBAC の区別を実装詳細として隠蔽します。
 
+**Service 層の責務**:
+
+- Repository 層から取得した生データを処理
+- ビジネスロジック、パース処理、検証を担当
+- 上位層（ハンドラー）に必要な形式でデータを提供
+
+**ファイル構成**:
+
 - `parser/`: DSL の字句解析・構文解析・検証を担当
-- `schema_service.go`: スキーマの保存・取得・変換を担当
+- `schema_service.go`: スキーマ管理サービス
+  - DSL パース（Lexer → Parser → AST → Validator）
+  - Entities の生成（`GetSchemaEntity`メソッドでパース済み Schema を返す）
+  - スキーマの保存・取得・検証
+  - Repository 層から取得した DSL 文字列を解析し、内部表現に変換
 - `authorization/`: 全ての認可処理を統合
   - `evaluator.go`: ルール評価のコア（ReBAC の関係性チェックと ABAC の CEL 評価を統合）
   - `checker.go`: Check API の実装
@@ -195,12 +207,28 @@ services 層は機能ごとに分割し、ABAC/ReBAC の区別を実装詳細と
   - `lookup.go`: LookupEntity/LookupSubject API の実装（ABAC ルールにも対応）
   - `cel.go`: CEL エンジンのラッパー
 
+**重要な設計パターン**:
+
+- `SchemaServiceInterface`: authorization パッケージで定義（循環依存回避）
+  - Evaluator、Checker、Expander、Lookup はこのインターフェースを使用
+  - `GetSchemaEntity(ctx, tenantID)`メソッドでパース済み Schema を取得
+
 この設計により、Lookup などの機能が ReBAC/ABAC 両方で使えることが明確になります。
 
 #### repositories 層の設計
 
 DB の差し替えを想定し、インターフェースと実装を分離します。
 
+**Repository 層の責務**:
+
+- **DB への入出力のみを担当**（Create/Read/Update/Delete）
+- パース処理やビジネスロジックは含まない
+- 生データ（DSL 文字列、タプル、属性値）のみを扱う
+- エラーハンドリング：センチネルエラー（`repositories.ErrNotFound`）を使用
+
+**ファイル構成**:
+
+- `errors.go`: センチネルエラー定義（`ErrNotFound`など）
 - `schema_repository.go`: SchemaRepository インターフェース定義
 - `relation_repository.go`: RelationRepository インターフェース定義
 - `attribute_repository.go`: AttributeRepository インターフェース定義
@@ -507,15 +535,31 @@ func (g *Generator) generatePermissionRule(rule PermissionRuleAST) string
 
 #### 4.1 スキーマリポジトリ
 
+**責務**: DB への入出力のみ。DSL パース処理は Service 層で実施。
+
+**エラーハンドリング**:
+
+- スキーマが存在しない場合: `repositories.ErrNotFound`を wrap して返す
+- Service 層で`errors.Is(err, repositories.ErrNotFound)`でチェック
+
 インターフェース定義:
 
 ```go
 // internal/repositories/schema_repository.go
 
 type SchemaRepository interface {
+    // Create creates a new schema for the tenant
     Create(ctx context.Context, tenantID string, schemaDSL string) error
+
+    // GetByTenant retrieves schema by tenant ID
+    // Returns ErrNotFound if schema does not exist
+    // Note: Entities field will be empty (populated by service layer)
     GetByTenant(ctx context.Context, tenantID string) (*entities.Schema, error)
+
+    // Update updates an existing schema
     Update(ctx context.Context, tenantID string, schemaDSL string) error
+
+    // Delete deletes a schema
     Delete(ctx context.Context, tenantID string) error
 }
 ```
@@ -539,7 +583,49 @@ func (r *PostgresSchemaRepository) Create(ctx context.Context, tenantID string, 
     return err
 }
 
+func (r *PostgresSchemaRepository) GetByTenant(ctx context.Context, tenantID string) (*entities.Schema, error) {
+    query := `
+        SELECT schema_dsl, created_at, updated_at
+        FROM schemas
+        WHERE tenant_id = $1
+    `
+    var schemaDSL string
+    var createdAt, updatedAt time.Time
+
+    err := r.db.QueryRowContext(ctx, query, tenantID).Scan(&schemaDSL, &createdAt, &updatedAt)
+    if err == sql.ErrNoRows {
+        // Return ErrNotFound wrapped with context
+        return nil, fmt.Errorf("schema not found for tenant %s: %w", tenantID, repositories.ErrNotFound)
+    }
+    if err != nil {
+        return nil, fmt.Errorf("failed to get schema: %w", err)
+    }
+
+    schema := &entities.Schema{
+        TenantID:  tenantID,
+        DSL:       schemaDSL,
+        CreatedAt: createdAt,
+        UpdatedAt: updatedAt,
+        // Note: Entities will be populated by the parser in the service layer
+    }
+
+    return schema, nil
+}
+
 // その他のメソッド実装...
+```
+
+**センチネルエラー定義**:
+
+```go
+// internal/repositories/errors.go
+
+package repositories
+
+import "errors"
+
+// ErrNotFound is returned when a requested resource is not found
+var ErrNotFound = errors.New("not found")
 ```
 
 #### 4.2 リレーションリポジトリ
@@ -646,24 +732,35 @@ func (r *PostgresAttributeRepository) Write(ctx context.Context, tenantID string
 
 #### 5.1 ルール評価（Evaluator）
 
+**SchemaServiceInterface**: 循環依存を回避するため、authorization パッケージで定義
+
 ```go
 // internal/services/authorization/evaluator.go
 
+// SchemaServiceInterface defines the interface for schema operations
+// This interface is defined here to avoid circular dependency
+type SchemaServiceInterface interface {
+    GetSchemaEntity(ctx context.Context, tenantID string) (*entities.Schema, error)
+}
+
 type Evaluator struct {
-    relationRepo repositories.RelationRepository
+    schemaService SchemaServiceInterface
+    relationRepo  repositories.RelationRepository
     attributeRepo repositories.AttributeRepository
-    celEngine    *CELEngine
+    celEngine     *CELEngine
 }
 
 func NewEvaluator(
+    schemaService SchemaServiceInterface,
     relationRepo repositories.RelationRepository,
     attributeRepo repositories.AttributeRepository,
     celEngine *CELEngine,
 ) *Evaluator {
     return &Evaluator{
-        relationRepo: relationRepo,
+        schemaService: schemaService,
+        relationRepo:  relationRepo,
         attributeRepo: attributeRepo,
-        celEngine: celEngine,
+        celEngine:     celEngine,
     }
 }
 
@@ -835,11 +932,15 @@ resource.public == true || resource.owner == subject.id
 // internal/services/authorization/checker.go
 
 type Checker struct {
-    evaluator *Evaluator
+    schemaService SchemaServiceInterface
+    evaluator     *Evaluator
 }
 
-func NewChecker(evaluator *Evaluator) *Checker {
-    return &Checker{evaluator: evaluator}
+func NewChecker(schemaService SchemaServiceInterface, evaluator *Evaluator) *Checker {
+    return &Checker{
+        schemaService: schemaService,
+        evaluator:     evaluator,
+    }
 }
 
 func (c *Checker) Check(
@@ -878,7 +979,15 @@ func (c *Checker) Check(
 // internal/services/authorization/expander.go
 
 type Expander struct {
-    relationRepo repositories.RelationRepository
+    schemaService SchemaServiceInterface
+    relationRepo  repositories.RelationRepository
+}
+
+func NewExpander(schemaService SchemaServiceInterface, relationRepo repositories.RelationRepository) *Expander {
+    return &Expander{
+        schemaService: schemaService,
+        relationRepo:  relationRepo,
+    }
 }
 
 type ExpandNode struct {
@@ -920,14 +1029,20 @@ func (e *Expander) expandRule(
 // internal/services/authorization/lookup.go
 
 type Lookup struct {
-    checker *Checker
-    relationRepo repositories.RelationRepository
+    schemaService SchemaServiceInterface
+    checker       *Checker
+    relationRepo  repositories.RelationRepository
 }
 
-func NewLookup(checker *Checker, relationRepo repositories.RelationRepository) *Lookup {
+func NewLookup(
+    schemaService SchemaServiceInterface,
+    checker *Checker,
+    relationRepo repositories.RelationRepository,
+) *Lookup {
     return &Lookup{
-        checker: checker,
-        relationRepo: relationRepo,
+        schemaService: schemaService,
+        checker:       checker,
+        relationRepo:  relationRepo,
     }
 }
 
@@ -976,8 +1091,9 @@ func (l *Lookup) LookupSubject(
 Google Zanzibar、Permify、Auth0 FGA などの業界標準に従い、認可サービスは**単一の gRPC サービス**として実装します。
 
 **理由**：
-- 認可は分離できない1つのドメイン（Schema、Relations、Authorizationは密接に連携）
-- クライアントが1つのサービスに接続するだけで全操作が可能
+
+- 認可は分離できない 1 つのドメイン（Schema、Relations、Authorization は密接に連携）
+- クライアントが 1 つのサービスに接続するだけで全操作が可能
 - Permify 互換性の維持
 - デプロイ・運用の単純化
 
@@ -985,6 +1101,12 @@ Google Zanzibar、Permify、Auth0 FGA などの業界標準に従い、認可サ
 
 ```go
 // internal/handlers/authorization_handler.go
+
+import (
+    "context"
+    "errors"  // For ErrNotFound handling
+    // ...
+)
 
 type AuthorizationHandler struct {
     // Schema management
@@ -995,10 +1117,9 @@ type AuthorizationHandler struct {
     attributeRepo repositories.AttributeRepository
 
     // Authorization operations
-    checker    CheckerInterface
-    expander   ExpanderInterface
-    lookup     LookupInterface
-    schemaRepo repositories.SchemaRepository
+    checker  CheckerInterface
+    expander ExpanderInterface
+    lookup   LookupInterface
 
     pb.UnimplementedAuthorizationServiceServer
 }
@@ -1066,9 +1187,11 @@ func (h *AuthorizationHandler) LookupSubject(ctx context.Context, req *pb.Lookup
 }
 
 func (h *AuthorizationHandler) SubjectPermission(ctx context.Context, req *pb.SubjectPermissionRequest) (*pb.SubjectPermissionResponse, error) {
-    // 1. スキーマから対象エンティティの全パーミッションを取得
-    // 2. 各パーミッションに対して Checker.Check 実行
-    // 3. 結果を map[permission]CheckResult で返却
+    // 1. schemaService.GetSchemaEntity() でパース済みスキーマを取得
+    // 2. errors.Is(err, repositories.ErrNotFound) でエラーハンドリング
+    // 3. 対象エンティティの全パーミッションを取得
+    // 4. 各パーミッションに対して Checker.Check 実行
+    // 5. 結果を map[permission]CheckResult で返却
 }
 
 func (h *AuthorizationHandler) LookupEntityStream(req *pb.LookupEntityRequest, stream pb.AuthorizationService_LookupEntityStreamServer) error {

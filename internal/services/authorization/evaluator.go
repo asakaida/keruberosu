@@ -13,9 +13,15 @@ const (
 	MaxDepth = 100
 )
 
+// SchemaServiceInterface defines the interface for schema operations
+// This interface is defined here to avoid circular dependency
+type SchemaServiceInterface interface {
+	GetSchemaEntity(ctx context.Context, tenantID string) (*entities.Schema, error)
+}
+
 // Evaluator evaluates permission rules
 type Evaluator struct {
-	schemaRepo    repositories.SchemaRepository
+	schemaService SchemaServiceInterface
 	relationRepo  repositories.RelationRepository
 	attributeRepo repositories.AttributeRepository
 	celEngine     *CELEngine
@@ -34,13 +40,13 @@ type EvaluationRequest struct {
 
 // NewEvaluator creates a new Evaluator
 func NewEvaluator(
-	schemaRepo repositories.SchemaRepository,
+	schemaService SchemaServiceInterface,
 	relationRepo repositories.RelationRepository,
 	attributeRepo repositories.AttributeRepository,
 	celEngine *CELEngine,
 ) *Evaluator {
 	return &Evaluator{
-		schemaRepo:    schemaRepo,
+		schemaService: schemaService,
 		relationRepo:  relationRepo,
 		attributeRepo: attributeRepo,
 		celEngine:     celEngine,
@@ -167,8 +173,8 @@ func (e *Evaluator) evaluateHierarchical(
 	req *EvaluationRequest,
 	rule *entities.HierarchicalRule,
 ) (bool, error) {
-	// Get schema to find the relation's target type
-	schema, err := e.schemaRepo.GetByTenant(ctx, req.TenantID)
+	// Get parsed schema to find the relation's target type
+	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID)
 	if err != nil {
 		return false, fmt.Errorf("failed to get schema: %w", err)
 	}

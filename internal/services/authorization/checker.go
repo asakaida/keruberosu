@@ -9,7 +9,8 @@ import (
 
 // Checker provides permission checking functionality
 type Checker struct {
-	evaluator *Evaluator
+	schemaService SchemaServiceInterface
+	evaluator     *Evaluator
 }
 
 // CheckRequest contains the parameters for a permission check
@@ -29,9 +30,10 @@ type CheckResponse struct {
 }
 
 // NewChecker creates a new Checker
-func NewChecker(evaluator *Evaluator) *Checker {
+func NewChecker(schemaService SchemaServiceInterface, evaluator *Evaluator) *Checker {
 	return &Checker{
-		evaluator: evaluator,
+		schemaService: schemaService,
+		evaluator:     evaluator,
 	}
 }
 
@@ -43,13 +45,10 @@ func (c *Checker) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 		return nil, fmt.Errorf("invalid check request: %w", err)
 	}
 
-	// Get schema from evaluator's schema repository
-	schema, err := c.evaluator.schemaRepo.GetByTenant(ctx, req.TenantID)
+	// Get parsed schema
+	schema, err := c.schemaService.GetSchemaEntity(ctx, req.TenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
-	}
-	if schema == nil {
-		return nil, fmt.Errorf("schema not found for tenant: %s", req.TenantID)
 	}
 
 	// Get entity definition

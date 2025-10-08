@@ -1047,8 +1047,25 @@ func TestAuthorizationHandler_SubjectPermission_Success(t *testing.T) {
 		},
 	}
 
+	mockSchemaService := &mockSchemaService{
+		getSchemaEntityFunc: func(ctx context.Context, tenantID string) (*entities.Schema, error) {
+			return &entities.Schema{
+				TenantID: tenantID,
+				Entities: []*entities.Entity{
+					{
+						Name: "document",
+						Permissions: []*entities.Permission{
+							{Name: "view"},
+							{Name: "edit"},
+						},
+					},
+				},
+			}, nil
+		},
+	}
+
 	handler := NewAuthorizationHandler(
-		&mockSchemaService{},
+		mockSchemaService,
 		&mockRelationRepository{},
 		&mockAttributeRepository{},
 		mockChecker,
@@ -1091,8 +1108,14 @@ func TestAuthorizationHandler_SubjectPermission_SchemaNotFound(t *testing.T) {
 		},
 	}
 
+	mockSchemaService := &mockSchemaService{
+		getSchemaEntityFunc: func(ctx context.Context, tenantID string) (*entities.Schema, error) {
+			return nil, fmt.Errorf("schema not found for tenant %s: %w", tenantID, repositories.ErrNotFound)
+		},
+	}
+
 	handler := NewAuthorizationHandler(
-		&mockSchemaService{},
+		mockSchemaService,
 		&mockRelationRepository{},
 		&mockAttributeRepository{},
 		&mockChecker{},
@@ -1133,8 +1156,19 @@ func TestAuthorizationHandler_SubjectPermission_EntityNotFound(t *testing.T) {
 		},
 	}
 
+	mockSchemaService := &mockSchemaService{
+		getSchemaEntityFunc: func(ctx context.Context, tenantID string) (*entities.Schema, error) {
+			return &entities.Schema{
+				TenantID: tenantID,
+				Entities: []*entities.Entity{
+					{Name: "other_entity"},
+				},
+			}, nil
+		},
+	}
+
 	handler := NewAuthorizationHandler(
-		&mockSchemaService{},
+		mockSchemaService,
 		&mockRelationRepository{},
 		&mockAttributeRepository{},
 		&mockChecker{},

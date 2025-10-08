@@ -19,8 +19,8 @@ type ExpandNode struct {
 
 // Expander builds permission trees showing why permissions are granted
 type Expander struct {
-	schemaRepo   repositories.SchemaRepository
-	relationRepo repositories.RelationRepository
+	schemaService SchemaServiceInterface
+	relationRepo  repositories.RelationRepository
 }
 
 // ExpandRequest contains the parameters for expanding a permission tree
@@ -38,12 +38,12 @@ type ExpandResponse struct {
 
 // NewExpander creates a new Expander
 func NewExpander(
-	schemaRepo repositories.SchemaRepository,
+	schemaService SchemaServiceInterface,
 	relationRepo repositories.RelationRepository,
 ) *Expander {
 	return &Expander{
-		schemaRepo:   schemaRepo,
-		relationRepo: relationRepo,
+		schemaService: schemaService,
+		relationRepo:  relationRepo,
 	}
 }
 
@@ -55,13 +55,10 @@ func (e *Expander) Expand(ctx context.Context, req *ExpandRequest) (*ExpandRespo
 		return nil, fmt.Errorf("invalid expand request: %w", err)
 	}
 
-	// Get schema
-	schema, err := e.schemaRepo.GetByTenant(ctx, req.TenantID)
+	// Get parsed schema
+	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
-	}
-	if schema == nil {
-		return nil, fmt.Errorf("schema not found for tenant: %s", req.TenantID)
 	}
 
 	// Get entity definition

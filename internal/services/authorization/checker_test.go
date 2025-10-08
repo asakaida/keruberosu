@@ -24,8 +24,9 @@ func TestChecker_Check_BasicPermission(t *testing.T) {
 	}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
 
 	tests := []struct {
 		name      string
@@ -91,8 +92,9 @@ func TestChecker_Check_LogicalPermission(t *testing.T) {
 	}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
 
 	// Test "edit" permission which is "owner or editor"
 	req := &CheckRequest{
@@ -171,8 +173,9 @@ func TestChecker_Check_HierarchicalPermission(t *testing.T) {
 	}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
 
 	req := &CheckRequest{
 		TenantID:   "test-tenant",
@@ -231,8 +234,9 @@ func TestChecker_Check_ABACPermission(t *testing.T) {
 		Value:      false,
 	})
 
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
 
 	tests := []struct {
 		name      string
@@ -279,8 +283,9 @@ func TestChecker_Check_ContextualTuples(t *testing.T) {
 	relationRepo := &mockRelationRepository{} // Empty repository
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
 
 	req := &CheckRequest{
 		TenantID:   "test-tenant",
@@ -314,8 +319,9 @@ func TestChecker_Check_ErrorCases(t *testing.T) {
 	relationRepo := &mockRelationRepository{}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
 
 	tests := []struct {
 		name       string
@@ -405,8 +411,9 @@ func TestChecker_CheckMultiple(t *testing.T) {
 	}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
 
 	req := &CheckRequest{
 		TenantID:   "test-tenant",
@@ -452,8 +459,9 @@ func TestChecker_CheckMultiple_PartialAccess(t *testing.T) {
 	}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
 
 	req := &CheckRequest{
 		TenantID:   "test-tenant",
@@ -492,8 +500,9 @@ func TestChecker_CheckMultiple_NonexistentPermission(t *testing.T) {
 	relationRepo := &mockRelationRepository{}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
 
 	req := &CheckRequest{
 		TenantID:   "test-tenant",

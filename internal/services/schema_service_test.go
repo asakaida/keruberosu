@@ -2,9 +2,11 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/asakaida/keruberosu/internal/entities"
+	"github.com/asakaida/keruberosu/internal/repositories"
 )
 
 // Mock SchemaRepository
@@ -29,7 +31,7 @@ func (m *mockSchemaRepository) Create(ctx context.Context, tenantID string, sche
 func (m *mockSchemaRepository) GetByTenant(ctx context.Context, tenantID string) (*entities.Schema, error) {
 	schema, exists := m.schemas[tenantID]
 	if !exists {
-		return nil, nil
+		return nil, fmt.Errorf("schema not found for tenant %s: %w", tenantID, repositories.ErrNotFound)
 	}
 	return schema, nil
 }
@@ -265,14 +267,14 @@ func TestSchemaService_DeleteSchema(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify schema was deleted
+	// Verify schema was deleted - should return ErrNotFound
 	schema, err := repo.GetByTenant(context.Background(), "test-tenant")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected ErrNotFound after deletion")
 	}
 
 	if schema != nil {
-		t.Fatal("expected schema to be deleted")
+		t.Fatal("expected nil schema after deletion")
 	}
 }
 

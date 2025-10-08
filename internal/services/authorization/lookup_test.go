@@ -37,9 +37,10 @@ func TestLookup_LookupEntity_Basic(t *testing.T) {
 	}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
-	lookup := NewLookup(checker, &mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo)
 
 	req := &LookupEntityRequest{
 		TenantID:   "test-tenant",
@@ -87,9 +88,10 @@ func TestLookup_LookupEntity_NoAccess(t *testing.T) {
 	}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
-	lookup := NewLookup(checker, &mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo)
 
 	req := &LookupEntityRequest{
 		TenantID:   "test-tenant",
@@ -140,9 +142,10 @@ func TestLookup_LookupEntity_Pagination(t *testing.T) {
 	}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
-	lookup := NewLookup(checker, &mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo)
 
 	// First page
 	req := &LookupEntityRequest{
@@ -174,9 +177,10 @@ func TestLookup_LookupEntity_ContextualTuples(t *testing.T) {
 	relationRepo := &mockRelationRepository{}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
-	lookup := NewLookup(checker, &mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo)
 
 	req := &LookupEntityRequest{
 		TenantID:   "test-tenant",
@@ -239,9 +243,10 @@ func TestLookup_LookupSubject_Basic(t *testing.T) {
 	}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
-	lookup := NewLookup(checker, &mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo)
 
 	req := &LookupSubjectRequest{
 		TenantID:   "test-tenant",
@@ -290,9 +295,10 @@ func TestLookup_LookupSubject_NoAccess(t *testing.T) {
 	}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
-	lookup := NewLookup(checker, &mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo)
 
 	req := &LookupSubjectRequest{
 		TenantID:   "test-tenant",
@@ -343,9 +349,10 @@ func TestLookup_LookupSubject_Pagination(t *testing.T) {
 	}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
-	lookup := NewLookup(checker, &mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo)
 
 	// First page
 	req := &LookupSubjectRequest{
@@ -376,9 +383,10 @@ func TestLookup_LookupEntity_ErrorCases(t *testing.T) {
 	relationRepo := &mockRelationRepository{}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
-	lookup := NewLookup(checker, &mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo)
 
 	tests := []struct {
 		name       string
@@ -488,9 +496,10 @@ func TestLookup_LookupSubject_ErrorCases(t *testing.T) {
 	relationRepo := &mockRelationRepository{}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
-	lookup := NewLookup(checker, &mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo)
 
 	tests := []struct {
 		name       string
@@ -618,9 +627,10 @@ func TestLookup_LookupSubject_LogicalPermission(t *testing.T) {
 	}
 	attributeRepo := newMockAttributeRepository()
 	celEngine, _ := NewCELEngine()
-	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
-	checker := NewChecker(evaluator)
-	lookup := NewLookup(checker, &mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo)
 
 	req := &LookupSubjectRequest{
 		TenantID:   "test-tenant",

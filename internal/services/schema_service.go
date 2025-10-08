@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/asakaida/keruberosu/internal/entities"
@@ -62,13 +63,13 @@ func (s *SchemaService) WriteSchema(ctx context.Context, tenantID string, schema
 	}
 
 	// Check if schema already exists
-	existingSchema, err := s.schemaRepo.GetByTenant(ctx, tenantID)
-	if err != nil {
+	_, err = s.schemaRepo.GetByTenant(ctx, tenantID)
+	if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 		return fmt.Errorf("failed to check existing schema: %w", err)
 	}
 
 	// Create or update schema
-	if existingSchema == nil {
+	if errors.Is(err, repositories.ErrNotFound) {
 		// Create new schema
 		if err := s.schemaRepo.Create(ctx, tenantID, schemaDSL); err != nil {
 			return fmt.Errorf("failed to create schema: %w", err)
@@ -151,21 +152,36 @@ func (s *SchemaService) DeleteSchema(ctx context.Context, tenantID string) error
 }
 
 // GetSchemaEntity retrieves the parsed schema entity for internal use
+// This method parses the DSL and populates the Entities field
 func (s *SchemaService) GetSchemaEntity(ctx context.Context, tenantID string) (*entities.Schema, error) {
 	// Validate input
 	if tenantID == "" {
 		return nil, fmt.Errorf("tenant ID is required")
 	}
 
-	// Get schema from database
-	schema, err := s.schemaRepo.GetByTenant(ctx, tenantID)
+	// Get schema DSL from database (Entities field will be empty)
+	dbSchema, err := s.schemaRepo.GetByTenant(ctx, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}
 
-	if schema == nil {
-		return nil, fmt.Errorf("schema not found for tenant: %s", tenantID)
+	// Parse DSL to populate Entities field
+	lexer := parser.NewLexer(dbSchema.DSL)
+	p := parser.NewParser(lexer)
+	ast, err := p.Parse()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse schema DSL: %w", err)
 	}
 
-	return schema, nil
+	// Convert AST to Schema with Entities populated
+	parsedSchema, err := parser.ASTToSchema(tenantID, ast)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert AST to schema: %w", err)
+	}
+
+	// Preserve timestamps from database
+	parsedSchema.CreatedAt = dbSchema.CreatedAt
+	parsedSchema.UpdatedAt = dbSchema.UpdatedAt
+
+	return parsedSchema, nil
 }

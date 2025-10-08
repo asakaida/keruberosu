@@ -46,7 +46,7 @@ func (r *PostgresSchemaRepository) GetByTenant(ctx context.Context, tenantID str
 
 	err := r.db.QueryRowContext(ctx, query, tenantID).Scan(&schemaDSL, &createdAt, &updatedAt)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("schema not found for tenant: %s", tenantID)
+		return nil, fmt.Errorf("schema not found for tenant %s: %w", tenantID, repositories.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)

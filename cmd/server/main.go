@@ -73,10 +73,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create CEL engine: %v", err)
 	}
-	evaluator := authorization.NewEvaluator(schemaRepo, relationRepo, attributeRepo, celEngine)
-	checker := authorization.NewChecker(evaluator)
-	expander := authorization.NewExpander(schemaRepo, relationRepo)
-	lookup := authorization.NewLookup(checker, schemaRepo, relationRepo)
+	evaluator := authorization.NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := authorization.NewChecker(schemaService, evaluator)
+	expander := authorization.NewExpander(schemaService, relationRepo)
+	lookup := authorization.NewLookup(checker, schemaService, relationRepo)
 
 	// Initialize unified authorization handler
 	authHandler := handlers.NewAuthorizationHandler(

@@ -10,9 +10,9 @@ import (
 
 // Lookup provides entity and subject lookup functionality
 type Lookup struct {
-	checker      *Checker
-	schemaRepo   repositories.SchemaRepository
-	relationRepo repositories.RelationRepository
+	checker       *Checker
+	schemaService SchemaServiceInterface
+	relationRepo  repositories.RelationRepository
 }
 
 // LookupEntityRequest contains the parameters for looking up entities
@@ -54,13 +54,13 @@ type LookupSubjectResponse struct {
 // NewLookup creates a new Lookup
 func NewLookup(
 	checker *Checker,
-	schemaRepo repositories.SchemaRepository,
+	schemaService SchemaServiceInterface,
 	relationRepo repositories.RelationRepository,
 ) *Lookup {
 	return &Lookup{
-		checker:      checker,
-		schemaRepo:   schemaRepo,
-		relationRepo: relationRepo,
+		checker:       checker,
+		schemaService: schemaService,
+		relationRepo:  relationRepo,
 	}
 }
 
@@ -72,13 +72,10 @@ func (l *Lookup) LookupEntity(ctx context.Context, req *LookupEntityRequest) (*L
 		return nil, fmt.Errorf("invalid lookup entity request: %w", err)
 	}
 
-	// Get schema
-	schema, err := l.schemaRepo.GetByTenant(ctx, req.TenantID)
+	// Get parsed schema
+	schema, err := l.schemaService.GetSchemaEntity(ctx, req.TenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
-	}
-	if schema == nil {
-		return nil, fmt.Errorf("schema not found for tenant: %s", req.TenantID)
 	}
 
 	// Verify entity type exists
@@ -153,13 +150,10 @@ func (l *Lookup) LookupSubject(ctx context.Context, req *LookupSubjectRequest) (
 		return nil, fmt.Errorf("invalid lookup subject request: %w", err)
 	}
 
-	// Get schema
-	schema, err := l.schemaRepo.GetByTenant(ctx, req.TenantID)
+	// Get parsed schema
+	schema, err := l.schemaService.GetSchemaEntity(ctx, req.TenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
-	}
-	if schema == nil {
-		return nil, fmt.Errorf("schema not found for tenant: %s", req.TenantID)
 	}
 
 	// Verify entity type exists

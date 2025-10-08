@@ -29,7 +29,8 @@ func TestExpander_Expand_BasicRelation(t *testing.T) {
 		},
 	}
 
-	expander := NewExpander(&mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	expander := NewExpander(schemaService, relationRepo)
 
 	req := &ExpandRequest{
 		TenantID:   "test-tenant",
@@ -91,7 +92,8 @@ func TestExpander_Expand_LogicalOR(t *testing.T) {
 		},
 	}
 
-	expander := NewExpander(&mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	expander := NewExpander(schemaService, relationRepo)
 
 	req := &ExpandRequest{
 		TenantID:   "test-tenant",
@@ -172,7 +174,8 @@ func TestExpander_Expand_LogicalAND(t *testing.T) {
 		},
 	}
 
-	expander := NewExpander(&mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	expander := NewExpander(schemaService, relationRepo)
 
 	req := &ExpandRequest{
 		TenantID:   "test-tenant",
@@ -230,7 +233,8 @@ func TestExpander_Expand_LogicalNOT(t *testing.T) {
 		},
 	}
 
-	expander := NewExpander(&mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	expander := NewExpander(schemaService, relationRepo)
 
 	req := &ExpandRequest{
 		TenantID:   "test-tenant",
@@ -307,7 +311,8 @@ func TestExpander_Expand_Hierarchical(t *testing.T) {
 		},
 	}
 
-	expander := NewExpander(&mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	expander := NewExpander(schemaService, relationRepo)
 
 	req := &ExpandRequest{
 		TenantID:   "test-tenant",
@@ -368,7 +373,8 @@ func TestExpander_Expand_ABAC(t *testing.T) {
 	}
 
 	relationRepo := &mockRelationRepository{}
-	expander := NewExpander(&mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	expander := NewExpander(schemaService, relationRepo)
 
 	req := &ExpandRequest{
 		TenantID:   "test-tenant",
@@ -401,7 +407,8 @@ func TestExpander_Expand_EmptyRelation(t *testing.T) {
 		tuples: []*entities.RelationTuple{},
 	}
 
-	expander := NewExpander(&mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	expander := NewExpander(schemaService, relationRepo)
 
 	req := &ExpandRequest{
 		TenantID:   "test-tenant",
@@ -482,7 +489,8 @@ func TestExpander_Expand_ComplexNested(t *testing.T) {
 		},
 	}
 
-	expander := NewExpander(&mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	expander := NewExpander(schemaService, relationRepo)
 
 	req := &ExpandRequest{
 		TenantID:   "test-tenant",
@@ -522,7 +530,8 @@ func TestExpander_Expand_ComplexNested(t *testing.T) {
 func TestExpander_Expand_ErrorCases(t *testing.T) {
 	schema := createTestSchema()
 	relationRepo := &mockRelationRepository{}
-	expander := NewExpander(&mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	expander := NewExpander(schemaService, relationRepo)
 
 	tests := []struct {
 		name       string
@@ -711,7 +720,8 @@ func TestExpander_Expand_MaxDepth(t *testing.T) {
 	}
 
 	relationRepo := &mockRelationRepository{tuples: tuples}
-	expander := NewExpander(&mockSchemaRepository{schema}, relationRepo)
+	schemaService := &mockSchemaRepository{schema}
+	expander := NewExpander(schemaService, relationRepo)
 
 	req := &ExpandRequest{
 		TenantID:   "test-tenant",

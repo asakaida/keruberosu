@@ -2,7 +2,10 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"testing"
+
+	"github.com/asakaida/keruberosu/internal/repositories"
 )
 
 func TestSchemaRepository_Create(t *testing.T) {
@@ -77,12 +80,18 @@ func TestSchemaRepository_GetByTenant(t *testing.T) {
 		}
 	})
 
-	t.Run("異常系: 存在しないテナントID", func(t *testing.T) {
+	t.Run("異常系: 存在しないテナントID (ErrNotFoundを返す)", func(t *testing.T) {
 		tenantID := "nonexistent"
 
-		_, err := repo.GetByTenant(ctx, tenantID)
+		schema, err := repo.GetByTenant(ctx, tenantID)
 		if err == nil {
 			t.Fatal("Expected error for nonexistent tenant, got nil")
+		}
+		if !errors.Is(err, repositories.ErrNotFound) {
+			t.Errorf("Expected ErrNotFound, got: %v", err)
+		}
+		if schema != nil {
+			t.Errorf("Expected nil schema when error occurs, got: %+v", schema)
 		}
 	})
 }

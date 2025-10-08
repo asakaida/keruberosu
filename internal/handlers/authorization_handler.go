@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -418,13 +419,13 @@ func (h *AuthorizationHandler) SubjectPermission(ctx context.Context, req *pb.Su
 	// Phase 1: Use fixed tenant ID "default"
 	tenantID := "default"
 
-	// Get schema to find all permissions for this entity type
-	schema, err := h.schemaRepo.GetByTenant(ctx, tenantID)
+	// Get parsed schema to find all permissions for this entity type
+	schema, err := h.schemaService.GetSchemaEntity(ctx, tenantID)
 	if err != nil {
+		if errors.Is(err, repositories.ErrNotFound) {
+			return nil, status.Errorf(codes.NotFound, "schema not found for tenant: %s", tenantID)
+		}
 		return nil, status.Errorf(codes.Internal, "failed to get schema: %v", err)
-	}
-	if schema == nil {
-		return nil, status.Error(codes.NotFound, "schema not found")
 	}
 
 	// Get entity definition

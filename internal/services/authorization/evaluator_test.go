@@ -30,6 +30,12 @@ func (m *mockSchemaRepository) Delete(ctx context.Context, tenantID string) erro
 	return nil
 }
 
+// GetSchemaEntity implements SchemaServiceInterface
+// In tests, the schema already has Entities populated, so we just return it
+func (m *mockSchemaRepository) GetSchemaEntity(ctx context.Context, tenantID string) (*entities.Schema, error) {
+	return m.schema, nil
+}
+
 type mockRelationRepository struct {
 	tuples []*entities.RelationTuple
 }
