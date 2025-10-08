@@ -24,8 +24,8 @@ Phase: Phase 1 - キャッシュレス完全実装
 #### 1.2 インフラストラクチャ
 
 - [ ] docker-compose.yml 作成
-  - [ ] postgres-dev（ポート 5432）
-  - [ ] postgres-test（ポート 5433）
+  - [ ] postgres-dev（ポート 15432）
+  - [ ] postgres-test（ポート 25432）
 - [ ] internal/infrastructure/database/migrations/postgres/ 作成
   - [ ] 000001_create_schemas_table.up.sql
   - [ ] 000001_create_schemas_table.down.sql
