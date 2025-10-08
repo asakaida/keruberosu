@@ -73,96 +73,110 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 #### 2.1 Repository インターフェース定義
 
-- [ ] internal/repositories/schema_repository.go
+- [x] internal/repositories/schema_repository.go
 
-  - [ ] SchemaRepository インターフェース
-  - [ ] Create メソッド定義
-  - [ ] GetByTenant メソッド定義
-  - [ ] Update メソッド定義
-  - [ ] Delete メソッド定義
+  - [x] SchemaRepository インターフェース
+  - [x] Create メソッド定義
+  - [x] GetByTenant メソッド定義
+  - [x] Update メソッド定義
+  - [x] Delete メソッド定義
 
-- [ ] internal/repositories/relation_repository.go
+- [x] internal/repositories/relation_repository.go
 
-  - [ ] RelationFilter 構造体定義
-  - [ ] RelationRepository インターフェース
-  - [ ] Write メソッド定義
-  - [ ] Delete メソッド定義
-  - [ ] Read メソッド定義
-  - [ ] CheckExists メソッド定義
-  - [ ] BatchWrite メソッド定義
-  - [ ] BatchDelete メソッド定義
+  - [x] RelationFilter 構造体定義
+  - [x] RelationRepository インターフェース
+  - [x] Write メソッド定義
+  - [x] Delete メソッド定義
+  - [x] Read メソッド定義
+  - [x] CheckExists メソッド定義
+  - [x] BatchWrite メソッド定義
+  - [x] BatchDelete メソッド定義
 
-- [ ] internal/repositories/attribute_repository.go
-  - [ ] AttributeRepository インターフェース
-  - [ ] Write メソッド定義
-  - [ ] Read メソッド定義
-  - [ ] Delete メソッド定義
-  - [ ] GetValue メソッド定義
+- [x] internal/repositories/attribute_repository.go
+  - [x] AttributeRepository インターフェース
+  - [x] Write メソッド定義
+  - [x] Read メソッド定義
+  - [x] Delete メソッド定義
+  - [x] GetValue メソッド定義
 
 #### 2.2 PostgreSQL 実装
 
-- [ ] internal/repositories/postgres/schema_repository.go
+- [x] internal/repositories/postgres/schema_repository.go
 
-  - [ ] PostgresSchemaRepository 構造体
-  - [ ] NewPostgresSchemaRepository
-  - [ ] Create 実装
-  - [ ] GetByTenant 実装
-  - [ ] Update 実装
-  - [ ] Delete 実装
-  - [ ] ユニットテスト
+  - [x] PostgresSchemaRepository 構造体
+  - [x] NewPostgresSchemaRepository
+  - [x] Create 実装
+  - [x] GetByTenant 実装
+  - [x] Update 実装
+  - [x] Delete 実装
+  - [x] ユニットテスト（正常系・異常系）
 
-- [ ] internal/repositories/postgres/relation_repository.go
+- [x] internal/repositories/postgres/relation_repository.go
 
-  - [ ] PostgresRelationRepository 構造体
-  - [ ] NewPostgresRelationRepository
-  - [ ] Write 実装
-  - [ ] Delete 実装
-  - [ ] Read 実装
-  - [ ] CheckExists 実装
-  - [ ] BatchWrite 実装
-  - [ ] BatchDelete 実装
-  - [ ] ユニットテスト
+  - [x] PostgresRelationRepository 構造体
+  - [x] NewPostgresRelationRepository
+  - [x] Write 実装
+  - [x] Delete 実装
+  - [x] Read 実装
+  - [x] CheckExists 実装
+  - [x] BatchWrite 実装
+  - [x] BatchDelete 実装
+  - [x] ユニットテスト（正常系・異常系）
 
-- [ ] internal/repositories/postgres/attribute_repository.go
-  - [ ] PostgresAttributeRepository 構造体
-  - [ ] NewPostgresAttributeRepository
-  - [ ] Write 実装
-  - [ ] Read 実装
-  - [ ] Delete 実装
-  - [ ] GetValue 実装
-  - [ ] ユニットテスト
+- [x] internal/repositories/postgres/attribute_repository.go
+  - [x] PostgresAttributeRepository 構造体
+  - [x] NewPostgresAttributeRepository
+  - [x] Write 実装
+  - [x] Read 実装
+  - [x] Delete 実装
+  - [x] GetValue 実装
+  - [x] ユニットテスト（正常系・異常系）
 
 ---
 
 ### 3. ドメインエンティティ
 
-#### 3.1 基本エンティティ
+#### 3.1 スキーマ定義系エンティティ
 
-- [ ] internal/entities/schema.go
+- [x] internal/entities/schema.go
+  - [x] Schema 構造体
+  - [x] GetEntity ヘルパーメソッド
+  - [x] GetPermission ヘルパーメソッド
 
-  - [ ] Schema 構造体
-  - [ ] Entity 構造体
-  - [ ] Permission 構造体
-  - [ ] Relation 構造体
-  - [ ] ヘルパーメソッド（GetPermission, GetEntity 等）
+- [x] internal/entities/entity.go
+  - [x] Entity 構造体
+  - [x] GetRelation ヘルパーメソッド
+  - [x] GetPermission ヘルパーメソッド
+  - [x] GetAttributeSchema ヘルパーメソッド
 
-- [ ] internal/entities/relation.go
+- [x] internal/entities/relation.go
+  - [x] Relation 構造体（スキーマ内のリレーション定義）
 
-  - [ ] RelationTuple 構造体
-  - [ ] 検証ロジック
+- [x] internal/entities/attribute_schema.go
+  - [x] AttributeSchema 構造体（属性型定義）
 
-- [ ] internal/entities/attribute.go
-  - [ ] Attribute 構造体
-  - [ ] 型変換ロジック
+- [x] internal/entities/permission.go
+  - [x] Permission 構造体（権限定義）
 
-#### 3.2 権限ルールエンティティ
+- [x] internal/entities/rule.go
+  - [x] PermissionRule インターフェース
+  - [x] RelationRule 構造体
+  - [x] LogicalRule 構造体（OR/AND/NOT）
+  - [x] HierarchicalRule 構造体（parent.permission）
+  - [x] ABACRule 構造体（CEL 式）
 
-- [ ] internal/entities/permission.go
-  - [ ] PermissionRule インターフェース
-  - [ ] RelationRule 構造体
-  - [ ] LogicalRule 構造体（OR/AND/NOT）
-  - [ ] HierarchicalRule 構造体（parent.permission）
-  - [ ] ABACRule 構造体（CEL 式）
+#### 3.2 データ系エンティティ
+
+- [x] internal/entities/relation_tuple.go
+  - [x] RelationTuple 構造体（実際のリレーションデータ）
+  - [x] Validate メソッド
+  - [x] String メソッド
+
+- [x] internal/entities/attribute.go
+  - [x] Attribute 構造体（実際の属性データ）
+  - [x] Validate メソッド
+  - [x] MarshalValue/UnmarshalValue メソッド
+  - [x] String メソッド
 
 ---
 
@@ -381,7 +395,7 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 ### 現在のステータス
 
-全体進捗: 10% (基盤構築完了)
+全体進捗: 25% (基盤構築 + ドメインエンティティ + Repository 完了)
 
 #### 完了タスク
 
@@ -391,18 +405,21 @@ Phase: Phase 1 - キャッシュレス完全実装
 - [x] プロジェクト初期化（go.mod, .gitignore, README.md）
 - [x] インフラストラクチャ（docker-compose, マイグレーション, config, postgres）
 - [x] Protocol Buffers 定義（common, authorization, audit）
+- [x] ドメインエンティティ（スキーマ定義系 + データ系）
+- [x] Repository インターフェース定義（Schema, Relation, Attribute）
+- [x] Repository PostgreSQL 実装（Schema, Relation, Attribute）
 
 #### 進行中タスク
 
-- [ ] データアクセス層（Repository）
+- [ ] DSL パーサー実装
 
 #### 次のマイルストーン
 
-Milestone 2: データアクセス層完了（Week 2）
+Milestone 3: DSL パーサー実装完了（Week 3）
 
-- Repository インターフェース定義
-- PostgreSQL 実装
-- ユニットテスト作成
+- Lexer 実装
+- Parser 実装
+- Validator 実装
 
 ---
 
@@ -432,6 +449,24 @@ Milestone 2: データアクセス層完了（Week 2）
   - authorization.proto 作成（AuthorizationService と全 API）
   - audit.proto 作成（AuditService）
   - scripts/generate-proto.sh 作成
+- ドメインエンティティ実装完了（Go ベストプラクティスに準拠）
+  - entities 層の再設計（1ファイル1構造体の原則）
+  - スキーマ定義系: schema.go, entity.go, relation.go, attribute_schema.go, permission.go, rule.go
+  - データ系: relation_tuple.go, attribute.go
+  - DESIGN.md と DEVELOPMENT.md を新構造に更新
+- Repository 層実装完了
+  - Repository インターフェース定義（schema_repository.go, relation_repository.go, attribute_repository.go）
+  - PostgreSQL 実装（postgres/schema_repository.go, postgres/relation_repository.go, postgres/attribute_repository.go）
+  - RelationFilter 構造体による柔軟なクエリフィルタリング
+  - Batch 操作のトランザクション対応
+  - ユニットテスト完了（49テストケース全て成功）
+    - SchemaRepository: 8テスト（正常系・異常系）
+    - RelationRepository: 24テスト（正常系・異常系）
+    - AttributeRepository: 17テスト（正常系・異常系）
+- テスト環境の整備
+  - config.go にプロジェクトルート自動検出機能追加（go.mod を基準）
+  - docker-compose.yml の healthcheck を活用（--wait フラグ）
+  - README.md にテスト実施方法を追加
 
 ---
 
@@ -454,6 +489,13 @@ Milestone 2: データアクセス層完了（Week 2）
 13. タイムスタンプ型: PostgreSQL では TIMESTAMPTZ を使用（タイムゾーン対応）
 14. Proto コード生成: scripts/generate-proto.sh を使用（Make 不使用）
 15. 環境設定: viper を使用、環境ごとに .env.{env} ファイルで管理（dev/test/prod）
+16. Entities 設計: 1ファイル1構造体の原則に従う（Go ベストプラクティス準拠）
+    - スキーマ定義系と実際のデータを明確に分離
+    - ファイル名と内容の一貫性を保つ（例: permission.go には Permission 構造体）
+17. テスト環境: test 環境で実行、.env.test から設定を読み込む
+    - config.InitConfig("test") で自動的に .env.test を検出
+    - go.mod の位置からプロジェクトルートを自動検出
+    - docker-compose up -d --wait で healthcheck 完了まで待機
 
 ### 検討中
 

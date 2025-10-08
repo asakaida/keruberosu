@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/spf13/viper"
 )
@@ -28,6 +30,29 @@ type DatabaseConfig struct {
 	SSLMode  string
 }
 
+// findProjectRoot finds the project root directory by looking for go.mod
+func findProjectRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	// Walk up the directory tree until we find go.mod
+	for {
+		goModPath := filepath.Join(dir, "go.mod")
+		if _, err := os.Stat(goModPath); err == nil {
+			return dir, nil
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached the root directory
+			return "", fmt.Errorf("go.mod not found in any parent directory")
+		}
+		dir = parent
+	}
+}
+
 // InitConfig initializes viper configuration
 // env: environment name (dev, test, prod)
 func InitConfig(env string) error {
@@ -35,11 +60,16 @@ func InitConfig(env string) error {
 		env = "dev"
 	}
 
+	// Find project root
+	projectRoot, err := findProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to find project root: %w", err)
+	}
+
 	// Set config file name based on environment
 	viper.SetConfigName(fmt.Sprintf(".env.%s", env))
 	viper.SetConfigType("env")
-	viper.AddConfigPath(".")
-	viper.AddConfigPath("..") // For tests running in subdirectories
+	viper.AddConfigPath(projectRoot) // Project root
 
 	// Read config file (optional, ignore error if not found)
 	_ = viper.ReadInConfig()

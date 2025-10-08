@@ -77,10 +77,14 @@ keruberosu/
 │       └── main.go                    # DB マイグレーションコマンド
 ├── internal/
 │   ├── entities/                      # ドメインエンティティ
-│   │   ├── schema.go                 # スキーマエンティティ
-│   │   ├── relation.go               # リレーションエンティティ
-│   │   ├── attribute.go              # アトリビュートエンティティ
-│   │   └── permission.go             # パーミッションルール定義
+│   │   ├── schema.go                 # Schema（スキーマ全体）
+│   │   ├── entity.go                 # Entity（エンティティ定義）
+│   │   ├── relation.go               # Relation（リレーション定義）
+│   │   ├── attribute_schema.go       # AttributeSchema（属性型定義）
+│   │   ├── permission.go             # Permission（権限定義）
+│   │   ├── rule.go                   # PermissionRule + 各ルール実装
+│   │   ├── relation_tuple.go         # RelationTuple（実際のリレーションデータ）
+│   │   └── attribute.go              # Attribute（実際の属性データ）
 │   ├── handlers/                      # gRPC ハンドラー
 │   │   ├── schema.go                 # スキーマ管理 API
 │   │   ├── data.go                   # データ管理 API
@@ -136,6 +140,24 @@ keruberosu/
 ```
 
 ### 設計の考え方
+
+#### entities 層の設計
+
+entities 層は1ファイル1構造体の原則に従い、責務を明確に分離しています。
+
+**スキーマ定義系**（DSLから生成される内部表現）：
+- `schema.go`: Schema - スキーマ全体を表現
+- `entity.go`: Entity - エンティティ定義（例: "document", "user"）
+- `relation.go`: Relation - リレーション定義（例: "owner: user"）
+- `attribute_schema.go`: AttributeSchema - 属性型定義（例: "public: boolean"）
+- `permission.go`: Permission - 権限定義（例: "edit = owner or editor"）
+- `rule.go`: PermissionRule インターフェース + 各ルール実装（RelationRule, LogicalRule, HierarchicalRule, ABACRule）
+
+**データ系**（実際に保存されるデータ）：
+- `relation_tuple.go`: RelationTuple - 関係データ（例: document:1#owner@user:alice）
+- `attribute.go`: Attribute - 属性データ（例: document:1.public = true）
+
+この設計により、スキーマの「定義」と実際の「データ」が明確に分離され、可読性と保守性が向上します。
 
 #### services 層の設計
 

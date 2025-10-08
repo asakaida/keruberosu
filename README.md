@@ -154,9 +154,45 @@ go run cmd/migrate/main.go goto <version>
 
 ### テストの実行
 
+テストを実行するには、まずテスト用データベースを起動します。
+
+#### 1. テスト環境の準備
+
 ```bash
-go test ./...
+# .env.test ファイルを作成
+cp .env.test.example .env.test
+
+# テスト用データベースを起動（healthcheck が成功するまで待機）
+docker-compose up -d --wait postgres-test
 ```
+
+#### 2. テストの実行
+
+```bash
+# 全てのテストを実行
+go test ./...
+
+# 特定のパッケージのテストを実行
+go test ./internal/repositories/postgres/...
+
+# 詳細出力でテストを実行
+go test -v ./...
+
+# キャッシュを無視してテストを実行
+go test -count=1 ./...
+```
+
+#### 3. テスト環境のクリーンアップ
+
+```bash
+# テスト用データベースを停止
+docker-compose down postgres-test
+
+# データも削除する場合
+docker-compose down postgres-test -v
+```
+
+**注意**: テストは自動的に `.env.test` を読み込み、test 環境で実行されます。`DB_PASSWORD` などの設定は `.env.test` に記載してください。
 
 ## 使用例
 
