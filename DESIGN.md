@@ -187,8 +187,8 @@ CREATE TABLE schemas (
     id SERIAL PRIMARY KEY,
     tenant_id VARCHAR(255) NOT NULL,
     schema_dsl TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(tenant_id)
 );
 
@@ -207,7 +207,7 @@ CREATE TABLE relations (
     subject_type VARCHAR(255) NOT NULL,
     subject_id VARCHAR(255) NOT NULL,
     subject_relation VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(tenant_id, entity_type, entity_id, relation, subject_type, subject_id, COALESCE(subject_relation, ''))
 );
 
@@ -232,8 +232,8 @@ CREATE TABLE attributes (
     entity_id VARCHAR(255) NOT NULL,
     attribute VARCHAR(255) NOT NULL,
     value TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(tenant_id, entity_type, entity_id, attribute)
 );
 

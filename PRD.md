@@ -1875,7 +1875,7 @@ CREATE TABLE relations (
     relation VARCHAR(255) NOT NULL,
     entity_type VARCHAR(255) NOT NULL,
     entity_id VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     UNIQUE(subject_type, subject_id, relation, entity_type, entity_id)
 );
@@ -1909,8 +1909,8 @@ CREATE TABLE attributes (
     entity_id VARCHAR(255) NOT NULL,
     attribute_key VARCHAR(255) NOT NULL,
     attribute_value JSONB NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     UNIQUE(entity_type, entity_id, attribute_key)
 );
@@ -1937,8 +1937,8 @@ CREATE TABLE schemas (
     id INTEGER PRIMARY KEY DEFAULT 1,
     schema_dsl TEXT NOT NULL,
     schema_json JSONB NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CHECK (id = 1)  -- 常に1行のみを強制
 );
 
@@ -1991,7 +1991,7 @@ CREATE TABLE audit_logs (
     resource_id VARCHAR(255),           -- 対象リソースのID
     action VARCHAR(255) NOT NULL,       -- 'create', 'update', 'delete', 'check' など
     details JSONB,                      -- 詳細情報（変更内容など）
-    timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     -- 検索用インデックス
     INDEX idx_audit_logs_timestamp (timestamp),
@@ -5041,8 +5041,8 @@ CREATE TABLE schemas (
     id INTEGER PRIMARY KEY DEFAULT 1,
     schema_dsl TEXT NOT NULL,
     schema_json JSONB NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CHECK (id = 1)  -- 常に1行のみを強制
 );
 
@@ -5086,7 +5086,7 @@ CREATE TABLE relations (
     relation VARCHAR(255) NOT NULL,
     entity_type VARCHAR(255) NOT NULL,
     entity_id VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     UNIQUE(subject_type, subject_id, relation, entity_type, entity_id)
 );
@@ -5148,8 +5148,8 @@ CREATE TABLE attributes (
     float_value DOUBLE PRECISION,
     array_value TEXT[],
 
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     UNIQUE(entity_type, entity_id, attribute_key),
 

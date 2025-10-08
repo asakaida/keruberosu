@@ -45,28 +45,66 @@ cd keruberosu
 go mod download
 ```
 
-### 3. Protocol Buffers のコード生成
+### 3. 環境変数の設定
+
+開発環境用の設定ファイルを作成します：
+
+```bash
+cp .env.dev.example .env.dev
+```
+
+`.env.dev` を編集してデータベースパスワードを設定します：
+
+```bash
+DB_PASSWORD=keruberosu_dev_password
+```
+
+環境ごとの設定ファイル：
+
+- `.env.dev` - 開発環境（ポート 15432）
+- `.env.test` - テスト環境（ポート 25432）
+- `.env.prod` - 本番環境
+
+### 4. Protocol Buffers のコード生成
 
 ```bash
 protoc --go_out=. --go-grpc_out=. proto/keruberosu/v1/*.proto
 ```
 
-### 4. データベースの起動
+### 5. データベースの起動
 
 ```bash
 docker-compose up -d
 ```
 
-### 5. マイグレーションの実行
+### 6. マイグレーションの実行
+
+デフォルト（dev 環境）:
 
 ```bash
 go run cmd/migrate/main.go up
 ```
 
-### 6. サーバーの起動
+環境を指定する場合:
+
+```bash
+go run cmd/migrate/main.go up --env dev
+go run cmd/migrate/main.go up --env test
+```
+
+### 7. サーバーの起動
+
+デフォルト（dev 環境）:
 
 ```bash
 go run cmd/server/main.go
+```
+
+環境を指定する場合:
+
+```bash
+go run cmd/server/main.go --env dev
+go run cmd/server/main.go --env prod
 ```
 
 サーバーは `localhost:50051` で起動します。

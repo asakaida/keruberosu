@@ -23,24 +23,24 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 #### 1.2 インフラストラクチャ
 
-- [ ] docker-compose.yml 作成
-  - [ ] postgres-dev（ポート 15432）
-  - [ ] postgres-test（ポート 25432）
-- [ ] internal/infrastructure/database/migrations/postgres/ 作成
-  - [ ] 000001_create_schemas_table.up.sql
-  - [ ] 000001_create_schemas_table.down.sql
-  - [ ] 000002_create_relations_table.up.sql
-  - [ ] 000002_create_relations_table.down.sql
-  - [ ] 000003_create_attributes_table.up.sql
-  - [ ] 000003_create_attributes_table.down.sql
-- [ ] internal/infrastructure/config/config.go
-  - [ ] Config 構造体定義
-  - [ ] 環境変数読み込み
-- [ ] internal/infrastructure/database/postgres.go
-  - [ ] Postgres 構造体
-  - [ ] NewPostgres（接続初期化）
-  - [ ] RunMigrations（マイグレーション実行）
-  - [ ] ヘルスチェック
+- [x] docker-compose.yml 作成
+  - [x] postgres-dev（ポート 15432）
+  - [x] postgres-test（ポート 25432）
+- [x] internal/infrastructure/database/migrations/postgres/ 作成
+  - [x] 000001_create_schemas_table.up.sql
+  - [x] 000001_create_schemas_table.down.sql
+  - [x] 000002_create_relations_table.up.sql
+  - [x] 000002_create_relations_table.down.sql
+  - [x] 000003_create_attributes_table.up.sql
+  - [x] 000003_create_attributes_table.down.sql
+- [x] internal/infrastructure/config/config.go
+  - [x] Config 構造体定義
+  - [x] 環境変数読み込み（viper 使用、環境ごとの.env ファイル対応）
+- [x] internal/infrastructure/database/postgres.go
+  - [x] Postgres 構造体
+  - [x] NewPostgres（接続初期化）
+  - [x] RunMigrations（マイグレーション実行）
+  - [x] ヘルスチェック
 
 #### 1.3 Protocol Buffers 定義
 
