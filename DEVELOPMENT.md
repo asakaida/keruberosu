@@ -401,12 +401,12 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 #### 7.1 Schema Handler
 
-- [ ] internal/handlers/schema_handler.go
-  - [ ] SchemaHandler 構造体
-  - [ ] WriteSchema
-  - [ ] ReadSchema
-  - [ ] エラー変換（domain → gRPC）
-  - [ ] ユニットテスト
+- [x] internal/handlers/schema_handler.go
+  - [x] SchemaHandler 構造体
+  - [x] WriteSchema
+  - [x] ReadSchema
+  - [x] エラー変換（domain → gRPC）
+  - [x] ユニットテスト（7 テスト）
 
 #### 7.2 Data Handler
 
@@ -764,6 +764,26 @@ Milestone 4: 認可エンジン実装完了（Week 4）
     - DeleteSchema テスト（正常系/Missing TenantID）: 2 テスト
     - GetSchemaEntity テスト（正常系/Not Found/Missing TenantID）: 3 テスト
   - 合計 17 テストケース全て成功
+- Schema Handler 実装完了
+  - Schema Handler 実装（schema_handler.go）
+    - SchemaHandler 構造体（SchemaServiceInterface への依存）
+    - NewSchemaHandler コンストラクタ
+    - WriteSchema（DSL 受け取り → SchemaService 呼び出し → レスポンス生成）
+      - 空 DSL のバリデーション
+      - エラー変換（パースエラー、バリデーションエラー、一般エラー）
+      - Phase 1: 固定 tenant ID "default" を使用
+    - ReadSchema（SchemaService からスキーマ取得 → レスポンス生成）
+      - updated_at のフォーマット（ISO8601）
+      - エラー変換（NotFound, InvalidArgument, Internal）
+    - handleWriteSchemaError（domain エラー → WriteSchemaResponse）
+    - handleReadSchemaError（domain エラー → gRPC status）
+  - SchemaServiceInterface 定義（schema_service.go に追加）
+    - WriteSchema, ReadSchema, ValidateSchema, DeleteSchema, GetSchemaEntity
+  - ユニットテスト実装（schema_handler_test.go）
+    - Mock SchemaService 実装（SchemaServiceInterface 実装）
+    - WriteSchema テスト（Success/Empty DSL/Parse Error/Validation Error）: 4 テスト
+    - ReadSchema テスト（Success/Not Found/No UpdatedAt）: 3 テスト
+  - 合計 7 テストケース全て成功
 
 ---
 

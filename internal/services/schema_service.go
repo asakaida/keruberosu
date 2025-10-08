@@ -9,6 +9,15 @@ import (
 	"github.com/asakaida/keruberosu/internal/services/parser"
 )
 
+// SchemaServiceInterface defines the interface for schema management operations
+type SchemaServiceInterface interface {
+	WriteSchema(ctx context.Context, tenantID string, schemaDSL string) error
+	ReadSchema(ctx context.Context, tenantID string) (string, error)
+	ValidateSchema(ctx context.Context, schemaDSL string) error
+	DeleteSchema(ctx context.Context, tenantID string) error
+	GetSchemaEntity(ctx context.Context, tenantID string) (*entities.Schema, error)
+}
+
 // SchemaService handles schema management operations
 type SchemaService struct {
 	schemaRepo repositories.SchemaRepository
