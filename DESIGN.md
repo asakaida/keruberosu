@@ -62,6 +62,27 @@ Phase 1 スコープ: キャッシュ機構を除く完全な実装
 
 その他は全て実装します。
 
+### アーキテクチャ方針：単一サービスアプローチ
+
+Keruberosu は **単一の gRPC サービス（AuthorizationService）** として実装されます。
+
+**理由**：
+
+1. **業界標準に準拠**: Google Zanzibar、Permify、Auth0 FGA、Ory Keto など、全ての主要な認可システムが単一サービスアプローチを採用
+2. **ドメインの不可分性**: 認可は Schema（定義）、Relations（データ）、Authorization（判定）が密接に連携する1つのドメイン
+3. **クライアント利便性**: 1つのサービスに接続するだけで全操作が可能
+4. **運用の単純化**: デプロイ、モニタリング、トラブルシューティングが容易
+5. **Permify 互換性**: Permify の API 設計を完全に踏襲
+
+**実装方針**：
+
+- `internal/handlers/authorization_handler.go` が全ての API を提供
+  - Schema 管理: WriteSchema, ReadSchema
+  - Data 管理: WriteRelations, DeleteRelations, WriteAttributes
+  - Authorization: Check, Expand, LookupEntity, LookupSubject, SubjectPermission
+- 内部的には責務ごとにサービス層を分離（SchemaService, Checker, Expander, Lookup）
+- gRPC レベルでは単一の AuthorizationService として公開
+
 ---
 
 ## アーキテクチャ設計
@@ -86,9 +107,7 @@ keruberosu/
 │   │   ├── relation_tuple.go         # RelationTuple（実際のリレーションデータ）
 │   │   └── attribute.go              # Attribute（実際の属性データ）
 │   ├── handlers/                      # gRPC ハンドラー
-│   │   ├── schema.go                 # スキーマ管理 API
-│   │   ├── data.go                   # データ管理 API
-│   │   └── authorization.go          # 認可 API
+│   │   └── authorization_handler.go  # 統合 Authorization Handler（全API提供）
 │   ├── services/                      # ビジネスロジック
 │   │   ├── parser/                   # DSL パーサー
 │   │   │   ├── lexer.go             # 字句解析
@@ -952,73 +971,126 @@ func (l *Lookup) LookupSubject(
 
 ### 6. gRPC ハンドラー設計
 
-#### 6.1 Authorization Handler
+#### 設計原則：単一サービスアプローチ
+
+Google Zanzibar、Permify、Auth0 FGA などの業界標準に従い、認可サービスは**単一の gRPC サービス**として実装します。
+
+**理由**：
+- 認可は分離できない1つのドメイン（Schema、Relations、Authorizationは密接に連携）
+- クライアントが1つのサービスに接続するだけで全操作が可能
+- Permify 互換性の維持
+- デプロイ・運用の単純化
+
+#### 6.1 統合 Authorization Handler
 
 ```go
-// internal/handlers/authorization.go
+// internal/handlers/authorization_handler.go
 
 type AuthorizationHandler struct {
+    // Schema management
+    schemaService services.SchemaServiceInterface
+
+    // Data management (Relations & Attributes)
+    relationRepo  repositories.RelationRepository
+    attributeRepo repositories.AttributeRepository
+
+    // Authorization operations
+    checker    CheckerInterface
+    expander   ExpanderInterface
+    lookup     LookupInterface
+    schemaRepo repositories.SchemaRepository
+
     pb.UnimplementedAuthorizationServiceServer
-    schemaService *schema.Service
-    checker       *authorization.Checker
-    expander      *authorization.Expander
-    lookup        *authorization.Lookup
 }
 
-func (h *AuthorizationHandler) Check(ctx context.Context, req *pb.CheckRequest) (*pb.CheckResponse, error) {
-    // 1. テナント ID を取得（メタデータから）
-    // 2. スキーマを取得
-    // 3. Checker を呼び出し
+// === Schema Management ===
+
+func (h *AuthorizationHandler) WriteSchema(ctx context.Context, req *pb.WriteSchemaRequest) (*pb.WriteSchemaResponse, error) {
+    // 1. テナント ID を取得（Phase 1: 固定 "default"）
+    // 2. SchemaService.WriteSchema 呼び出し
+    // 3. エラー変換（domain → gRPC）
     // 4. レスポンスを返す
 }
 
+func (h *AuthorizationHandler) ReadSchema(ctx context.Context, req *pb.ReadSchemaRequest) (*pb.ReadSchemaResponse, error) {
+    // 1. SchemaService.ReadSchema でDSL取得
+    // 2. SchemaService.GetSchemaEntity でメタデータ取得
+    // 3. レスポンスを返す
+}
+
+// === Data Management ===
+
+func (h *AuthorizationHandler) WriteRelations(ctx context.Context, req *pb.WriteRelationsRequest) (*pb.WriteRelationsResponse, error) {
+    // 1. proto RelationTuple → entities.RelationTuple 変換
+    // 2. RelationRepository.BatchWrite 呼び出し
+    // 3. レスポンスを返す
+}
+
+func (h *AuthorizationHandler) DeleteRelations(ctx context.Context, req *pb.DeleteRelationsRequest) (*pb.DeleteRelationsResponse, error) {
+    // 1. proto → entities 変換
+    // 2. RelationRepository.BatchDelete 呼び出し
+    // 3. レスポンスを返す
+}
+
+func (h *AuthorizationHandler) WriteAttributes(ctx context.Context, req *pb.WriteAttributesRequest) (*pb.WriteAttributesResponse, error) {
+    // 1. proto AttributeData → entities.Attribute 変換（展開）
+    // 2. AttributeRepository.Write 呼び出し
+    // 3. レスポンスを返す
+}
+
+// === Authorization Operations ===
+
+func (h *AuthorizationHandler) Check(ctx context.Context, req *pb.CheckRequest) (*pb.CheckResponse, error) {
+    // 1. リクエスト検証
+    // 2. proto → authorization.CheckRequest 変換
+    // 3. Checker.Check 呼び出し
+    // 4. 結果を ALLOWED/DENIED に変換
+}
+
 func (h *AuthorizationHandler) Expand(ctx context.Context, req *pb.ExpandRequest) (*pb.ExpandResponse, error) {
-    // Expand 処理
+    // 1. proto → authorization.ExpandRequest 変換
+    // 2. Expander.Expand 呼び出し
+    // 3. ExpandNode を proto に変換
 }
 
 func (h *AuthorizationHandler) LookupEntity(ctx context.Context, req *pb.LookupEntityRequest) (*pb.LookupEntityResponse, error) {
-    // LookupEntity 処理
+    // 1. proto → authorization.LookupEntityRequest 変換
+    // 2. Lookup.LookupEntity 呼び出し
+    // 3. ページネーション対応レスポンス
 }
 
 func (h *AuthorizationHandler) LookupSubject(ctx context.Context, req *pb.LookupSubjectRequest) (*pb.LookupSubjectResponse, error) {
-    // LookupSubject 処理
+    // 1. proto → authorization.LookupSubjectRequest 変換
+    // 2. Lookup.LookupSubject 呼び出し
+    // 3. ページネーション対応レスポンス
 }
 
 func (h *AuthorizationHandler) SubjectPermission(ctx context.Context, req *pb.SubjectPermissionRequest) (*pb.SubjectPermissionResponse, error) {
-    // SubjectPermission 処理
+    // 1. スキーマから対象エンティティの全パーミッションを取得
+    // 2. 各パーミッションに対して Checker.Check 実行
+    // 3. 結果を map[permission]CheckResult で返却
+}
+
+func (h *AuthorizationHandler) LookupEntityStream(req *pb.LookupEntityRequest, stream pb.AuthorizationService_LookupEntityStreamServer) error {
+    // Phase 1: Unimplemented
+    return status.Error(codes.Unimplemented, "LookupEntityStream not implemented in Phase 1")
 }
 ```
 
-#### 6.2 Data Handler
+#### 6.2 ヘルパー関数
 
 ```go
-// internal/handlers/data.go
+// protoToRelationTuple: proto RelationTuple → entities.RelationTuple 変換
+func protoToRelationTuple(proto *pb.RelationTuple) (*entities.RelationTuple, error)
 
-type DataHandler struct {
-    pb.UnimplementedDataServiceServer
-    relationRepo  repositories.RelationRepository
-    attributeRepo repositories.AttributeRepository
-}
+// protoToAttributes: proto AttributeData → []entities.Attribute 変換（展開）
+func protoToAttributes(proto *pb.AttributeData) ([]*entities.Attribute, error)
 
-func (h *DataHandler) WriteRelation(ctx context.Context, req *pb.WriteRelationRequest) (*pb.WriteRelationResponse, error)
-func (h *DataHandler) DeleteRelation(ctx context.Context, req *pb.DeleteRelationRequest) (*pb.DeleteRelationResponse, error)
-func (h *DataHandler) ReadRelations(ctx context.Context, req *pb.ReadRelationsRequest) (*pb.ReadRelationsResponse, error)
-func (h *DataHandler) WriteAttribute(ctx context.Context, req *pb.WriteAttributeRequest) (*pb.WriteAttributeResponse, error)
-func (h *DataHandler) ReadAttributes(ctx context.Context, req *pb.ReadAttributesRequest) (*pb.ReadAttributesResponse, error)
-```
+// protoContextToTuples: proto Context → []entities.RelationTuple 変換
+func protoContextToTuples(ctx *pb.Context) ([]*entities.RelationTuple, error)
 
-#### 6.3 Schema Handler
-
-```go
-// internal/handlers/schema.go
-
-type SchemaHandler struct {
-    pb.UnimplementedSchemaServiceServer
-    schemaService *schema.Service
-}
-
-func (h *SchemaHandler) WriteSchema(ctx context.Context, req *pb.WriteSchemaRequest) (*pb.WriteSchemaResponse, error)
-func (h *SchemaHandler) ReadSchema(ctx context.Context, req *pb.ReadSchemaRequest) (*pb.ReadSchemaResponse, error)
+// expandNodeToProto: authorization.ExpandNode → proto ExpandNode 変換
+func expandNodeToProto(node *authorization.ExpandNode) *pb.ExpandNode
 ```
 
 ---

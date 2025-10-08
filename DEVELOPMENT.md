@@ -399,38 +399,47 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 ### 7. gRPC ハンドラー層
 
-#### 7.1 Schema Handler
+**設計方針**：Google Zanzibar / Permify の業界標準に従い、単一の AuthorizationService として実装。認可は分離できない 1 つのドメインであり、Schema、Data、Authorization の全操作を 1 つのハンドラーで提供。
 
-- [x] internal/handlers/schema_handler.go
-  - [x] SchemaHandler 構造体
-  - [x] WriteSchema
-  - [x] ReadSchema
-  - [x] エラー変換（domain → gRPC）
-  - [x] ユニットテスト（7 テスト）
-
-#### 7.2 Data Handler
-
-- [x] internal/handlers/data_handler.go
-  - [x] DataHandler 構造体
-  - [x] WriteRelations（複数の relation tuple を一括書き込み）
-  - [x] DeleteRelations（複数の relation tuple を一括削除）
-  - [x] WriteAttributes（複数の attributes を書き込み）
-  - [x] Proto → Entities 変換（protoToRelationTuple, protoToAttributes）
-  - [x] バリデーション
-  - [x] ユニットテスト（16 テスト）
-
-#### 7.3 Authorization Handler
+#### 7.1 統合 Authorization Handler
 
 - [x] internal/handlers/authorization_handler.go
-  - [x] AuthorizationHandler 構造体
-  - [x] Check
-  - [x] Expand
-  - [x] LookupEntity
-  - [x] LookupSubject
-  - [x] SubjectPermission
-  - [x] LookupEntityStream（Phase 1 では未実装）
-  - [x] インターフェース定義（CheckerInterface, ExpanderInterface, LookupInterface）
-  - [x] ユニットテスト（11 テスト）
+  - [x] AuthorizationHandler 構造体（統合型）
+    - [x] Schema 管理用: schemaService (SchemaServiceInterface)
+    - [x] Data 管理用: relationRepo, attributeRepo
+    - [x] 認可処理用: checker, expander, lookup, schemaRepo
+  - [x] Schema 管理メソッド
+    - [x] WriteSchema
+    - [x] ReadSchema
+  - [x] Data 管理メソッド
+    - [x] WriteRelations（複数 relation tuple 一括書き込み）
+    - [x] DeleteRelations（複数 relation tuple 一括削除）
+    - [x] WriteAttributes（複数 attributes 書き込み）
+  - [x] 認可メソッド
+    - [x] Check
+    - [x] Expand
+    - [x] LookupEntity
+    - [x] LookupSubject
+    - [x] SubjectPermission
+    - [x] LookupEntityStream（Phase 1 では未実装）
+  - [x] ヘルパー関数
+    - [x] protoToRelationTuple（proto → entities 変換）
+    - [x] protoToAttributes（proto → entities 変換、展開）
+    - [x] protoContextToTuples（Context → RelationTuple 変換）
+    - [x] expandNodeToProto（ExpandNode → proto 変換）
+  - [x] インターフェース定義
+    - [x] CheckerInterface
+    - [x] ExpanderInterface
+    - [x] LookupInterface
+  - [x] ユニットテスト（29 テスト統合）
+    - [x] Schema 管理テスト（7 テスト）
+    - [x] Data 管理テスト（9 テスト）
+    - [x] Authorization テスト（11 テスト）
+    - [x] Helper 関数テスト（2 テスト）
+    - [x] schema_handler_test.go と data_handler_test.go を統合
+    - [x] 全テストを authorization_handler_test.go に集約
+
+**備考**：既存の schema_handler.go と data_handler.go のロジックを authorization_handler.go に統合。コード重複を避けるため、既存のヘルパー関数を再利用。テストファイルも統合し、単一のテストファイルで全機能をカバー。
 
 ---
 
@@ -453,14 +462,22 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 #### 8.2 gRPC サーバー
 
-- [ ] cmd/server/main.go
-  - [ ] 設定読み込み
-  - [ ] DB 接続初期化
-  - [ ] Repository 初期化
-  - [ ] Service 初期化
-  - [ ] Handler 初期化
-  - [ ] gRPC サーバー起動
-  - [ ] シグナルハンドリング（グレースフルシャットダウン）
+- [x] cmd/server/main.go
+  - [x] 設定読み込み（viper、環境変数 ENV）
+  - [x] DB 接続初期化（database.NewPostgres）
+  - [x] Repository 初期化（SchemaRepo、RelationRepo、AttributeRepo）
+  - [x] Service 初期化（SchemaService、CELEngine、Evaluator、Checker、Expander、Lookup）
+  - [x] Handler 初期化（統合 AuthorizationHandler）
+  - [x] gRPC サーバー起動（ポート 50051、PORT 環境変数で変更可能）
+  - [x] Reflection 有効化（grpcurl 対応）
+  - [x] シグナルハンドリング（SIGTERM/SIGINT、30 秒タイムアウト付きグレースフルシャットダウン）
+- [x] 動作確認
+  - [x] ビルド成功（go build -o bin/server ./cmd/server）
+  - [x] サーバー起動成功（ENV=test PORT=50052 ./bin/server）
+  - [x] 全メソッド登録確認（grpcurl で 11 メソッド確認）
+    - WriteSchema, ReadSchema
+    - WriteRelations, DeleteRelations, WriteAttributes
+    - Check, Expand, LookupEntity, LookupSubject, SubjectPermission, LookupEntityStream
 
 ---
 
@@ -883,6 +900,60 @@ Milestone 4: 認可エンジン実装完了（Week 4）
     - ENV=test ./bin/migrate up → バージョン 3 へ再適用確認
     - ENV=test ./bin/migrate goto 1 → バージョン 1 へ移行確認
     - ENV=test ./bin/migrate up → 最新バージョンへ復元確認
+- gRPC サーバー実装完了（統合アプローチ）
+  - 設計方針変更: 業界標準（Google Zanzibar / Permify）に従い、単一 AuthorizationService として実装
+  - DESIGN.md 更新
+    - Section 6 を「統合 Authorization Handler」に変更
+    - 単一サービスアプローチの理由を明記（認可は分離できない 1 つのドメイン）
+    - ヘルパー関数セクション追加
+  - DEVELOPMENT.md 更新
+    - Section 7 を「統合 Authorization Handler」に変更
+    - 既存の schema_handler.go と data_handler.go のロジックを統合する方針を明記
+  - AuthorizationHandler 拡張（internal/handlers/authorization_handler.go）
+    - Schema 管理メソッド追加
+      - WriteSchema（schemaService 経由）
+      - ReadSchema（schemaService 経由、メタデータ取得）
+      - handleWriteSchemaError、handleReadSchemaError（エラー変換）
+    - Data 管理メソッド追加
+      - WriteRelations（relationRepo.BatchWrite 経由）
+      - DeleteRelations（relationRepo.BatchDelete 経由）
+      - WriteAttributes（attributeRepo.Write 経由、複数属性展開）
+    - ヘルパー関数追加
+      - protoToRelationTuple（proto → entities 変換）
+      - protoToAttributes（proto → entities 変換、map 展開）
+      - protoValueToInterface（protobuf Value → Go interface{} 変換）
+    - 既存の認可メソッドはそのまま維持
+  - 不要ファイル削除
+    - schema_handler.go 削除（AuthorizationHandler に統合）
+    - data_handler.go 削除（AuthorizationHandler に統合）
+  - cmd/server/main.go 実装
+    - 環境変数対応（ENV、PORT）
+    - 設定読み込み（config.InitConfig、config.Load）
+    - DB 接続初期化（database.NewPostgres）
+    - Repository 初期化（SchemaRepo、RelationRepo、AttributeRepo）
+    - Service 初期化（SchemaService、CELEngine、Evaluator、Checker、Expander、Lookup）
+    - 統合 AuthorizationHandler 初期化（7 つの依存を注入）
+    - gRPC サーバー起動（デフォルトポート 50051）
+    - Reflection 有効化（grpcurl 対応）
+    - グレースフルシャットダウン実装（30 秒タイムアウト、SIGTERM/SIGINT 対応）
+  - 動作確認
+    - ビルド成功: go build -o bin/server ./cmd/server
+    - サーバー起動成功: ENV=test PORT=50052 ./bin/server
+    - grpcurl で全メソッド確認（11 メソッド）
+      - Schema: WriteSchema, ReadSchema
+      - Data: WriteRelations, DeleteRelations, WriteAttributes
+      - Authorization: Check, Expand, LookupEntity, LookupSubject, SubjectPermission, LookupEntityStream
+- テスト統合完了
+  - authorization_handler_test.go 完全書き直し
+    - schema_handler_test.go（7 テスト）の内容を統合
+    - data_handler_test.go（16 テスト）の内容を統合
+    - 既存の authorization テスト（11 テスト）を維持
+    - 全モック実装を統一（SchemaService、RelationRepository、AttributeRepository、Checker、Expander、Lookup、SchemaRepository）
+    - 合計 29 テストを単一ファイルに集約
+  - 不要ファイル削除
+    - schema_handler_test.go 削除
+    - data_handler_test.go 削除
+  - テスト実行結果: 全 29 テストケース成功（go test ./internal/handlers/... -v）
 
 ---
 
@@ -912,6 +983,10 @@ Milestone 4: 認可エンジン実装完了（Week 4）
     - config.InitConfig("test") で自動的に .env.test を検出
     - go.mod の位置からプロジェクトルートを自動検出
     - docker-compose up -d --wait で healthcheck 完了まで待機
+18. gRPC ハンドラー設計: 単一 AuthorizationService として実装（業界標準に準拠）
+    - Google Zanzibar / Permify のアプローチに従う
+    - Schema、Data、Authorization の全操作を 1 つのハンドラーで提供
+    - 理由: 認可は分離できない 1 つのドメイン、クライアント利便性、運用の単純化
 
 ### 検討中
 

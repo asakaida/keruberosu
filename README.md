@@ -16,12 +16,17 @@ Keruberosu は、関係性ベース (ReBAC) と属性ベース (ABAC) の両方�
 
 ## アーキテクチャ
 
-サービス構成:
+**単一サービスアプローチ**:
 
-- AuthorizationService: スキーマ管理、データ管理、認可チェック
-- AuditService: 監査ログ管理
+Keruberosu は単一の `AuthorizationService` として設計されており、以下の全ての機能を提供します：
 
-詳細は [DESIGN.md](DESIGN.md) を参照してください。
+- **Schema 管理**: スキーマ定義の作成・更新・取得
+- **Data 管理**: 関係性（Relations）と属性（Attributes）の書き込み・削除
+- **Authorization**: 権限チェック、ツリー展開、エンティティ検索
+
+この設計は、Google Zanzibar、Permify、Auth0 FGA などの業界標準に従っています。
+
+詳細は [DESIGN.md](DESIGN.md) および [PRD.md](PRD.md) の「アーキテクチャ方針」セクションを参照してください。
 
 ## 必要要件
 

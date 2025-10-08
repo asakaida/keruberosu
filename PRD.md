@@ -19,6 +19,30 @@ Permify を模した ReBAC と ABAC をサポートする認可マイクロサ�
   - context（contextual tuples & attributes）
 - 複数サーバーインスタンスによる冗長化・高可用性
 
+## アーキテクチャ方針
+
+### 単一サービスアプローチ
+
+Keruberosu は **単一の gRPC サービス（AuthorizationService）** として実装されます。
+
+**なぜ単一サービスなのか？**
+
+1. **業界標準**: Google Zanzibar、Permify、Auth0 FGA、Ory Keto など、全ての主要な認可システムが単一サービスとして設計されています
+2. **認可の本質**: Schema（ルール定義）、Relations（関係性データ）、Authorization（権限判定）は密接に連携する1つのドメインであり、分離すると複雑性が増します
+3. **クライアントの利便性**: アプリケーション開発者は1つのサービスに接続するだけで、スキーマ定義、データ書き込み、権限チェックの全てが実行できます
+4. **運用の単純化**: デプロイ、スケーリング、モニタリング、トラブルシューティングが容易です
+5. **Permify 互換性**: Permify の API 設計を完全に踏襲することで、既存のツールやクライアントライブラリがそのまま使えます
+
+**提供される API**:
+
+単一の `AuthorizationService` が以下の全ての操作を提供：
+
+- **Schema 管理**: WriteSchema, ReadSchema
+- **Data 管理**: WriteRelations, DeleteRelations, WriteAttributes
+- **Authorization**: Check, Expand, LookupEntity, LookupSubject, SubjectPermission
+
+この設計により、クライアントは1つの gRPC サービスに接続するだけで、認可に必要な全ての操作を実行できます。
+
 ## API 利用ガイド（ステークホルダー向け）
 
 このセクションでは、Keruberosu の認可 API を実際にどう使うかを、具体的な例を交えて説明します。
