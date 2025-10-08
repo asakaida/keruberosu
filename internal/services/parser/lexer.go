@@ -14,6 +14,7 @@ const (
 
 	// Identifiers and literals
 	TOKEN_IDENTIFIER
+	TOKEN_STRING // String literals (quoted)
 
 	// Keywords
 	TOKEN_ENTITY
@@ -28,6 +29,19 @@ const (
 	TOKEN_NOT
 	TOKEN_EQUALS
 
+	// Comparison operators (for CEL expressions in rule())
+	TOKEN_EQ          // ==
+	TOKEN_NEQ         // !=
+	TOKEN_LT          // <
+	TOKEN_LTE         // <=
+	TOKEN_GT          // >
+	TOKEN_GTE         // >=
+	TOKEN_LOGICAL_AND // &&
+	TOKEN_LOGICAL_OR  // ||
+	TOKEN_AMPERSAND   // &
+	TOKEN_PIPE        // |
+	TOKEN_EXCLAMATION // !
+
 	// Delimiters
 	TOKEN_COLON
 	TOKEN_LBRACE
@@ -41,27 +55,39 @@ const (
 )
 
 var tokenNames = map[TokenType]string{
-	TOKEN_ILLEGAL:    "ILLEGAL",
-	TOKEN_EOF:        "EOF",
-	TOKEN_IDENTIFIER: "IDENTIFIER",
-	TOKEN_ENTITY:     "entity",
-	TOKEN_RELATION:   "relation",
-	TOKEN_ATTRIBUTE:  "attribute",
-	TOKEN_PERMISSION: "permission",
-	TOKEN_RULE:       "rule",
-	TOKEN_OR:         "or",
-	TOKEN_AND:        "and",
-	TOKEN_NOT:        "not",
-	TOKEN_EQUALS:     "=",
-	TOKEN_COLON:      ":",
-	TOKEN_LBRACE:     "{",
-	TOKEN_RBRACE:     "}",
-	TOKEN_LPAREN:     "(",
-	TOKEN_RPAREN:     ")",
-	TOKEN_LBRACKET:   "[",
-	TOKEN_RBRACKET:   "]",
-	TOKEN_DOT:        ".",
-	TOKEN_COMMA:      ",",
+	TOKEN_ILLEGAL:     "ILLEGAL",
+	TOKEN_EOF:         "EOF",
+	TOKEN_IDENTIFIER:  "IDENTIFIER",
+	TOKEN_STRING:      "STRING",
+	TOKEN_ENTITY:      "entity",
+	TOKEN_RELATION:    "relation",
+	TOKEN_ATTRIBUTE:   "attribute",
+	TOKEN_PERMISSION:  "permission",
+	TOKEN_RULE:        "rule",
+	TOKEN_OR:          "or",
+	TOKEN_AND:         "and",
+	TOKEN_NOT:         "not",
+	TOKEN_EQUALS:      "=",
+	TOKEN_EQ:          "==",
+	TOKEN_NEQ:         "!=",
+	TOKEN_LT:          "<",
+	TOKEN_LTE:         "<=",
+	TOKEN_GT:          ">",
+	TOKEN_GTE:         ">=",
+	TOKEN_LOGICAL_AND: "&&",
+	TOKEN_LOGICAL_OR:  "||",
+	TOKEN_AMPERSAND:   "&",
+	TOKEN_PIPE:        "|",
+	TOKEN_EXCLAMATION: "!",
+	TOKEN_COLON:       ":",
+	TOKEN_LBRACE:      "{",
+	TOKEN_RBRACE:      "}",
+	TOKEN_LPAREN:      "(",
+	TOKEN_RPAREN:      ")",
+	TOKEN_LBRACKET:    "[",
+	TOKEN_RBRACKET:    "]",
+	TOKEN_DOT:         ".",
+	TOKEN_COMMA:       ",",
 }
 
 var keywords = map[string]TokenType{
@@ -164,6 +190,22 @@ func (l *Lexer) readIdentifier() string {
 	return l.input[position:l.position]
 }
 
+// readNumber reads a number literal
+func (l *Lexer) readNumber() string {
+	position := l.position
+	for isDigit(l.ch) {
+		l.readChar()
+	}
+	// Handle decimal point
+	if l.ch == '.' && isDigit(l.peekChar()) {
+		l.readChar() // consume '.'
+		for isDigit(l.ch) {
+			l.readChar()
+		}
+	}
+	return l.input[position:l.position]
+}
+
 // readString reads a string literal enclosed in quotes
 func (l *Lexer) readString() string {
 	position := l.position + 1 // Skip opening quote
@@ -194,8 +236,59 @@ func (l *Lexer) NextToken() (*Token, error) {
 
 	switch l.ch {
 	case '=':
-		tok = &Token{Type: TOKEN_EQUALS, Value: "=", Line: line, Column: column}
-		l.readChar()
+		if l.peekChar() == '=' {
+			l.readChar()
+			tok = &Token{Type: TOKEN_EQ, Value: "==", Line: line, Column: column}
+			l.readChar()
+		} else {
+			tok = &Token{Type: TOKEN_EQUALS, Value: "=", Line: line, Column: column}
+			l.readChar()
+		}
+	case '!':
+		if l.peekChar() == '=' {
+			l.readChar()
+			tok = &Token{Type: TOKEN_NEQ, Value: "!=", Line: line, Column: column}
+			l.readChar()
+		} else {
+			tok = &Token{Type: TOKEN_EXCLAMATION, Value: "!", Line: line, Column: column}
+			l.readChar()
+		}
+	case '<':
+		if l.peekChar() == '=' {
+			l.readChar()
+			tok = &Token{Type: TOKEN_LTE, Value: "<=", Line: line, Column: column}
+			l.readChar()
+		} else {
+			tok = &Token{Type: TOKEN_LT, Value: "<", Line: line, Column: column}
+			l.readChar()
+		}
+	case '>':
+		if l.peekChar() == '=' {
+			l.readChar()
+			tok = &Token{Type: TOKEN_GTE, Value: ">=", Line: line, Column: column}
+			l.readChar()
+		} else {
+			tok = &Token{Type: TOKEN_GT, Value: ">", Line: line, Column: column}
+			l.readChar()
+		}
+	case '&':
+		if l.peekChar() == '&' {
+			l.readChar()
+			tok = &Token{Type: TOKEN_LOGICAL_AND, Value: "&&", Line: line, Column: column}
+			l.readChar()
+		} else {
+			tok = &Token{Type: TOKEN_AMPERSAND, Value: "&", Line: line, Column: column}
+			l.readChar()
+		}
+	case '|':
+		if l.peekChar() == '|' {
+			l.readChar()
+			tok = &Token{Type: TOKEN_LOGICAL_OR, Value: "||", Line: line, Column: column}
+			l.readChar()
+		} else {
+			tok = &Token{Type: TOKEN_PIPE, Value: "|", Line: line, Column: column}
+			l.readChar()
+		}
 	case ':':
 		tok = &Token{Type: TOKEN_COLON, Value: ":", Line: line, Column: column}
 		l.readChar()
@@ -225,7 +318,7 @@ func (l *Lexer) NextToken() (*Token, error) {
 		l.readChar()
 	case '"':
 		value := l.readString()
-		tok = &Token{Type: TOKEN_IDENTIFIER, Value: value, Line: line, Column: column}
+		tok = &Token{Type: TOKEN_STRING, Value: value, Line: line, Column: column}
 		l.readChar() // Skip closing quote
 	case 0:
 		tok = &Token{Type: TOKEN_EOF, Value: "", Line: line, Column: column}
@@ -237,6 +330,10 @@ func (l *Lexer) NextToken() (*Token, error) {
 				tokenType = kw
 			}
 			tok = &Token{Type: tokenType, Value: value, Line: line, Column: column}
+			return tok, nil
+		} else if isDigit(l.ch) {
+			value := l.readNumber()
+			tok = &Token{Type: TOKEN_IDENTIFIER, Value: value, Line: line, Column: column}
 			return tok, nil
 		} else {
 			return nil, fmt.Errorf("illegal character '%c' at %d:%d", l.ch, line, column)

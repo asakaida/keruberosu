@@ -370,6 +370,7 @@ func (p *Parser) parseRuleExpression() PermissionRuleAST {
 	p.nextToken()
 	var expressionParts []string
 	parenCount := 1
+	prevToken := &Token{Type: TOKEN_LPAREN}
 
 	for parenCount > 0 && !p.currentTokenIs(TOKEN_EOF) {
 		if p.currentTokenIs(TOKEN_LPAREN) {
@@ -381,9 +382,21 @@ func (p *Parser) parseRuleExpression() PermissionRuleAST {
 			}
 		}
 
-		// Add token value to expression parts
-		expressionParts = append(expressionParts, p.current.Value)
+		// Add token value with proper spacing and quoting
+		tokenValue := p.current.Value
 
+		// Add quotes back for string literals
+		if p.current.Type == TOKEN_STRING {
+			tokenValue = `"` + tokenValue + `"`
+		}
+
+		// Add space before token if needed
+		if len(expressionParts) > 0 && needsSpaceBefore(prevToken, p.current) {
+			expressionParts = append(expressionParts, " ")
+		}
+
+		expressionParts = append(expressionParts, tokenValue)
+		prevToken = p.current
 		p.nextToken()
 	}
 
@@ -392,19 +405,33 @@ func (p *Parser) parseRuleExpression() PermissionRuleAST {
 		return nil
 	}
 
-	// Join without spaces and then add minimal spaces around operators
 	expression := strings.Join(expressionParts, "")
-	// Add space around == operator
-	expression = strings.ReplaceAll(expression, "==", " == ")
-	// Add space around other operators as needed
-	expression = strings.ReplaceAll(expression, "!=", " != ")
-	expression = strings.ReplaceAll(expression, ">=", " >= ")
-	expression = strings.ReplaceAll(expression, "<=", " <= ")
-	// Clean up multiple spaces
-	expression = strings.Join(strings.Fields(expression), " ")
 
 	p.nextToken()
 	return &RulePermissionAST{
 		Expression: expression,
 	}
+}
+
+// needsSpaceBefore determines if a space is needed between two tokens
+func needsSpaceBefore(prev, current *Token) bool {
+	// No space after opening paren or before closing paren
+	if prev.Type == TOKEN_LPAREN || current.Type == TOKEN_RPAREN {
+		return false
+	}
+	// No space before/after dot
+	if prev.Type == TOKEN_DOT || current.Type == TOKEN_DOT {
+		return false
+	}
+	// No space before comma
+	if current.Type == TOKEN_COMMA {
+		return false
+	}
+	// No space after comma gets space (handled by next token)
+	// No space before opening bracket or after closing bracket
+	if current.Type == TOKEN_LBRACKET || prev.Type == TOKEN_RBRACKET {
+		return false
+	}
+	// Default: add space between tokens
+	return true
 }

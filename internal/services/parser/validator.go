@@ -193,16 +193,28 @@ func (v *Validator) validatePermissionRule(entity *EntityAST, permissionName str
 			return
 		}
 
-		// Check if target entity has the referenced permission
-		found := false
+		// Check if target entity has the referenced permission or relation
+		// (Permify compatibility: allow both relation and permission references)
+		foundPermission := false
 		for _, perm := range targetEntity.Permissions {
 			if perm.Name == r.Permission {
-				found = true
+				foundPermission = true
 				break
 			}
 		}
-		if !found {
-			v.errors = append(v.errors, fmt.Sprintf("entity %s: permission %s references undefined permission %s in entity %s", entity.Name, permissionName, r.Permission, targetEntity.Name))
+
+		foundRelation := false
+		if !foundPermission {
+			for _, rel := range targetEntity.Relations {
+				if rel.Name == r.Permission {
+					foundRelation = true
+					break
+				}
+			}
+		}
+
+		if !foundPermission && !foundRelation {
+			v.errors = append(v.errors, fmt.Sprintf("entity %s: permission %s references undefined permission or relation %s in entity %s", entity.Name, permissionName, r.Permission, targetEntity.Name))
 		}
 
 	case *RulePermissionAST:

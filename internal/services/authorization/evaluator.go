@@ -210,32 +210,63 @@ func (e *Evaluator) evaluateHierarchical(
 		}
 	}
 
-	// For each parent entity, check if the subject has the specified permission
+	// For each parent entity, check if the subject has the specified permission or relation
 	for _, tuple := range tuples {
-		// Get the permission definition for the parent entity type
+		// First, check if it's a permission
 		parentPermission := schema.GetPermission(tuple.SubjectType, rule.Permission)
-		if parentPermission == nil {
-			continue // Permission not found in parent entity, try next
-		}
+		if parentPermission != nil {
+			// Create a new request for the parent entity
+			parentReq := &EvaluationRequest{
+				TenantID:         req.TenantID,
+				EntityType:       tuple.SubjectType,
+				EntityID:         tuple.SubjectID,
+				SubjectType:      req.SubjectType,
+				SubjectID:        req.SubjectID,
+				ContextualTuples: req.ContextualTuples,
+				Depth:            req.Depth + 1, // Increment depth
+			}
 
-		// Create a new request for the parent entity
-		parentReq := &EvaluationRequest{
-			TenantID:         req.TenantID,
-			EntityType:       tuple.SubjectType,
-			EntityID:         tuple.SubjectID,
-			SubjectType:      req.SubjectType,
-			SubjectID:        req.SubjectID,
-			ContextualTuples: req.ContextualTuples,
-			Depth:            req.Depth + 1, // Increment depth
-		}
+			// Recursively evaluate the parent permission
+			result, err := e.EvaluateRule(ctx, parentReq, parentPermission.Rule)
+			if err != nil {
+				return false, fmt.Errorf("failed to evaluate hierarchical permission: %w", err)
+			}
+			if result {
+				return true, nil // Found at least one parent that grants permission
+			}
+		} else {
+			// If not a permission, check if it's a relation (Permify compatibility)
+			parentEntity := schema.GetEntity(tuple.SubjectType)
+			if parentEntity != nil && parentEntity.GetRelation(rule.Permission) != nil {
+				// Check if the subject has this relation to the parent entity
+				relationFilter := &repositories.RelationFilter{
+					EntityType:  tuple.SubjectType,
+					EntityID:    tuple.SubjectID,
+					Relation:    rule.Permission,
+					SubjectType: req.SubjectType,
+					SubjectID:   req.SubjectID,
+				}
 
-		// Recursively evaluate the parent permission
-		result, err := e.EvaluateRule(ctx, parentReq, parentPermission.Rule)
-		if err != nil {
-			return false, fmt.Errorf("failed to evaluate hierarchical permission: %w", err)
-		}
-		if result {
-			return true, nil // Found at least one parent that grants permission
+				relationTuples, err := e.relationRepo.Read(ctx, req.TenantID, relationFilter)
+				if err != nil {
+					return false, fmt.Errorf("failed to read parent relations: %w", err)
+				}
+
+				// Check contextual tuples as well
+				for _, ctxTuple := range req.ContextualTuples {
+					if ctxTuple.EntityType == tuple.SubjectType &&
+						ctxTuple.EntityID == tuple.SubjectID &&
+						ctxTuple.Relation == rule.Permission &&
+						ctxTuple.SubjectType == req.SubjectType &&
+						ctxTuple.SubjectID == req.SubjectID {
+						relationTuples = append(relationTuples, ctxTuple)
+					}
+				}
+
+				if len(relationTuples) > 0 {
+					return true, nil // Subject has the relation to parent
+				}
+			}
 		}
 	}
 

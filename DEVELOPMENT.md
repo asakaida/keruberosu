@@ -491,16 +491,17 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 #### 9.2 統合テスト
 
-- [ ] PostgreSQL 込みの統合テスト
-- [ ] test コンテナ使用
-- [ ] マイグレーション自動適用
+- [x] PostgreSQL 込みの統合テスト
+- [x] test コンテナ使用
+- [x] マイグレーション自動適用
 
 #### 9.3 E2E テスト
 
-- [ ] gRPC 経由の完全シナリオテスト
-- [ ] Google Docs 風の ReBAC 例
-- [ ] ABAC 例（全演算子）
-- [ ] Permify 互換性検証
+- [x] gRPC 経由の完全シナリオテスト（bufconn ベース in-memory gRPC）
+- [x] Google Docs 風の ReBAC 例（14/14 テストパス）
+- [x] ABAC 例（全演算子）（19/19 テストパス）
+- [x] Permify 互換性検証（12/12 テストパス）
+- [x] **全 E2E テスト成功（45/45 テストケース、100% パス率）**
 
 ---
 
