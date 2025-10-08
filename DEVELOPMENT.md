@@ -421,15 +421,16 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 #### 7.3 Authorization Handler
 
-- [ ] internal/handlers/authorization_handler.go
-  - [ ] AuthorizationHandler 構造体
-  - [ ] Check
-  - [ ] Expand
-  - [ ] LookupEntity
-  - [ ] LookupSubject
-  - [ ] SubjectPermission
-  - [ ] メタデータ処理（snap_token, depth）
-  - [ ] ユニットテスト
+- [x] internal/handlers/authorization_handler.go
+  - [x] AuthorizationHandler 構造体
+  - [x] Check
+  - [x] Expand
+  - [x] LookupEntity
+  - [x] LookupSubject
+  - [x] SubjectPermission
+  - [x] LookupEntityStream（Phase 1 では未実装）
+  - [x] インターフェース定義（CheckerInterface, ExpanderInterface, LookupInterface）
+  - [x] ユニットテスト（11 テスト）
 
 ---
 
@@ -523,7 +524,7 @@ Phase: Phase 1 - キャッシュレス完全実装
 - [ ] gRPC ハンドラー層実装
 
 #### 次のマイルストーン
-
+Ï
 Milestone 4: 認可エンジン実装完了（Week 4）
 
 - CEL エンジン実装
@@ -812,6 +813,47 @@ Milestone 4: 認可エンジン実装完了（Week 4）
     - protoToRelationTuple テスト（valid/missing fields）: 4 テスト
     - protoToAttributes テスト（valid/missing entity/empty data）: 3 テスト
   - 合計 16 テストケース全て成功
+- Authorization Handler 実装完了
+  - Authorization Handler 実装（authorization_handler.go）
+    - AuthorizationHandler 構造体（CheckerInterface, ExpanderInterface, LookupInterface, SchemaRepository への依存）
+    - インターフェース定義
+      - CheckerInterface: Check メソッド
+      - ExpanderInterface: Expand メソッド
+      - LookupInterface: LookupEntity, LookupSubject メソッド
+    - NewAuthorizationHandler コンストラクタ
+    - Check（権限チェック）
+      - proto CheckRequest → authorization.CheckRequest 変換
+      - Checker.Check 呼び出し
+      - 結果を ALLOWED/DENIED に変換
+      - Phase 1: 固定 tenant ID "default" を使用
+    - Expand（権限ツリー展開）
+      - proto ExpandRequest → authorization.ExpandRequest 変換
+      - Expander.Expand 呼び出し
+      - ExpandNode を proto に変換
+    - LookupEntity（許可されたエンティティ検索）
+      - proto LookupEntityRequest → authorization.LookupEntityRequest 変換
+      - Lookup.LookupEntity 呼び出し
+      - ページネーション対応（page_size, continuous_token）
+    - LookupSubject（許可されたサブジェクト検索）
+      - proto LookupSubjectRequest → authorization.LookupSubjectRequest 変換
+      - Lookup.LookupSubject 呼び出し
+      - ページネーション対応
+    - SubjectPermission（サブジェクトの全権限チェック）
+      - スキーマから対象エンティティの全パーミッションを取得
+      - 各パーミッションに対して Check を実行
+      - 結果を map[permission名]CheckResult で返却
+    - LookupEntityStream（ストリーミング版）
+      - Phase 1 では未実装（Unimplemented エラー）
+    - protoContextToTuples（Context → RelationTuple 変換）
+    - expandNodeToProto（ExpandNode → proto 変換）
+  - ユニットテスト実装（authorization_handler_test.go）
+    - Mock Checker, Expander, Lookup 実装
+    - Check テスト（Allowed/Denied/Missing Entity/With Contextual Tuples/Checker Error）: 5 テスト
+    - Expand テスト（Success）: 1 テスト
+    - LookupEntity テスト（Success）: 1 テスト
+    - LookupSubject テスト（Success）: 1 テスト
+    - SubjectPermission テスト（Success/Schema Not Found/Entity Not Found）: 3 テスト
+  - 合計 11 テストケース全て成功
 
 ---
 
