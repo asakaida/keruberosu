@@ -125,9 +125,50 @@ protoc-gen-go-grpc --version
 > export PATH="$PATH:$(go env GOPATH)/bin"
 > ```
 
+#### 代替手段: buf を使う場合
+
+**buf** は Protocol Buffers の最新管理ツールで、`protoc` 本体のインストールが不要になります。
+
+**buf のインストール:**
+
+macOS（Homebrew を使用）:
+
+```bash
+brew install bufbuild/buf/buf
+```
+
+Linux:
+
+```bash
+# BIN=/usr/local/bin にインストール（要sudo）
+BIN="/usr/local/bin" && \
+curl -sSL \
+  "https://github.com/bufbuild/buf/releases/latest/download/buf-$(uname -s)-$(uname -m)" \
+  -o "${BIN}/buf" && \
+chmod +x "${BIN}/buf"
+```
+
+その他の OS や手動インストール:
+
+https://buf.build/docs/installation
+
+**インストール確認:**
+
+```bash
+buf --version
+# 例: 1.57.2
+```
+
+> **注意**: buf を使う場合、`protoc`、`protoc-gen-go`、`protoc-gen-go-grpc` のインストールは**不要**です。
+> buf がリモートプラグインを使用して自動的に処理します。
+
 ### 4. Protocol Buffers のコード生成
 
 **重要**: この手順は、Go のコマンド（`go run` など）を実行する前に必ず完了してください。
+
+#### protoc を使う場合（従来の方法）
+
+シェルスクリプトを使用:
 
 ```bash
 ./scripts/generate-proto.sh
@@ -143,6 +184,20 @@ protoc \
   --go-grpc_out=proto \
   --go-grpc_opt=paths=source_relative \
   proto/keruberosu/v1/*.proto
+```
+
+#### buf を使う場合（推奨）
+
+シェルスクリプトを使用:
+
+```bash
+./scripts/generate-proto-buf.sh
+```
+
+または直接 buf を使用する場合:
+
+```bash
+buf generate
 ```
 
 > **注意**: Go のソースコードは `proto/keruberosu/v1` パッケージをインポートしています。
@@ -328,6 +383,26 @@ Run: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
    protoc-gen-go --version
    protoc-gen-go-grpc --version
    ```
+
+### buf が見つからない
+
+**問題**: `./scripts/generate-proto-buf.sh` または `buf generate` を実行すると、以下のエラーが出る：
+
+```
+Error: buf is not installed.
+```
+
+**原因**: buf ツールがインストールされていません。
+
+**解決方法**:
+
+クイックスタートの [代替手段: buf を使う場合](#代替手段-bufを使う場合) を参照して、`buf` をインストールしてください。
+
+インストール後、以下のコマンドでバージョンが表示されることを確認：
+
+```bash
+buf --version
+```
 
 ## ビルドと実行
 
