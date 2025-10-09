@@ -112,6 +112,36 @@ go run main.go
 - 部署やサブスクリプション tier に基づくアクセス制御
 - 柔軟なルール定義
 
+### 6. ReBAC - GitHub 風の組織管理（3 階層ネスト） (`06_rebac_github_organization/`)
+
+複雑な多段階ネストを使った現実的な権限管理を実装する方法を示します。
+
+**内容:**
+
+- 3 階層のネスト構造（Organization → Repository → Issue）
+- 複雑な権限継承パターン
+- 役割ベースの権限管理（admin, maintainer, contributor, member）
+
+```bash
+cd 06_rebac_github_organization
+go run main.go
+```
+
+**特徴:**
+
+- GitHub/GitLab のような組織・リポジトリ・Issue 管理
+- 組織管理者が全リソースを管理できる設計
+- リポジトリごとの権限分離
+- 多段階の権限継承（`issue.view` → `repo.read` → `org.view`）
+
+**Example 4 との違い:**
+
+| 項目       | Example 4（Google Docs）        | Example 6（GitHub Organization）                           |
+| ---------- | ------------------------------- | ---------------------------------------------------------- |
+| 階層数     | 2 階層（folder → document）     | 3 階層（org → repo → issue）                               |
+| 権限継承   | シンプル（parent.view）         | 複雑（複数の継承パス）                                     |
+| 役割の種類 | 3 種類（owner, editor, viewer） | 5 種類（admin, maintainer, contributor, member, assignee） |
+
 ## 推奨学習順序
 
 1. **基礎編:**
@@ -120,7 +150,14 @@ go run main.go
    2. データ書き込み（Example 2）
    3. Check API（Example 3）
 
-2. **応用編:** 4. ReBAC（Example 4）- 階層的権限管理 5. ABAC（Example 5）- 属性ベースアクセス制御
+2. **応用編（ReBAC）:**
+
+   4. ReBAC - Google Docs 風（Example 4）- 2 階層の階層的権限管理
+   5. ReBAC - GitHub 風（Example 6）- 3 階層の複雑なネスト構造
+
+3. **応用編（ABAC）:**
+
+   5. ABAC - 属性ベースアクセス制御（Example 5）
 
 ## よくある質問
 
