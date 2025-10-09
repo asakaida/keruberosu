@@ -1,5 +1,7 @@
 # Keruberosu
 
+<img src="keruberosu-logo.png" alt="Keruberosu Logo" style="display: block; margin: 0 auto;" />
+
 Permify 互換の ReBAC/ABAC 認可マイクロサービス
 
 ## 概要
