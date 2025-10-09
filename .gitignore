@@ -32,6 +32,7 @@ go.work
 .env
 .env.local
 .env.*.local
+.env.dev
 
 # Database
 *.db
@@ -45,4 +46,3 @@ logs/
 # Temporary files
 tmp/
 temp/
-.env.dev
