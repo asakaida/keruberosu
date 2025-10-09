@@ -46,13 +46,7 @@ git clone https://github.com/asakaida/keruberosu.git
 cd keruberosu
 ```
 
-### 2. 依存関係のインストール
-
-```bash
-go mod download
-```
-
-### 3. 環境変数の設定
+### 2. 環境変数の設定
 
 開発環境用の設定ファイルを作成します：
 
@@ -72,7 +66,68 @@ DB_PASSWORD=keruberosu_dev_password
 - `.env.test` - テスト環境（ポート 25432）
 - `.env.prod` - 本番環境
 
+### 3. 必要なツールのインストール
+
+Protocol Buffers のコード生成に必要なツールをインストールします。
+
+#### 3-1. Protocol Buffers コンパイラ（protoc）のインストール
+
+**macOS（Homebrew を使用）:**
+
+```bash
+brew install protobuf
+```
+
+**Ubuntu / Debian:**
+
+```bash
+sudo apt update
+sudo apt install -y protobuf-compiler
+```
+
+**その他の OS や手動インストール:**
+
+公式ドキュメントを参照してください：https://grpc.io/docs/protoc-installation/
+
+#### 3-2. Go 用の Protocol Buffers プラグインのインストール
+
+```bash
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+```
+
+#### 3-3. インストールの確認
+
+以下のコマンドでバージョンが表示されれば、インストール成功です：
+
+```bash
+# protoc のバージョン確認
+protoc --version
+# 例: libprotoc 3.21.12
+
+# protoc-gen-go のバージョン確認
+protoc-gen-go --version
+# 例: protoc-gen-go v1.31.0
+
+# protoc-gen-go-grpc のバージョン確認
+protoc-gen-go-grpc --version
+# 例: protoc-gen-go-grpc 1.3.0
+```
+
+> **注意**: `protoc-gen-go` と `protoc-gen-go-grpc` は `$GOPATH/bin` にインストールされます。
+> `$GOPATH/bin` が PATH に含まれていることを確認してください。
+>
+> ```bash
+> # PATH の確認（出力に $GOPATH/bin が含まれているか確認）
+> echo $PATH
+>
+> # 含まれていない場合は追加（~/.bashrc, ~/.zshrc などに記載）
+> export PATH="$PATH:$(go env GOPATH)/bin"
+> ```
+
 ### 4. Protocol Buffers のコード生成
+
+**重要**: この手順は、Go のコマンド（`go run` など）を実行する前に必ず完了してください。
 
 ```bash
 ./scripts/generate-proto.sh
@@ -89,6 +144,12 @@ protoc \
   --go-grpc_opt=paths=source_relative \
   proto/keruberosu/v1/*.proto
 ```
+
+> **注意**: Go のソースコードは `proto/keruberosu/v1` パッケージをインポートしています。
+> このパッケージは proto ファイルから生成されるため、proto 生成を先に実行しないと
+> `go run` や `go build` などのコマンドが失敗します。
+>
+> エラーが発生した場合は、[トラブルシューティング](#トラブルシューティング) セクションを参照してください。
 
 ### 5. データベースの起動
 
@@ -158,12 +219,115 @@ go run cmd/server/main.go --help
 
 ## 開発環境セットアップ
 
-### Protocol Buffers ツールのインストール
+開発環境のセットアップ手順については、[クイックスタート](#クイックスタート) セクションを参照してください。
+
+特に、Protocol Buffers 関連のツールのインストール方法は [Step 3: 必要なツールのインストール](#3-必要なツールのインストール) を参照してください。
+
+## トラブルシューティング
+
+### Proto コード生成前に Go コマンドを実行するとエラーが出る
+
+**問題**: `go run`、`go build`、`go mod download` などを実行すると、以下のようなエラーや警告が出る：
+
+```
+no required module provides package github.com/asakaida/keruberosu/proto/keruberosu/v1
+```
+
+**原因**: Keruberosu のソースコードは `proto/keruberosu/v1` パッケージをインポートしていますが、このパッケージは Protocol Buffers から自動生成されるものです。proto コード生成を実行する前に Go コマンドを実行すると、存在しないパッケージを参照しようとしてエラーになります。
+
+**解決方法**:
+
+1. まず Protocol Buffers のコード生成を実行してください：
+
+   ```bash
+   ./scripts/generate-proto.sh
+   ```
+
+2. その後、Go コマンドを実行してください：
+   ```bash
+   go run cmd/server/main.go
+   ```
+
+**注意**: `go mod download` は不要です。Go は `go run` や `go build` の実行時に自動的に依存パッケージをダウンロードします。
+
+### 依存関係の手動インストール
+
+通常は不要ですが、依存パッケージを事前にダウンロードしたい場合は、proto コード生成後に実行してください：
 
 ```bash
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+# 1. まず proto 生成
+./scripts/generate-proto.sh
+
+# 2. その後、依存関係をダウンロード
+go mod download
 ```
+
+### protoc が見つからない
+
+**問題**: `./scripts/generate-proto.sh` を実行すると、以下のエラーが出る：
+
+```
+Error: protoc is not installed. Please install Protocol Buffers compiler.
+```
+
+**原因**: Protocol Buffers コンパイラ（protoc）がインストールされていません。
+
+**解決方法**:
+
+クイックスタートの [Step 3-1](#3-1-protocol-buffers-コンパイラprotocのインストール) を参照して、`protoc` をインストールしてください。
+
+インストール後、以下のコマンドでバージョンが表示されることを確認：
+
+```bash
+protoc --version
+```
+
+### protoc-gen-go または protoc-gen-go-grpc が見つからない
+
+**問題**: `./scripts/generate-proto.sh` を実行すると、以下のエラーが出る：
+
+```
+Error: protoc-gen-go is not installed.
+Run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+```
+
+または：
+
+```
+Error: protoc-gen-go-grpc is not installed.
+Run: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+```
+
+**原因**: Go 用の Protocol Buffers プラグインがインストールされていないか、PATH に含まれていません。
+
+**解決方法**:
+
+1. クイックスタートの [Step 3-2](#3-2-go-用の-protocol-buffers-プラグインのインストール) を参照して、プラグインをインストールしてください。
+
+2. インストール後も同じエラーが出る場合は、`$GOPATH/bin` が PATH に含まれているか確認：
+
+   ```bash
+   # PATH の確認
+   echo $PATH | grep "$(go env GOPATH)/bin"
+
+   # 何も出力されない場合は、PATH に追加
+   export PATH="$PATH:$(go env GOPATH)/bin"
+
+   # シェル設定ファイルに永続化（bash の場合）
+   echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.bashrc
+   source ~/.bashrc
+
+   # zsh の場合
+   echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.zshrc
+   source ~/.zshrc
+   ```
+
+3. 再度バージョン確認：
+
+   ```bash
+   protoc-gen-go --version
+   protoc-gen-go-grpc --version
+   ```
 
 ## ビルドと実行
 
