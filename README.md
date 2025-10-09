@@ -93,7 +93,7 @@ protoc \
 ### 5. データベースの起動
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ### 6. マイグレーションの実行
@@ -170,7 +170,7 @@ go run cmd/migrate/main.go goto <version>
 cp .env.test.example .env.test
 
 # テスト用データベースを起動（healthcheck が成功するまで待機）
-docker-compose up -d --wait postgres-test
+docker compose up -d --wait postgres-test
 ```
 
 #### 2. テストの実行
@@ -193,10 +193,10 @@ go test -count=1 ./...
 
 ```bash
 # テスト用データベースを停止
-docker-compose down postgres-test
+docker compose down postgres-test
 
 # データも削除する場合
-docker-compose down postgres-test -v
+docker compose down postgres-test -v
 ```
 
 **注意**: テストは自動的に `.env.test` を読み込み、test 環境で実行されます。`DB_PASSWORD` などの設定は `.env.test` に記載してください。
