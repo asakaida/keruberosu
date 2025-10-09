@@ -5,35 +5,91 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 
 	"github.com/asakaida/keruberosu/internal/infrastructure/config"
 	"github.com/asakaida/keruberosu/internal/infrastructure/database"
 	"github.com/golang-migrate/migrate/v4"
+	"github.com/spf13/cobra"
 )
 
 const (
-	defaultEnv           = "dev"
 	migrationsPathSuffix = "internal/infrastructure/database/migrations/postgres"
 )
 
+var (
+	envFlag string
+	pg      *database.Postgres
+)
+
+var rootCmd = &cobra.Command{
+	Use:   "migrate",
+	Short: "Database migration tool for Keruberosu",
+	Long: `Database migration tool for Keruberosu.
+Manages PostgreSQL schema migrations using golang-migrate.`,
+	PersistentPreRun: setupDatabase,
+}
+
+var upCmd = &cobra.Command{
+	Use:   "up",
+	Short: "Apply all pending migrations",
+	Long:  `Apply all pending migrations to the database.`,
+	Run:   runUp,
+}
+
+var downCmd = &cobra.Command{
+	Use:   "down [steps]",
+	Short: "Rollback migrations",
+	Long:  `Rollback the specified number of migrations (default: 1).`,
+	Args:  cobra.MaximumNArgs(1),
+	Run:   runDown,
+}
+
+var gotoCmd = &cobra.Command{
+	Use:   "goto <version>",
+	Short: "Migrate to a specific version",
+	Long:  `Migrate to a specific version number.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   runGoto,
+}
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Show current migration version",
+	Long:  `Display the current migration version of the database.`,
+	Run:   runVersion,
+}
+
+var forceCmd = &cobra.Command{
+	Use:   "force <version>",
+	Short: "Force set migration version (use with caution)",
+	Long:  `Force set the migration version without running migrations. Use with caution.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   runForce,
+}
+
+func init() {
+	// Add global --env flag to all commands
+	rootCmd.PersistentFlags().StringVarP(&envFlag, "env", "e", "dev", "Environment to use (dev, test, prod)")
+
+	// Add subcommands
+	rootCmd.AddCommand(upCmd)
+	rootCmd.AddCommand(downCmd)
+	rootCmd.AddCommand(gotoCmd)
+	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(forceCmd)
+}
+
 func main() {
-	// Parse command line arguments
-	if len(os.Args) < 2 {
-		printUsage()
-		os.Exit(1)
+	if err := rootCmd.Execute(); err != nil {
+		log.Fatalf("Failed to execute command: %v", err)
 	}
+}
 
-	command := os.Args[1]
+func setupDatabase(cmd *cobra.Command, args []string) {
+	log.Printf("Using environment: %s", envFlag)
 
-	// Get environment from ENV variable or use default
-	env := os.Getenv("ENV")
-	if env == "" {
-		env = defaultEnv
-	}
-
-	// Initialize configuration
-	if err := config.InitConfig(env); err != nil {
+	// Initialize configuration from .env.{env} file
+	if err := config.InitConfig(envFlag); err != nil {
 		log.Fatalf("Failed to initialize config: %v", err)
 	}
 
@@ -43,112 +99,155 @@ func main() {
 	}
 
 	// Connect to database
-	pg, err := database.NewPostgres(&cfg.Database)
+	pg, err = database.NewPostgres(&cfg.Database)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer pg.Close()
 
 	log.Printf("Connected to database: %s@%s:%d/%s",
 		cfg.Database.User,
 		cfg.Database.Host,
 		cfg.Database.Port,
 		cfg.Database.Database)
+}
 
+func getMigrationsPath() (string, error) {
 	// Find project root
 	projectRoot, err := findProjectRoot()
 	if err != nil {
-		log.Fatalf("Failed to find project root: %v", err)
+		return "", fmt.Errorf("failed to find project root: %w", err)
 	}
 
 	migrationsPath := filepath.Join(projectRoot, migrationsPathSuffix)
 	log.Printf("Using migrations path: %s", migrationsPath)
+	return migrationsPath, nil
+}
 
-	// Execute command
-	switch command {
-	case "up":
-		if err := runUp(pg, migrationsPath); err != nil {
-			log.Fatalf("Migration up failed: %v", err)
-		}
+func runUp(cmd *cobra.Command, args []string) {
+	migrationsPath, err := getMigrationsPath()
+	if err != nil {
+		log.Fatalf("Failed to get migrations path: %v", err)
+	}
+
+	m, err := createMigrate(pg, migrationsPath)
+	if err != nil {
+		log.Fatalf("Failed to create migrate instance: %v", err)
+	}
+	defer m.Close()
+
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		log.Fatalf("Migration up failed: %v", err)
+	}
+
+	if err == migrate.ErrNoChange {
+		log.Println("No migrations to apply")
+	} else {
 		log.Println("Migration up completed successfully")
-
-	case "down":
-		steps := 1 // Default: rollback 1 migration
-		if len(os.Args) > 2 {
-			steps, err = strconv.Atoi(os.Args[2])
-			if err != nil {
-				log.Fatalf("Invalid steps argument: %v", err)
-			}
-		}
-		if err := runDown(pg, migrationsPath, steps); err != nil {
-			log.Fatalf("Migration down failed: %v", err)
-		}
-		log.Printf("Migration down completed successfully (rolled back %d migration(s))", steps)
-
-	case "goto":
-		if len(os.Args) < 3 {
-			log.Fatal("Usage: migrate goto <version>")
-		}
-		version, err := strconv.ParseUint(os.Args[2], 10, 64)
-		if err != nil {
-			log.Fatalf("Invalid version argument: %v", err)
-		}
-		if err := runGoto(pg, migrationsPath, uint(version)); err != nil {
-			log.Fatalf("Migration goto failed: %v", err)
-		}
-		log.Printf("Migration goto %d completed successfully", version)
-
-	case "version":
-		version, dirty, err := getVersion(pg, migrationsPath)
-		if err != nil {
-			log.Fatalf("Failed to get version: %v", err)
-		}
-		if dirty {
-			log.Printf("Current version: %d (dirty)", version)
-		} else {
-			log.Printf("Current version: %d", version)
-		}
-
-	case "force":
-		if len(os.Args) < 3 {
-			log.Fatal("Usage: migrate force <version>")
-		}
-		version, err := strconv.Atoi(os.Args[2])
-		if err != nil {
-			log.Fatalf("Invalid version argument: %v", err)
-		}
-		if err := runForce(pg, migrationsPath, version); err != nil {
-			log.Fatalf("Migration force failed: %v", err)
-		}
-		log.Printf("Migration forced to version %d", version)
-
-	default:
-		log.Printf("Unknown command: %s", command)
-		printUsage()
-		os.Exit(1)
 	}
 }
 
-func printUsage() {
-	fmt.Println("Usage: migrate <command> [args]")
-	fmt.Println()
-	fmt.Println("Commands:")
-	fmt.Println("  up                 Apply all pending migrations")
-	fmt.Println("  down [steps]       Rollback migrations (default: 1 step)")
-	fmt.Println("  goto <version>     Migrate to a specific version")
-	fmt.Println("  version            Show current migration version")
-	fmt.Println("  force <version>    Force set migration version (use with caution)")
-	fmt.Println()
-	fmt.Println("Environment:")
-	fmt.Println("  ENV=dev|test|prod  Set environment (default: dev)")
-	fmt.Println()
-	fmt.Println("Examples:")
-	fmt.Println("  migrate up")
-	fmt.Println("  migrate down")
-	fmt.Println("  migrate down 2")
-	fmt.Println("  migrate goto 1")
-	fmt.Println("  migrate version")
-	fmt.Println("  ENV=test migrate up")
+func runDown(cmd *cobra.Command, args []string) {
+	steps := 1 // Default: rollback 1 migration
+	if len(args) > 0 {
+		fmt.Sscanf(args[0], "%d", &steps)
+	}
+
+	migrationsPath, err := getMigrationsPath()
+	if err != nil {
+		log.Fatalf("Failed to get migrations path: %v", err)
+	}
+
+	m, err := createMigrate(pg, migrationsPath)
+	if err != nil {
+		log.Fatalf("Failed to create migrate instance: %v", err)
+	}
+	defer m.Close()
+
+	if err := m.Steps(-steps); err != nil && err != migrate.ErrNoChange {
+		log.Fatalf("Migration down failed: %v", err)
+	}
+
+	if err == migrate.ErrNoChange {
+		log.Println("No migrations to rollback")
+	} else {
+		log.Printf("Migration down completed successfully (rolled back %d migration(s))", steps)
+	}
+}
+
+func runGoto(cmd *cobra.Command, args []string) {
+	var version uint
+	fmt.Sscanf(args[0], "%d", &version)
+
+	migrationsPath, err := getMigrationsPath()
+	if err != nil {
+		log.Fatalf("Failed to get migrations path: %v", err)
+	}
+
+	m, err := createMigrate(pg, migrationsPath)
+	if err != nil {
+		log.Fatalf("Failed to create migrate instance: %v", err)
+	}
+	defer m.Close()
+
+	if err := m.Migrate(version); err != nil && err != migrate.ErrNoChange {
+		log.Fatalf("Migration goto failed: %v", err)
+	}
+
+	if err == migrate.ErrNoChange {
+		log.Printf("Already at version %d", version)
+	} else {
+		log.Printf("Migration goto %d completed successfully", version)
+	}
+}
+
+func runVersion(cmd *cobra.Command, args []string) {
+	migrationsPath, err := getMigrationsPath()
+	if err != nil {
+		log.Fatalf("Failed to get migrations path: %v", err)
+	}
+
+	m, err := createMigrate(pg, migrationsPath)
+	if err != nil {
+		log.Fatalf("Failed to create migrate instance: %v", err)
+	}
+	defer m.Close()
+
+	version, dirty, err := m.Version()
+	if err == migrate.ErrNilVersion {
+		log.Println("Current version: No migrations applied yet")
+		return
+	}
+	if err != nil {
+		log.Fatalf("Failed to get version: %v", err)
+	}
+
+	if dirty {
+		log.Printf("Current version: %d (dirty - migration may have failed)", version)
+	} else {
+		log.Printf("Current version: %d", version)
+	}
+}
+
+func runForce(cmd *cobra.Command, args []string) {
+	var version int
+	fmt.Sscanf(args[0], "%d", &version)
+
+	migrationsPath, err := getMigrationsPath()
+	if err != nil {
+		log.Fatalf("Failed to get migrations path: %v", err)
+	}
+
+	m, err := createMigrate(pg, migrationsPath)
+	if err != nil {
+		log.Fatalf("Failed to create migrate instance: %v", err)
+	}
+	defer m.Close()
+
+	if err := m.Force(version); err != nil {
+		log.Fatalf("Migration force failed: %v", err)
+	}
+
+	log.Printf("Migration forced to version %d", version)
 }
 
 func createMigrate(pg *database.Postgres, migrationsPath string) (*migrate.Migrate, error) {
@@ -167,92 +266,6 @@ func createMigrate(pg *database.Postgres, migrationsPath string) (*migrate.Migra
 	}
 
 	return m, nil
-}
-
-func runUp(pg *database.Postgres, migrationsPath string) error {
-	m, err := createMigrate(pg, migrationsPath)
-	if err != nil {
-		return err
-	}
-	defer m.Close()
-
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		return fmt.Errorf("migration up failed: %w", err)
-	}
-
-	if err == migrate.ErrNoChange {
-		log.Println("No migrations to apply")
-	}
-
-	return nil
-}
-
-func runDown(pg *database.Postgres, migrationsPath string, steps int) error {
-	m, err := createMigrate(pg, migrationsPath)
-	if err != nil {
-		return err
-	}
-	defer m.Close()
-
-	if err := m.Steps(-steps); err != nil && err != migrate.ErrNoChange {
-		return fmt.Errorf("migration down failed: %w", err)
-	}
-
-	if err == migrate.ErrNoChange {
-		log.Println("No migrations to rollback")
-	}
-
-	return nil
-}
-
-func runGoto(pg *database.Postgres, migrationsPath string, version uint) error {
-	m, err := createMigrate(pg, migrationsPath)
-	if err != nil {
-		return err
-	}
-	defer m.Close()
-
-	if err := m.Migrate(version); err != nil && err != migrate.ErrNoChange {
-		return fmt.Errorf("migration goto failed: %w", err)
-	}
-
-	if err == migrate.ErrNoChange {
-		log.Printf("Already at version %d", version)
-	}
-
-	return nil
-}
-
-func getVersion(pg *database.Postgres, migrationsPath string) (version uint, dirty bool, err error) {
-	m, err := createMigrate(pg, migrationsPath)
-	if err != nil {
-		return 0, false, err
-	}
-	defer m.Close()
-
-	version, dirty, err = m.Version()
-	if err == migrate.ErrNilVersion {
-		return 0, false, nil
-	}
-	if err != nil {
-		return 0, false, fmt.Errorf("failed to get version: %w", err)
-	}
-
-	return version, dirty, nil
-}
-
-func runForce(pg *database.Postgres, migrationsPath string, version int) error {
-	m, err := createMigrate(pg, migrationsPath)
-	if err != nil {
-		return err
-	}
-	defer m.Close()
-
-	if err := m.Force(version); err != nil {
-		return fmt.Errorf("migration force failed: %w", err)
-	}
-
-	return nil
 }
 
 func findProjectRoot() (string, error) {

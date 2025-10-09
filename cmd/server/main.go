@@ -17,36 +17,51 @@ import (
 	"github.com/asakaida/keruberosu/internal/services"
 	"github.com/asakaida/keruberosu/internal/services/authorization"
 	pb "github.com/asakaida/keruberosu/proto/keruberosu/v1"
+	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
 
-const (
-	defaultEnv  = "dev"
-	defaultPort = "50051"
+var (
+	envFlag  string
+	portFlag int
 )
 
+var rootCmd = &cobra.Command{
+	Use:   "server",
+	Short: "Keruberosu gRPC server",
+	Long: `Keruberosu is a Permify-compatible ReBAC/ABAC authorization microservice.
+This command starts the gRPC server.`,
+	Run: runServer,
+}
+
+func init() {
+	rootCmd.Flags().StringVarP(&envFlag, "env", "e", "dev", "Environment to use (dev, test, prod)")
+	rootCmd.Flags().IntVarP(&portFlag, "port", "p", 50051, "Port to listen on")
+}
+
 func main() {
-	// Get environment from ENV variable or use default
-	env := os.Getenv("ENV")
-	if env == "" {
-		env = defaultEnv
+	if err := rootCmd.Execute(); err != nil {
+		log.Fatalf("Failed to execute command: %v", err)
 	}
+}
 
-	// Get port from PORT variable or use default
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = defaultPort
-	}
+func runServer(cmd *cobra.Command, args []string) {
+	log.Printf("Starting Keruberosu server (environment: %s)", envFlag)
 
-	// Initialize configuration
-	if err := config.InitConfig(env); err != nil {
+	// Initialize configuration from .env.{env} file
+	if err := config.InitConfig(envFlag); err != nil {
 		log.Fatalf("Failed to initialize config: %v", err)
 	}
 
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Override port if specified via flag
+	if cmd.Flags().Changed("port") {
+		cfg.Server.Port = portFlag
 	}
 
 	// Connect to database
@@ -97,12 +112,13 @@ func main() {
 	reflection.Register(grpcServer)
 
 	// Start listening
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
+	port := cfg.Server.Port
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
 
-	log.Printf("gRPC server listening on :%s", port)
+	log.Printf("gRPC server listening on :%d", port)
 
 	// Start server in a goroutine
 	serverErrors := make(chan error, 1)

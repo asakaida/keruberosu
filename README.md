@@ -98,35 +98,63 @@ docker compose up -d
 
 ### 6. マイグレーションの実行
 
-デフォルト（dev 環境）:
+デフォルト（dev 環境、`.env.dev` を使用）:
 
 ```bash
 go run cmd/migrate/main.go up
 ```
 
-環境を指定する場合:
+環境を指定する場合（対応する `.env.{環境名}` ファイルを読み込みます）:
 
 ```bash
-go run cmd/migrate/main.go up --env dev
-go run cmd/migrate/main.go up --env test
+go run cmd/migrate/main.go up --env dev   # .env.dev を使用
+go run cmd/migrate/main.go up --env test  # .env.test を使用
+go run cmd/migrate/main.go up --env prod  # .env.prod を使用
+```
+
+その他のマイグレーションコマンド:
+
+```bash
+# バージョン確認
+go run cmd/migrate/main.go version
+
+# ロールバック
+go run cmd/migrate/main.go down
+
+# ヘルプ表示
+go run cmd/migrate/main.go --help
 ```
 
 ### 7. サーバーの起動
 
-デフォルト（dev 環境）:
+デフォルト（dev 環境、`.env.dev` を使用）:
 
 ```bash
 go run cmd/server/main.go
 ```
 
-環境を指定する場合:
+環境を指定する場合（対応する `.env.{環境名}` ファイルを読み込みます）:
 
 ```bash
-go run cmd/server/main.go --env dev
-go run cmd/server/main.go --env prod
+go run cmd/server/main.go --env dev   # .env.dev を使用
+go run cmd/server/main.go --env test  # .env.test を使用
+go run cmd/server/main.go --env prod  # .env.prod を使用
 ```
 
-サーバーは `localhost:50051` で起動します。
+ポート番号を指定する場合:
+
+```bash
+go run cmd/server/main.go --port 8080
+go run cmd/server/main.go --env prod --port 9090
+```
+
+ヘルプの表示:
+
+```bash
+go run cmd/server/main.go --help
+```
+
+サーバーはデフォルトで `localhost:50051` で起動します。
 
 ## 開発環境セットアップ
 
@@ -149,14 +177,24 @@ go build -o bin/migrate cmd/migrate/main.go
 ### マイグレーション
 
 ```bash
-# マイグレーションを適用
+# マイグレーションを適用（デフォルト: dev環境）
 go run cmd/migrate/main.go up
+
+# 環境を指定してマイグレーション
+go run cmd/migrate/main.go up --env test
+go run cmd/migrate/main.go up --env prod
 
 # マイグレーションをロールバック
 go run cmd/migrate/main.go down
 
+# 複数ステップのロールバック
+go run cmd/migrate/main.go down 2
+
 # 特定のバージョンまでマイグレーション
 go run cmd/migrate/main.go goto <version>
+
+# 現在のバージョン確認
+go run cmd/migrate/main.go version
 ```
 
 ### テストの実行
