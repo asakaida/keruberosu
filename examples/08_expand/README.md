@@ -1,49 +1,49 @@
 # Example 08: Expand API - Permission Tree Visualization
 
-この例では、Keruberos の**Expand API**を使用して、権限決定ツリーを可視化する実践的な方法を示します。
+この例では、Keruberosu の`Expand API`を使用して、権限決定ツリーを可視化する実践的な方法を示します。
 
 ## 概要
 
-Expand API は、特定の権限がどのように決定されるかを**ツリー構造**で返します。これにより、以下が可能になります：
+Expand API は、特定の権限がどのように決定されるかをツリー構造で返します。これにより、以下が可能になります：
 
-- 🐛 **デバッグ**: なぜアクセスが拒否されたのか？
-- 📊 **監査**: リソースへのアクセス経路を可視化
-- ✅ **検証**: 権限ルールが意図通りに動作しているか確認
-- 📚 **ドキュメント**: 複雑な権限ロジックをチームに説明
+- 🐛 デバッグ: なぜアクセスが拒否されたのか？
+- 📊 監査: リソースへのアクセス経路を可視化
+- ✅ 検証: 権限ルールが意図通りに動作しているか確認
+- 📚 ドキュメント: 複雑な権限ロジックをチームに説明
 
 ## シナリオ
 
-GitHub 風の**organization → repository → issue**の 3 階層構造を使用します。
+GitHub 風の`organization → repository → issue`の 3 階層構造を使用します。
 
 ### エンティティ構造
 
 #### Organization
 
-- **acme-corp**
+- `acme-corp`
   - admin: alice
   - member: bob, charlie
 
 #### Repositories
 
-- **backend-api** (プライベート)
+- `backend-api` (プライベート)
 
   - parent: acme-corp
   - owner: bob
   - maintainer: charlie
 
-- **frontend** (パブリック)
+- `frontend` (パブリック)
   - parent: acme-corp
   - owner: alice
   - contributor: dave
 
 #### Issues
 
-- **backend-api/issue-1** (機密)
+- `backend-api/issue-1` (機密)
 
   - parent: backend-api
   - assignee: bob
 
-- **frontend/issue-2** (非機密)
+- `frontend/issue-2` (非機密)
   - parent: frontend
   - reporter: dave
 
@@ -97,9 +97,9 @@ Expand API は権限決定ツリーを返します。ツリーには以下のノ
 
 #### 🔀 結合ノード（Operation）
 
-- **union（OR）**: いずれかの条件が満たされれば OK
-- **intersection（AND）**: 全ての条件が満たされる必要あり
-- **exclusion（EXCLUDE）**: 特定の条件を除外
+- `union（OR）`: いずれかの条件が満たされれば OK
+- `intersection（AND）`: 全ての条件が満たされる必要あり
+- `exclusion（EXCLUDE）`: 特定の条件を除外
 
 #### 🍃 リーフノード（Leaf）
 
@@ -128,7 +128,7 @@ repository:frontend#view の権限ツリー:
     🔄 ルール評価 (!resource.private)
 ```
 
-**解釈**:
+#### 解釈:
 
 - alice と dave は直接的な役割で閲覧可能
 - 他のユーザーは`parent.view`（organization 閲覧権限）と`!resource.private`の両方を満たせば閲覧可能
@@ -145,7 +145,7 @@ repository:backend-api#view の権限ツリー:
      - user:charlie        (maintainer)
 ```
 
-**解釈**:
+#### 解釈:
 
 - backend-api はプライベート（private=true）
 - ルール`!resource.private`が false になるため、`parent.view`の分岐は除外される
@@ -170,7 +170,7 @@ issue:issue-2#view の権限ツリー:
     🔄 ルール評価 (!resource.confidential)
 ```
 
-**解釈**:
+#### 解釈:
 
 - dave は reporter として直接閲覧可能
 - issue-2 は非機密なので、repository の閲覧権限を継承
@@ -271,23 +271,23 @@ issue#view
 
 ## 学習ポイント
 
-1. **Expand vs Check**:
+1. `Expand` vs `Check`:
 
    - Check: アクセス可否のみを返す（速い）
    - Expand: 決定理由を返す（詳細だが重い）
 
-2. **デバッグ時の活用**:
+2. デバッグ時の活用:
 
    - 本番環境では Check を使用
    - 開発・テスト時に Expand でロジック検証
 
-3. **複雑なルールの可視化**:
+3. 複雑なルールの可視化:
 
    - `parent.view`の再帰的継承
    - ABAC 条件（`rule(...)`）の評価結果
    - OR/AND の組み合わせ
 
-4. **パフォーマンス考慮**:
+4. パフォーマンス考慮:
    - Expand は計算コストが高い
    - 必要な場合のみ使用（デバッグ、監査）
    - 通常の権限チェックには Check を使用
@@ -298,11 +298,11 @@ issue#view
 
 Expand API では以下のフィールドが使用可能です：
 
-- **tenant_id** (string, optional): テナント識別子。空の場合は "default" を使用。将来のマルチテナント対応に備えた設計。
-- **entity** (Entity, required): 権限を展開する対象エンティティ
-- **permission** (string, required): 展開する権限名
-- **context** (Context, optional): コンテキスト情報（contextual tuples, attributes）
-- **arguments** (repeated Value, optional): パラメータ付き権限用の引数
+- `tenant_id` (string, optional): テナント識別子。空の場合は "default" を使用。将来のマルチテナント対応に備えた設計。
+- `entity` (Entity, required): 権限を展開する対象エンティティ
+- `permission` (string, required): 展開する権限名
+- `context` (Context, optional): コンテキスト情報（contextual tuples, attributes）
+- `arguments` (repeated Value, optional): パラメータ付き権限用の引数
 
 基本的な使用例：
 

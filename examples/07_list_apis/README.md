@@ -6,34 +6,35 @@
 
 企業のドキュメント管理システムを想定したシナリオで、以下の 3 つの API の使い分けを学習できます：
 
-- **LookupEntity**: ユーザーがアクセスできるリソース一覧を取得
-- **LookupSubject**: リソースにアクセスできるユーザー一覧を取得
-- **SubjectPermission**: 特定のユーザー・リソースの組み合わせで持つ全権限を取得
+- `LookupEntity`: ユーザーがアクセスできるリソース一覧を取得
+- `LookupSubject`: リソースにアクセスできるユーザー一覧を取得
+- `SubjectPermission`: 特定のユーザー・リソースの組み合わせで持つ全権限を取得
 
 ## シナリオ
 
 ### エンティティ構造
 
-- **5 人のユーザー**:
+#### 5 人のユーザー:
 
-  - alice (営業部, セキュリティレベル 2)
-  - bob (エンジニアリング部, セキュリティレベル 3)
-  - charlie (営業部, セキュリティレベル 4)
-  - dave (人事部, セキュリティレベル 2)
-  - eve (エンジニアリング部, セキュリティレベル 5)
+- alice (営業部, セキュリティレベル 2)
+- bob (エンジニアリング部, セキュリティレベル 3)
+- charlie (営業部, セキュリティレベル 4)
+- dave (人事部, セキュリティレベル 2)
+- eve (エンジニアリング部, セキュリティレベル 5)
 
-- **3 つの部署**:
+#### 3 つの部署:
 
-  - sales (営業部): alice, charlie
-  - engineering (エンジニアリング部): bob, eve
-  - hr (人事部): dave
+- sales (営業部): alice, charlie
+- engineering (エンジニアリング部): bob, eve
+- hr (人事部): dave
 
-- **5 つのドキュメント**:
-  - doc1: 営業部のパブリックドキュメント（非機密）
-  - doc2: alice が所有する営業部ドキュメント（機密レベル 3）
-  - doc3: エンジニアリング部のパブリックドキュメント（非機密）
-  - doc4: bob が所有するエンジニアリング部ドキュメント（機密レベル 4）
-  - doc5: 人事部の機密ドキュメント（機密レベル 5）
+#### 5 つのドキュメント:
+
+- doc1: 営業部のパブリックドキュメント（非機密）
+- doc2: alice が所有する営業部ドキュメント（機密レベル 3）
+- doc3: エンジニアリング部のパブリックドキュメント（非機密）
+- doc4: bob が所有するエンジニアリング部ドキュメント（機密レベル 4）
+- doc5: 人事部の機密ドキュメント（機密レベル 5）
 
 ### 権限ルール
 
@@ -141,22 +142,22 @@ showDeleteButton := subjPermResp.Results["delete"] == pb.CheckResult_CHECK_RESUL
 
 ## 学習ポイント
 
-1. **LookupEntity vs Check**:
+1. `LookupEntity` vs `Check`:
 
    - Check: 1 つのリソースへのアクセス判定（速い）
    - LookupEntity: 全リソースから絞り込み（一括取得）
 
-2. **LookupSubject の活用**:
+2. `LookupSubject` の活用:
 
    - アクセス監査レポート
    - 共有設定 UI（「誰がアクセスできるか」表示）
 
-3. **SubjectPermission の効率性**:
+3. `SubjectPermission` の効率性:
 
    - 複数の権限を 1 回の API で取得
    - UI 制御で複数ボタンの表示判定を最適化
 
-4. **ReBAC + ABAC の組み合わせ**:
+4. ReBAC + ABAC の組み合わせ:
    - 部署メンバーシップ（ReBAC）
    - セキュリティレベル・機密性（ABAC）
    - 柔軟で強力な権限モデル
@@ -167,13 +168,13 @@ showDeleteButton := subjPermResp.Results["delete"] == pb.CheckResult_CHECK_RESUL
 
 すべての Permission API で以下のフィールドが使用可能です：
 
-- **tenant_id** (string, optional): テナント識別子。空の場合は "default" を使用。将来のマルチテナント対応に備えた設計。
+- `tenant_id` (string, optional): テナント識別子。空の場合は "default" を使用。将来のマルチテナント対応に備えた設計。
 
 ### LookupEntity 固有パラメータ
 
-- **scope** (map<string, StringArrayValue>, optional): エンティティタイプごとの ID リスト。検索対象を特定のエンティティに限定する場合に使用。
-- **page_size** (uint32, optional): 1 ページあたりの結果数（1-100 推奨）
-- **continuous_token** (string, optional): ページネーション用トークン
+- `scope` (map<string, StringArrayValue>, optional): エンティティタイプごとの ID リスト。検索対象を特定のエンティティに限定する場合に使用。
+- `page_size` (uint32, optional): 1 ページあたりの結果数（1-100 推奨）
+- `continuous_token` (string, optional): ページネーション用トークン
 
 例：
 
@@ -192,8 +193,8 @@ lookupResp, _ := permissionClient.LookupEntity(ctx, &pb.PermissionLookupEntityRe
 
 ### LookupSubject 固有パラメータ
 
-- **page_size** (uint32, optional): 1 ページあたりの結果数
-- **continuous_token** (string, optional): ページネーション用トークン
+- `page_size` (uint32, optional): 1 ページあたりの結果数
+- `continuous_token` (string, optional): ページネーション用トークン
 
 ### SubjectPermission
 

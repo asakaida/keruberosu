@@ -2,7 +2,7 @@
 
 ## 概要
 
-このサンプルは、**3 階層のネストした関係性**を使った ReBAC（Relationship-Based Access Control）の実例を示します。
+このサンプルは、3 階層のネストした関係性を使った ReBAC（Relationship-Based Access Control）の実例を示します。
 
 GitHub や GitLab のような組織・リポジトリ・Issue 管理システムを模した、現実的なユースケースです。
 
@@ -16,13 +16,13 @@ Organization (組織)
 
 ## 登場人物
 
-| ユーザー    | 役割                               | 権限の範囲                                    |
-| ----------- | ---------------------------------- | --------------------------------------------- |
-| **Alice**   | 組織管理者 (org admin)             | 全リポジトリ・全 Issue を管理可能             |
-| **Bob**     | リポジトリ管理者 (repo maintainer) | backend-api リポジトリと配下の全 Issue を管理 |
-| **Charlie** | Issue 担当者 (issue assignee)      | Issue #123 のみ編集可能                       |
-| **Diana**   | 組織メンバー (org member)          | 全リポジトリ・全 Issue を閲覧可能             |
-| **Eve**     | コントリビューター (contributor)   | backend-api リポジトリへの書き込み可能        |
+| ユーザー | 役割                               | 権限の範囲                                    |
+| -------- | ---------------------------------- | --------------------------------------------- |
+| Alice    | 組織管理者 (org admin)             | 全リポジトリ・全 Issue を管理可能             |
+| Bob      | リポジトリ管理者 (repo maintainer) | backend-api リポジトリと配下の全 Issue を管理 |
+| Charlie  | Issue 担当者 (issue assignee)      | Issue #123 のみ編集可能                       |
+| Diana    | 組織メンバー (org member)          | 全リポジトリ・全 Issue を閲覧可能             |
+| Eve      | コントリビューター (contributor)   | backend-api リポジトリへの書き込み可能        |
 
 ## スキーマ定義
 
@@ -168,44 +168,45 @@ go run examples/06_rebac_github_organization/main.go
 
 ## この例で学べること
 
-1. **3 階層のネスト構造**
+### 1. 3 階層のネスト構造
 
-   - Organization → Repository → Issue
-   - 実際のサービスでよく使われるパターン
+- Organization → Repository → Issue
+- 実際のサービスでよく使われるパターン
 
-2. **複雑な権限継承**
+### 2. 複雑な権限継承
 
-   - `issue.view` → `repo.read` → `org.view` のような多段階継承
-   - 組織管理者が全てのリソースを管理できる設計
+- `issue.view` → `repo.read` → `org.view` のような多段階継承
+- 組織管理者が全てのリソースを管理できる設計
 
-3. **役割ベースの権限管理**
+### 3. 役割ベースの権限管理
 
-   - admin（全権限）
-   - maintainer（管理権限）
-   - contributor（書き込み権限）
-   - member（閲覧権限）
-   - assignee（限定的な編集権限）
+- admin（全権限）
+- maintainer（管理権限）
+- contributor（書き込み権限）
+- member（閲覧権限）
+- assignee（限定的な編集権限）
 
-4. **階層間の境界**
-   - Bob は backend-api の Issue は管理できるが、frontend-app の Issue は閲覧できない
-   - リソースの所属に基づいた権限の分離
+### 4. 階層間の境界
+
+- Bob は backend-api の Issue は管理できるが、frontend-app の Issue は閲覧できない
+- リソースの所属に基づいた権限の分離
 
 ## 他の例との比較
 
-| 例                               | 階層数     | 特徴                                                 |
-| -------------------------------- | ---------- | ---------------------------------------------------- |
-| 04_rebac_google_docs             | 2 階層     | folder → document の基本的なネスト                   |
-| **06_rebac_github_organization** | **3 階層** | **organization → repository → issue の複雑なネスト** |
+| 例                             | 階層数 | 特徴                                               |
+| ------------------------------ | ------ | -------------------------------------------------- |
+| 04_rebac_google_docs           | 2 階層 | folder → document の基本的なネスト                 |
+| `06_rebac_github_organization` | 3 階層 | `organization → repository → issue` の複雑なネスト |
 
 ## 応用例
 
 このパターンは以下のようなシステムで利用できます：
 
-- **プロジェクト管理ツール**: Workspace → Project → Task
-- **クラウドストレージ**: Organization → Bucket → File
-- **e コマース**: Company → Store → Product
-- **教育機関**: University → Department → Course
-- **SaaS 製品**: Account → Workspace → Resource
+- プロジェクト管理ツール: Workspace → Project → Task
+- クラウドストレージ: Organization → Bucket → File
+- e コマース: Company → Store → Product
+- 教育機関: University → Department → Course
+- SaaS 製品: Account → Workspace → Resource
 
 ## 参考資料
 

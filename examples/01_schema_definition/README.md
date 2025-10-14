@@ -23,9 +23,9 @@ entity document {
 
 ### 構成要素
 
-1. **entity**: リソースやユーザーなどのエンティティタイプを定義
-2. **relation**: エンティティ間の関係を定義（例: owner, editor）
-3. **permission**: 権限ルールを定義（relations を組み合わせて表現）
+1. `entity`: リソースやユーザーなどのエンティティタイプを定義
+2. `relation`: エンティティ間の関係を定義（例: owner, editor）
+3. `permission`: 権限ルールを定義（relations を組み合わせて表現）
 
 ## 実行方法
 

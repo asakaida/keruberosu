@@ -2,7 +2,7 @@
 
 このサンプルでは、関係性（Relations）と属性（Attributes）を書き込む方法を示します。
 
-## 関係性（Relations）の書き込み
+### 関係性（Relations）の書き込み
 
 関係性は、エンティティ間の関係を表現します。
 
@@ -18,7 +18,7 @@ client.WriteRelations(ctx, &pb.WriteRelationsRequest{
 })
 ```
 
-## 属性（Attributes）の書き込み
+### 属性（Attributes）の書き込み
 
 属性は、エンティティの特性を表現します（ABAC 用）。
 

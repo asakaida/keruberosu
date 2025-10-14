@@ -6,20 +6,20 @@
 
 全てのサンプルを実行する前に、以下を確認してください：
 
-1. **Keruberosu サーバーが起動していること**
+1. Keruberosu サーバーが起動していること
 
    ```bash
    # プロジェクトのルートディレクトリで
    go run cmd/server/main.go
    ```
 
-2. **PostgreSQL データベースが起動していること**
+2. PostgreSQL データベースが起動していること
 
    ```bash
    docker-compose up -d
    ```
 
-3. **マイグレーションが適用されていること**
+3. マイグレーションが適用されていること
    ```bash
    go run cmd/migrate/main.go up
    ```
@@ -30,7 +30,7 @@
 
 最も基本的な例。スキーマ DSL を使用してエンティティ、関係性、権限を定義します。
 
-**内容:**
+#### 内容:
 
 - エンティティの定義（user, document）
 - 関係性の定義（owner, editor, viewer）
@@ -45,7 +45,7 @@ go run main.go
 
 関係性（Relations）と属性（Attributes）をデータベースに書き込む方法を示します。
 
-**内容:**
+#### 内容:
 
 - Data.Write API の使用（Permify 互換）
 - 関係性（Tuples）と属性（Attributes）の書き込み
@@ -60,7 +60,7 @@ go run main.go
 
 権限チェックの基本的な使い方を示します。
 
-**内容:**
+#### 内容:
 
 - Check API の使用方法
 - 様々な権限チェックのパターン
@@ -75,7 +75,7 @@ go run main.go
 
 階層的な権限管理を実装する方法を示します。
 
-**内容:**
+#### 内容:
 
 - 階層的な関係性（parent relation）
 - 権限の継承（parent.view）
@@ -86,7 +86,7 @@ cd 04_rebac_google_docs
 go run main.go
 ```
 
-**特徴:**
+#### 特徴:
 
 - フォルダの editor は、そのフォルダ内の全ドキュメントを閲覧可能
 - Google Docs のような直感的な権限管理
@@ -95,7 +95,7 @@ go run main.go
 
 属性に基づく動的な権限管理を実装する方法を示します。
 
-**内容:**
+#### 内容:
 
 - CEL（Common Expression Language）の使用
 - 属性に基づく条件式（security_level, department）
@@ -106,7 +106,7 @@ cd 05_abac_attributes
 go run main.go
 ```
 
-**特徴:**
+#### 特徴:
 
 - セキュリティレベルに基づくアクセス制御
 - 部署やサブスクリプション tier に基づくアクセス制御
@@ -116,7 +116,7 @@ go run main.go
 
 複雑な多段階ネストを使った現実的な権限管理を実装する方法を示します。
 
-**内容:**
+#### 内容:
 
 - 3 階層のネスト構造（Organization → Repository → Issue）
 - 複雑な権限継承パターン
@@ -127,14 +127,14 @@ cd 06_rebac_github_organization
 go run main.go
 ```
 
-**特徴:**
+#### 特徴:
 
 - GitHub/GitLab のような組織・リポジトリ・Issue 管理
 - 組織管理者が全リソースを管理できる設計
 - リポジトリごとの権限分離
 - 多段階の権限継承（`issue.view` → `repo.read` → `org.view`）
 
-**Example 4 との違い:**
+### Example 4 との違い:
 
 | 項目       | Example 4（Google Docs）        | Example 6（GitHub Organization）                           |
 | ---------- | ------------------------------- | ---------------------------------------------------------- |
@@ -146,18 +146,18 @@ go run main.go
 
 LookupEntity、LookupSubject、SubjectPermission API の実践的な使用方法を示します。
 
-**内容:**
+#### 内容:
 
-- **LookupEntity**: ユーザーがアクセスできるリソース一覧を取得
-- **LookupSubject**: リソースにアクセスできるユーザー一覧を取得
-- **SubjectPermission**: 特定のユーザー・リソースの組み合わせで持つ全権限を取得
+- `LookupEntity`: ユーザーがアクセスできるリソース一覧を取得
+- `LookupSubject`: リソースにアクセスできるユーザー一覧を取得
+- `SubjectPermission`: 特定のユーザー・リソースの組み合わせで持つ全権限を取得
 
 ```bash
 cd 07_list_apis
 go run main.go
 ```
 
-**特徴:**
+#### 特徴:
 
 - 企業のドキュメント管理システムを想定したシナリオ
 - 5 人のユーザー、3 つの部署、5 つのドキュメント
@@ -171,9 +171,9 @@ go run main.go
 
 Expand API を使用して、権限決定ツリーを可視化する方法を示します。
 
-**内容:**
+#### 内容:
 
-- **Expand API**: 権限がどのように決定されるかをツリー構造で取得
+- `Expand API`: 権限がどのように決定されるかをツリー構造で取得
 - Union（OR）、Intersection（AND）、Exclusion（EXCLUDE）の可視化
 - 再帰的な権限継承の展開
 
@@ -182,7 +182,7 @@ cd 08_expand
 go run main.go
 ```
 
-**特徴:**
+#### 特徴:
 
 - GitHub 風の 3 階層構造（Organization → Repository → Issue）
 - プライベート/パブリックリポジトリの権限ルール
@@ -195,22 +195,22 @@ go run main.go
 
 ## 推奨学習順序
 
-1. **基礎編:**
+1. 基礎編:
 
    1. スキーマ定義（Example 1）
    2. データ書き込み（Example 2）
    3. Check API（Example 3）
 
-2. **応用編（ReBAC）:**
+2. 応用編（ReBAC）:
 
    4. ReBAC - Google Docs 風（Example 4）- 2 階層の階層的権限管理
    5. ReBAC - GitHub 風（Example 6）- 3 階層の複雑なネスト構造
 
-3. **応用編（ABAC）:**
+3. 応用編（ABAC）:
 
    5. ABAC - 属性ベースアクセス制御（Example 5）
 
-4. **高度な API 編:**
+4. 高度な API 編:
 
    7. 一覧系 API（Example 7）- LookupEntity, LookupSubject, SubjectPermission
    8. Expand API（Example 8）- 権限決定ツリーの可視化とデバッグ
@@ -219,7 +219,7 @@ go run main.go
 
 ### Q: サンプルを実行するとエラーが出ます
 
-**A:** 以下を確認してください：
+A: 以下を確認してください：
 
 - サーバーが `localhost:50051` で起動しているか
 - データベースが起動しているか
@@ -227,11 +227,11 @@ go run main.go
 
 ### Q: スキーマを更新したい
 
-**A:** Example 1 を再実行すれば、スキーマが上書きされます。
+A: Example 1 を再実行すれば、スキーマが上書きされます。
 
 ### Q: データをクリアしたい
 
-**A:** PostgreSQL のデータベースをリセットしてください：
+A: PostgreSQL のデータベースをリセットしてください：
 
 ```bash
 docker-compose down -v
