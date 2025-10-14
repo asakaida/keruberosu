@@ -68,8 +68,10 @@ entity document {
 	if err != nil {
 		t.Fatalf("WriteSchema failed: %v", err)
 	}
-	if !writeSchemaResp.Success {
-		t.Fatalf("WriteSchema returned error: %s (errors: %v)", writeSchemaResp.Message, writeSchemaResp.Errors)
+	// WriteSchemaResponse now only contains SchemaVersion (Permify compatible)
+	// Errors are returned via gRPC error, not in response fields
+	if writeSchemaResp.SchemaVersion == "" {
+		t.Logf("WriteSchema returned empty schema_version (expected for now - TODO: implement schema versioning)")
 	}
 	t.Log("✓ Schema with ABAC rules defined successfully")
 
@@ -78,72 +80,47 @@ entity document {
 	_, err = client.WriteAttributes(ctx, &pb.WriteAttributesRequest{
 		Attributes: []*pb.AttributeData{
 			// doc1: public document
-			{
-				Entity: &pb.Entity{Type: "document", Id: "doc1"},
-				Data: map[string]*structpb.Value{
-					"public":         structpb.NewBoolValue(true),
-					"owner_id":       structpb.NewStringValue("alice"),
-					"department":     structpb.NewStringValue("engineering"),
-					"security_level": structpb.NewNumberValue(1),
-					"price":          structpb.NewNumberValue(50),
-				},
-			},
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Attribute: "public", Value: structpb.NewBoolValue(true)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Attribute: "owner_id", Value: structpb.NewStringValue("alice")},
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Attribute: "department", Value: structpb.NewStringValue("engineering")},
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Attribute: "security_level", Value: structpb.NewNumberValue(1)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Attribute: "price", Value: structpb.NewNumberValue(50)},
+
 			// doc2: private document, owned by alice
-			{
-				Entity: &pb.Entity{Type: "document", Id: "doc2"},
-				Data: map[string]*structpb.Value{
-					"public":         structpb.NewBoolValue(false),
-					"owner_id":       structpb.NewStringValue("alice"),
-					"department":     structpb.NewStringValue("engineering"),
-					"security_level": structpb.NewNumberValue(2),
-					"price":          structpb.NewNumberValue(150),
-				},
-			},
+			{Entity: &pb.Entity{Type: "document", Id: "doc2"}, Attribute: "public", Value: structpb.NewBoolValue(false)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc2"}, Attribute: "owner_id", Value: structpb.NewStringValue("alice")},
+			{Entity: &pb.Entity{Type: "document", Id: "doc2"}, Attribute: "department", Value: structpb.NewStringValue("engineering")},
+			{Entity: &pb.Entity{Type: "document", Id: "doc2"}, Attribute: "security_level", Value: structpb.NewNumberValue(2)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc2"}, Attribute: "price", Value: structpb.NewNumberValue(150)},
+
 			// doc3: private document, owned by bob, engineering department
-			{
-				Entity: &pb.Entity{Type: "document", Id: "doc3"},
-				Data: map[string]*structpb.Value{
-					"public":         structpb.NewBoolValue(false),
-					"owner_id":       structpb.NewStringValue("bob"),
-					"department":     structpb.NewStringValue("engineering"),
-					"security_level": structpb.NewNumberValue(3),
-					"price":          structpb.NewNumberValue(200),
-				},
-			},
+			{Entity: &pb.Entity{Type: "document", Id: "doc3"}, Attribute: "public", Value: structpb.NewBoolValue(false)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc3"}, Attribute: "owner_id", Value: structpb.NewStringValue("bob")},
+			{Entity: &pb.Entity{Type: "document", Id: "doc3"}, Attribute: "department", Value: structpb.NewStringValue("engineering")},
+			{Entity: &pb.Entity{Type: "document", Id: "doc3"}, Attribute: "security_level", Value: structpb.NewNumberValue(3)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc3"}, Attribute: "price", Value: structpb.NewNumberValue(200)},
+
 			// doc4: classified document
-			{
-				Entity: &pb.Entity{Type: "document", Id: "doc4"},
-				Data: map[string]*structpb.Value{
-					"public":         structpb.NewBoolValue(false),
-					"owner_id":       structpb.NewStringValue("charlie"),
-					"department":     structpb.NewStringValue("security"),
-					"security_level": structpb.NewNumberValue(5),
-					"price":          structpb.NewNumberValue(1000),
-				},
-			},
+			{Entity: &pb.Entity{Type: "document", Id: "doc4"}, Attribute: "public", Value: structpb.NewBoolValue(false)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc4"}, Attribute: "owner_id", Value: structpb.NewStringValue("charlie")},
+			{Entity: &pb.Entity{Type: "document", Id: "doc4"}, Attribute: "department", Value: structpb.NewStringValue("security")},
+			{Entity: &pb.Entity{Type: "document", Id: "doc4"}, Attribute: "security_level", Value: structpb.NewNumberValue(5)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc4"}, Attribute: "price", Value: structpb.NewNumberValue(1000)},
+
 			// doc5: restricted department
-			{
-				Entity: &pb.Entity{Type: "document", Id: "doc5"},
-				Data: map[string]*structpb.Value{
-					"public":         structpb.NewBoolValue(false),
-					"owner_id":       structpb.NewStringValue("dave"),
-					"department":     structpb.NewStringValue("restricted"),
-					"security_level": structpb.NewNumberValue(1),
-					"price":          structpb.NewNumberValue(10),
-				},
-			},
+			{Entity: &pb.Entity{Type: "document", Id: "doc5"}, Attribute: "public", Value: structpb.NewBoolValue(false)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc5"}, Attribute: "owner_id", Value: structpb.NewStringValue("dave")},
+			{Entity: &pb.Entity{Type: "document", Id: "doc5"}, Attribute: "department", Value: structpb.NewStringValue("restricted")},
+			{Entity: &pb.Entity{Type: "document", Id: "doc5"}, Attribute: "security_level", Value: structpb.NewNumberValue(1)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc5"}, Attribute: "price", Value: structpb.NewNumberValue(10)},
+
 			// doc6: tagged document
-			{
-				Entity: &pb.Entity{Type: "document", Id: "doc6"},
-				Data: map[string]*structpb.Value{
-					"public":         structpb.NewBoolValue(false),
-					"owner_id":       structpb.NewStringValue("eve"),
-					"department":     structpb.NewStringValue("marketing"),
-					"security_level": structpb.NewNumberValue(1),
-					"tags":           structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{structpb.NewStringValue("admin"), structpb.NewStringValue("editor")}}),
-					"price":          structpb.NewNumberValue(75),
-				},
-			},
+			{Entity: &pb.Entity{Type: "document", Id: "doc6"}, Attribute: "public", Value: structpb.NewBoolValue(false)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc6"}, Attribute: "owner_id", Value: structpb.NewStringValue("eve")},
+			{Entity: &pb.Entity{Type: "document", Id: "doc6"}, Attribute: "department", Value: structpb.NewStringValue("marketing")},
+			{Entity: &pb.Entity{Type: "document", Id: "doc6"}, Attribute: "security_level", Value: structpb.NewNumberValue(1)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc6"}, Attribute: "tags", Value: structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{structpb.NewStringValue("admin"), structpb.NewStringValue("editor")}})},
+			{Entity: &pb.Entity{Type: "document", Id: "doc6"}, Attribute: "price", Value: structpb.NewNumberValue(75)},
 		},
 	})
 	if err != nil {
@@ -156,49 +133,32 @@ entity document {
 	_, err = client.WriteAttributes(ctx, &pb.WriteAttributesRequest{
 		Attributes: []*pb.AttributeData{
 			// alice: engineering, security level 2
-			{
-				Entity: &pb.Entity{Type: "user", Id: "alice"},
-				Data: map[string]*structpb.Value{
-					"id":                 structpb.NewStringValue("alice"),
-					"department":         structpb.NewStringValue("engineering"),
-					"security_level":     structpb.NewNumberValue(2),
-					"subscription_tier":  structpb.NewStringValue("basic"),
-					"role":               structpb.NewStringValue("developer"),
-				},
-			},
+			{Entity: &pb.Entity{Type: "user", Id: "alice"}, Attribute: "id", Value: structpb.NewStringValue("alice")},
+			{Entity: &pb.Entity{Type: "user", Id: "alice"}, Attribute: "department", Value: structpb.NewStringValue("engineering")},
+			{Entity: &pb.Entity{Type: "user", Id: "alice"}, Attribute: "security_level", Value: structpb.NewNumberValue(2)},
+			{Entity: &pb.Entity{Type: "user", Id: "alice"}, Attribute: "subscription_tier", Value: structpb.NewStringValue("basic")},
+			{Entity: &pb.Entity{Type: "user", Id: "alice"}, Attribute: "role", Value: structpb.NewStringValue("developer")},
+
 			// bob: engineering, security level 3, premium
-			{
-				Entity: &pb.Entity{Type: "user", Id: "bob"},
-				Data: map[string]*structpb.Value{
-					"id":                 structpb.NewStringValue("bob"),
-					"department":         structpb.NewStringValue("engineering"),
-					"security_level":     structpb.NewNumberValue(3),
-					"subscription_tier":  structpb.NewStringValue("premium"),
-					"role":               structpb.NewStringValue("developer"),
-				},
-			},
+			{Entity: &pb.Entity{Type: "user", Id: "bob"}, Attribute: "id", Value: structpb.NewStringValue("bob")},
+			{Entity: &pb.Entity{Type: "user", Id: "bob"}, Attribute: "department", Value: structpb.NewStringValue("engineering")},
+			{Entity: &pb.Entity{Type: "user", Id: "bob"}, Attribute: "security_level", Value: structpb.NewNumberValue(3)},
+			{Entity: &pb.Entity{Type: "user", Id: "bob"}, Attribute: "subscription_tier", Value: structpb.NewStringValue("premium")},
+			{Entity: &pb.Entity{Type: "user", Id: "bob"}, Attribute: "role", Value: structpb.NewStringValue("developer")},
+
 			// charlie: security, security level 5, premium
-			{
-				Entity: &pb.Entity{Type: "user", Id: "charlie"},
-				Data: map[string]*structpb.Value{
-					"id":                 structpb.NewStringValue("charlie"),
-					"department":         structpb.NewStringValue("security"),
-					"security_level":     structpb.NewNumberValue(5),
-					"subscription_tier":  structpb.NewStringValue("premium"),
-					"role":               structpb.NewStringValue("analyst"),
-				},
-			},
+			{Entity: &pb.Entity{Type: "user", Id: "charlie"}, Attribute: "id", Value: structpb.NewStringValue("charlie")},
+			{Entity: &pb.Entity{Type: "user", Id: "charlie"}, Attribute: "department", Value: structpb.NewStringValue("security")},
+			{Entity: &pb.Entity{Type: "user", Id: "charlie"}, Attribute: "security_level", Value: structpb.NewNumberValue(5)},
+			{Entity: &pb.Entity{Type: "user", Id: "charlie"}, Attribute: "subscription_tier", Value: structpb.NewStringValue("premium")},
+			{Entity: &pb.Entity{Type: "user", Id: "charlie"}, Attribute: "role", Value: structpb.NewStringValue("analyst")},
+
 			// dave: marketing, security level 1
-			{
-				Entity: &pb.Entity{Type: "user", Id: "dave"},
-				Data: map[string]*structpb.Value{
-					"id":                 structpb.NewStringValue("dave"),
-					"department":         structpb.NewStringValue("marketing"),
-					"security_level":     structpb.NewNumberValue(1),
-					"subscription_tier":  structpb.NewStringValue("basic"),
-					"role":               structpb.NewStringValue("admin"),
-				},
-			},
+			{Entity: &pb.Entity{Type: "user", Id: "dave"}, Attribute: "id", Value: structpb.NewStringValue("dave")},
+			{Entity: &pb.Entity{Type: "user", Id: "dave"}, Attribute: "department", Value: structpb.NewStringValue("marketing")},
+			{Entity: &pb.Entity{Type: "user", Id: "dave"}, Attribute: "security_level", Value: structpb.NewNumberValue(1)},
+			{Entity: &pb.Entity{Type: "user", Id: "dave"}, Attribute: "subscription_tier", Value: structpb.NewStringValue("basic")},
+			{Entity: &pb.Entity{Type: "user", Id: "dave"}, Attribute: "role", Value: structpb.NewStringValue("admin")},
 		},
 	})
 	if err != nil {

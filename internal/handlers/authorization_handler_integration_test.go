@@ -126,8 +126,10 @@ entity document {
 		if err != nil {
 			t.Fatalf("WriteSchema failed: %v", err)
 		}
-		if !resp.Success {
-			t.Errorf("Expected success=true, got false. Message: %s, Errors: %v", resp.Message, resp.Errors)
+		// WriteSchemaResponse now only contains SchemaVersion (Permify compatible)
+		// Errors are returned via gRPC error, not in response fields
+		if resp.SchemaVersion == "" {
+			t.Errorf("Expected schema_version to be set")
 		}
 	})
 
@@ -289,17 +291,15 @@ entity document {
 	// Step 8: DeleteRelations - Remove Bob's viewer relation
 	t.Run("DeleteRelations", func(t *testing.T) {
 		req := &pb.DeleteRelationsRequest{
-			Tuples: []*pb.RelationTuple{
-				{
-					Entity: &pb.Entity{
-						Type: "document",
-						Id:   "doc1",
-					},
-					Relation: "viewer",
-					Subject: &pb.Subject{
-						Type: "user",
-						Id:   "bob",
-					},
+			Filter: &pb.TupleFilter{
+				Entity: &pb.EntityFilter{
+					Type: "document",
+					Ids:  []string{"doc1"},
+				},
+				Relation: "viewer",
+				Subject: &pb.SubjectFilter{
+					Type: "user",
+					Ids:  []string{"bob"},
 				},
 			},
 		}
@@ -361,8 +361,10 @@ entity document {
 		if err != nil {
 			t.Fatalf("WriteSchema failed: %v", err)
 		}
-		if !resp.Success {
-			t.Errorf("Expected success=true, got false. Message: %s, Errors: %v", resp.Message, resp.Errors)
+		// WriteSchemaResponse now only contains SchemaVersion (Permify compatible)
+		// Errors are returned via gRPC error, not in response fields
+		if resp.SchemaVersion == "" {
+			t.Errorf("Expected schema_version to be set")
 		}
 	})
 
@@ -395,13 +397,9 @@ entity document {
 		req := &pb.WriteAttributesRequest{
 			Attributes: []*pb.AttributeData{
 				{
-					Entity: &pb.Entity{
-						Type: "document",
-						Id:   "doc2",
-					},
-					Data: map[string]*structpb.Value{
-						"public": {Kind: &structpb.Value_BoolValue{BoolValue: true}},
-					},
+					Entity:    &pb.Entity{Type: "document", Id: "doc2"},
+					Attribute: "public",
+					Value:     structpb.NewBoolValue(true),
 				},
 			},
 		}
@@ -440,13 +438,9 @@ entity document {
 		req := &pb.WriteAttributesRequest{
 			Attributes: []*pb.AttributeData{
 				{
-					Entity: &pb.Entity{
-						Type: "document",
-						Id:   "doc2",
-					},
-					Data: map[string]*structpb.Value{
-						"public": {Kind: &structpb.Value_BoolValue{BoolValue: false}},
-					},
+					Entity:    &pb.Entity{Type: "document", Id: "doc2"},
+					Attribute: "public",
+					Value:     structpb.NewBoolValue(false),
 				},
 			},
 		}

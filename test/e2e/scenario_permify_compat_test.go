@@ -52,8 +52,10 @@ entity repository {
 	if err != nil {
 		t.Fatalf("WriteSchema failed: %v", err)
 	}
-	if !writeSchemaResp.Success {
-		t.Fatalf("WriteSchema returned error: %s (errors: %v)", writeSchemaResp.Message, writeSchemaResp.Errors)
+	// WriteSchemaResponse now only contains SchemaVersion (Permify compatible)
+	// Errors are returned via gRPC error, not in response fields
+	if writeSchemaResp.SchemaVersion == "" {
+		t.Logf("WriteSchema returned empty schema_version (expected for now - TODO: implement schema versioning)")
 	}
 	t.Log("✓ Permify-style schema written successfully")
 
@@ -238,8 +240,16 @@ entity repository {
 	// Test 9: Delete relations
 	t.Log("Test 9: Testing DeleteRelations API")
 	_, err = client.DeleteRelations(ctx, &pb.DeleteRelationsRequest{
-		Tuples: []*pb.RelationTuple{
-			{Entity: &pb.Entity{Type: "repository", Id: "repo1"}, Relation: "reader", Subject: &pb.Subject{Type: "user", Id: "dave"}},
+		Filter: &pb.TupleFilter{
+			Entity: &pb.EntityFilter{
+				Type: "repository",
+				Ids:  []string{"repo1"},
+			},
+			Relation: "reader",
+			Subject: &pb.SubjectFilter{
+				Type: "user",
+				Ids:  []string{"dave"},
+			},
 		},
 	})
 	if err != nil {

@@ -20,6 +20,7 @@ service AuthorizationService {
   rpc WriteRelations(WriteRelationsRequest) returns (WriteRelationsResponse);
   rpc DeleteRelations(DeleteRelationsRequest) returns (DeleteRelationsResponse);
   rpc WriteAttributes(WriteAttributesRequest) returns (WriteAttributesResponse);
+  rpc ReadRelationships(ReadRelationshipsRequest) returns (ReadRelationshipsResponse);
 
   // === 認可チェック ===
   rpc Check(CheckRequest) returns (CheckResponse);
@@ -38,10 +39,9 @@ message WriteSchemaRequest {
   string schema_dsl = 1;
 }
 
+// Permify互換: schema_versionを返す形式
 message WriteSchemaResponse {
-  bool success = 1;
-  string message = 2;
-  repeated string errors = 3;  // パースエラー詳細
+  string schema_version = 1;  // 将来実装予定、現在は空文字列を返す
 }
 
 message ReadSchemaRequest {
@@ -57,20 +57,25 @@ message ReadSchemaResponse {
 // データ書き込み
 // ========================================
 
+// Permify互換: tuples と attributes を同時に書き込み可能
 message WriteRelationsRequest {
   repeated RelationTuple tuples = 1;
+  repeated AttributeData attributes = 2;  // Permify互換
 }
 
+// Permify互換: snap_tokenを返す
 message WriteRelationsResponse {
-  int32 written_count = 1;
+  string snap_token = 1;  // 将来実装予定、現在は空文字列を返す
 }
 
+// Permify互換: フィルター形式で削除
 message DeleteRelationsRequest {
-  repeated RelationTuple tuples = 1;
+  TupleFilter filter = 1;
 }
 
+// Permify互換: snap_tokenを返す
 message DeleteRelationsResponse {
-  int32 deleted_count = 1;
+  string snap_token = 1;  // 将来実装予定、現在は空文字列を返す
 }
 
 message WriteAttributesRequest {
@@ -78,7 +83,20 @@ message WriteAttributesRequest {
 }
 
 message WriteAttributesResponse {
-  int32 written_count = 1;
+  string snap_token = 1;  // Permify互換: 将来実装予定
+}
+
+// Permify互換: ReadRelationships API
+message ReadRelationshipsRequest {
+  PermissionCheckMetadata metadata = 1;  // snap_token サポート
+  TupleFilter filter = 2;
+  int32 page_size = 3;                   // 1ページあたりの結果数
+  string continuous_token = 4;           // 次ページ取得用トークン
+}
+
+message ReadRelationshipsResponse {
+  repeated RelationTuple tuples = 1;
+  string continuous_token = 2;  // 次ページがある場合のトークン
 }
 
 // ========================================

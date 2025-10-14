@@ -48,11 +48,7 @@ entity document {
 		log.Fatalf("スキーマ書き込み失敗: %v", err)
 	}
 
-	if !resp.Success {
-		log.Fatalf("スキーマ書き込みエラー: %s (errors: %v)", resp.Message, resp.Errors)
-	}
-
-	fmt.Println("✅ スキーマが正常に書き込まれました")
+	fmt.Printf("✅ スキーマが正常に書き込まれました (version: %s)\n", resp.SchemaVersion)
 
 	// スキーマを読み込んで確認
 	readResp, err := client.ReadSchema(ctx, &pb.ReadSchemaRequest{})

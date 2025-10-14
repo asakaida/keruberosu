@@ -8,6 +8,7 @@ import (
 
 	"github.com/asakaida/keruberosu/internal/entities"
 	"github.com/asakaida/keruberosu/internal/repositories"
+	"github.com/lib/pq"
 )
 
 // PostgresRelationRepository implements RelationRepository using PostgreSQL
@@ -277,4 +278,175 @@ func (r *PostgresRelationRepository) BatchDelete(ctx context.Context, tenantID s
 	}
 
 	return nil
+}
+
+// DeleteByFilter removes relation tuples matching the filter (Permify互換)
+func (r *PostgresRelationRepository) DeleteByFilter(ctx context.Context, tenantID string, filter *repositories.RelationFilter) error {
+	if filter == nil {
+		return fmt.Errorf("filter is required")
+	}
+
+	query := `DELETE FROM relations WHERE tenant_id = $1`
+	args := []interface{}{tenantID}
+	argIdx := 2
+
+	// Build dynamic WHERE clause based on filter
+	if filter.EntityType != "" {
+		query += fmt.Sprintf(" AND entity_type = $%d", argIdx)
+		args = append(args, filter.EntityType)
+		argIdx++
+	}
+	if len(filter.EntityIDs) > 0 {
+		query += fmt.Sprintf(" AND entity_id = ANY($%d)", argIdx)
+		args = append(args, pq.Array(filter.EntityIDs))
+		argIdx++
+	} else if filter.EntityID != "" {
+		query += fmt.Sprintf(" AND entity_id = $%d", argIdx)
+		args = append(args, filter.EntityID)
+		argIdx++
+	}
+	if filter.Relation != "" {
+		query += fmt.Sprintf(" AND relation = $%d", argIdx)
+		args = append(args, filter.Relation)
+		argIdx++
+	}
+	if filter.SubjectType != "" {
+		query += fmt.Sprintf(" AND subject_type = $%d", argIdx)
+		args = append(args, filter.SubjectType)
+		argIdx++
+	}
+	if len(filter.SubjectIDs) > 0 {
+		query += fmt.Sprintf(" AND subject_id = ANY($%d)", argIdx)
+		args = append(args, pq.Array(filter.SubjectIDs))
+		argIdx++
+	} else if filter.SubjectID != "" {
+		query += fmt.Sprintf(" AND subject_id = $%d", argIdx)
+		args = append(args, filter.SubjectID)
+		argIdx++
+	}
+	if filter.SubjectRelation != "" {
+		query += fmt.Sprintf(" AND subject_relation = $%d", argIdx)
+		args = append(args, filter.SubjectRelation)
+		argIdx++
+	}
+
+	_, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to delete relations by filter: %w", err)
+	}
+
+	return nil
+}
+
+// ReadByFilter retrieves relation tuples matching filter with pagination (Permify互換)
+func (r *PostgresRelationRepository) ReadByFilter(ctx context.Context, tenantID string, filter *repositories.RelationFilter, pageSize int, pageToken string) ([]*entities.RelationTuple, string, error) {
+	if pageSize <= 0 {
+		pageSize = 100
+	}
+
+	query := `
+		SELECT entity_type, entity_id, relation, subject_type, subject_id, subject_relation, created_at
+		FROM relations
+		WHERE tenant_id = $1
+	`
+	args := []interface{}{tenantID}
+	argIdx := 2
+
+	// Build dynamic WHERE clause based on filter
+	if filter != nil {
+		if filter.EntityType != "" {
+			query += fmt.Sprintf(" AND entity_type = $%d", argIdx)
+			args = append(args, filter.EntityType)
+			argIdx++
+		}
+		if len(filter.EntityIDs) > 0 {
+			query += fmt.Sprintf(" AND entity_id = ANY($%d)", argIdx)
+			args = append(args, pq.Array(filter.EntityIDs))
+			argIdx++
+		} else if filter.EntityID != "" {
+			query += fmt.Sprintf(" AND entity_id = $%d", argIdx)
+			args = append(args, filter.EntityID)
+			argIdx++
+		}
+		if filter.Relation != "" {
+			query += fmt.Sprintf(" AND relation = $%d", argIdx)
+			args = append(args, filter.Relation)
+			argIdx++
+		}
+		if filter.SubjectType != "" {
+			query += fmt.Sprintf(" AND subject_type = $%d", argIdx)
+			args = append(args, filter.SubjectType)
+			argIdx++
+		}
+		if len(filter.SubjectIDs) > 0 {
+			query += fmt.Sprintf(" AND subject_id = ANY($%d)", argIdx)
+			args = append(args, pq.Array(filter.SubjectIDs))
+			argIdx++
+		} else if filter.SubjectID != "" {
+			query += fmt.Sprintf(" AND subject_id = $%d", argIdx)
+			args = append(args, filter.SubjectID)
+			argIdx++
+		}
+		if filter.SubjectRelation != "" {
+			query += fmt.Sprintf(" AND subject_relation = $%d", argIdx)
+			args = append(args, filter.SubjectRelation)
+			argIdx++
+		}
+	}
+
+	// Handle pagination token (use created_at for cursor-based pagination)
+	if pageToken != "" {
+		query += fmt.Sprintf(" AND created_at > $%d", argIdx)
+		args = append(args, pageToken)
+		argIdx++
+	}
+
+	// Order by created_at for consistent pagination
+	query += " ORDER BY created_at"
+
+	// Fetch one extra to determine if there's a next page
+	query += fmt.Sprintf(" LIMIT $%d", argIdx)
+	args = append(args, pageSize+1)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read relations by filter: %w", err)
+	}
+	defer rows.Close()
+
+	var tuples []*entities.RelationTuple
+	var lastCreatedAt time.Time
+
+	for rows.Next() {
+		var tuple entities.RelationTuple
+		var subjectRelation sql.NullString
+
+		err := rows.Scan(
+			&tuple.EntityType, &tuple.EntityID, &tuple.Relation,
+			&tuple.SubjectType, &tuple.SubjectID, &subjectRelation, &tuple.CreatedAt,
+		)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to scan relation: %w", err)
+		}
+
+		if subjectRelation.Valid {
+			tuple.SubjectRelation = subjectRelation.String
+		}
+
+		tuples = append(tuples, &tuple)
+		lastCreatedAt = tuple.CreatedAt
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("error iterating relations: %w", err)
+	}
+
+	// Determine next token
+	var nextToken string
+	if len(tuples) > pageSize {
+		tuples = tuples[:pageSize]
+		nextToken = lastCreatedAt.Format(time.RFC3339Nano)
+	}
+
+	return tuples, nextToken, nil
 }

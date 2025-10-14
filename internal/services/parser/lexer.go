@@ -21,6 +21,7 @@ const (
 	TOKEN_RELATION
 	TOKEN_ATTRIBUTE
 	TOKEN_PERMISSION
+	TOKEN_ACTION // Permify互換: permissionのエイリアス
 	TOKEN_RULE
 
 	// Operators
@@ -44,6 +45,7 @@ const (
 
 	// Delimiters
 	TOKEN_COLON
+	TOKEN_AT     // @ (Permify互換: @user記法用)
 	TOKEN_LBRACE
 	TOKEN_RBRACE
 	TOKEN_LPAREN
@@ -63,6 +65,7 @@ var tokenNames = map[TokenType]string{
 	TOKEN_RELATION:    "relation",
 	TOKEN_ATTRIBUTE:   "attribute",
 	TOKEN_PERMISSION:  "permission",
+	TOKEN_ACTION:      "action",
 	TOKEN_RULE:        "rule",
 	TOKEN_OR:          "or",
 	TOKEN_AND:         "and",
@@ -80,6 +83,7 @@ var tokenNames = map[TokenType]string{
 	TOKEN_PIPE:        "|",
 	TOKEN_EXCLAMATION: "!",
 	TOKEN_COLON:       ":",
+	TOKEN_AT:          "@",
 	TOKEN_LBRACE:      "{",
 	TOKEN_RBRACE:      "}",
 	TOKEN_LPAREN:      "(",
@@ -95,6 +99,7 @@ var keywords = map[string]TokenType{
 	"relation":   TOKEN_RELATION,
 	"attribute":  TOKEN_ATTRIBUTE,
 	"permission": TOKEN_PERMISSION,
+	"action":     TOKEN_ACTION, // Permify互換
 	"rule":       TOKEN_RULE,
 	"or":         TOKEN_OR,
 	"and":        TOKEN_AND,
@@ -291,6 +296,9 @@ func (l *Lexer) NextToken() (*Token, error) {
 		}
 	case ':':
 		tok = &Token{Type: TOKEN_COLON, Value: ":", Line: line, Column: column}
+		l.readChar()
+	case '@':
+		tok = &Token{Type: TOKEN_AT, Value: "@", Line: line, Column: column}
 		l.readChar()
 	case '{':
 		tok = &Token{Type: TOKEN_LBRACE, Value: "{", Line: line, Column: column}

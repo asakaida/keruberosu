@@ -133,6 +133,11 @@ func (p *Parser) parseEntity() *EntityAST {
 			if permission != nil {
 				entity.Permissions = append(entity.Permissions, permission)
 			}
+		case p.currentTokenIs(TOKEN_ACTION): // Permify互換: actionはpermissionのエイリアス
+			permission := p.parsePermission()
+			if permission != nil {
+				entity.Permissions = append(entity.Permissions, permission)
+			}
 		default:
 			p.errors = append(p.errors, fmt.Sprintf("unexpected token %s in entity at %d:%d",
 				tokenNames[p.current.Type], p.current.Line, p.current.Column))
@@ -152,6 +157,7 @@ func (p *Parser) parseEntity() *EntityAST {
 }
 
 // parseRelation parses a relation definition
+// Supports both syntaxes: "relation owner: user" and "relation owner @user"
 func (p *Parser) parseRelation() *RelationAST {
 	relation := &RelationAST{}
 
@@ -161,8 +167,14 @@ func (p *Parser) parseRelation() *RelationAST {
 	}
 	relation.Name = p.current.Value
 
-	// Expect :
-	if !p.expectPeek(TOKEN_COLON) {
+	// Expect : or @ (Permify互換)
+	if p.peekTokenIs(TOKEN_COLON) {
+		p.nextToken() // consume :
+	} else if p.peekTokenIs(TOKEN_AT) {
+		p.nextToken() // consume @
+	} else {
+		p.errors = append(p.errors, fmt.Sprintf("expected ':' or '@' after relation name at %d:%d",
+			p.peek.Line, p.peek.Column))
 		return nil
 	}
 
@@ -171,6 +183,23 @@ func (p *Parser) parseRelation() *RelationAST {
 		return nil
 	}
 	relation.TargetType = p.current.Value
+
+	// Check for additional types (e.g., "user | team#member" or "@user @team#member")
+	// This handles multi-type relations
+	for p.peekTokenIs(TOKEN_PIPE) || p.peekTokenIs(TOKEN_AT) {
+		p.nextToken() // consume | or @
+		if !p.expectPeek(TOKEN_IDENTIFIER) {
+			return nil
+		}
+		// Append additional type with pipe separator (normalize to | syntax internally)
+		relation.TargetType += " | " + p.current.Value
+
+		// Handle subject relation (e.g., team#member)
+		if p.peekTokenIs(TOKEN_DOT) || p.peekTokenIs(TOKEN_COMMA) {
+			// Skip for now - complex multi-type with relations
+			// This would be handled by the authorization engine
+		}
+	}
 
 	p.nextToken()
 	return relation

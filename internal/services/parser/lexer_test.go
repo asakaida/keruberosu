@@ -349,7 +349,9 @@ attribute tags: string[]`
 }
 
 func TestLexer_IllegalCharacter(t *testing.T) {
-	input := `entity user { @ }`
+	// Note: @ is now a legal character (TOKEN_AT for Permify compatibility)
+	// Using $ as an illegal character instead
+	input := `entity user { $ }`
 
 	lexer := NewLexer(input)
 
@@ -371,7 +373,7 @@ func TestLexer_IllegalCharacter(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// @ should cause error
+	// $ should cause error
 	_, err = lexer.NextToken()
 	if err == nil {
 		t.Fatal("expected error for illegal character, got nil")

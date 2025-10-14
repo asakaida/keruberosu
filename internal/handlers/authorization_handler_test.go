@@ -87,6 +87,14 @@ func (m *mockRelationRepository) BatchDelete(ctx context.Context, tenantID strin
 	return nil
 }
 
+func (m *mockRelationRepository) DeleteByFilter(ctx context.Context, tenantID string, filter *repositories.RelationFilter) error {
+	return nil
+}
+
+func (m *mockRelationRepository) ReadByFilter(ctx context.Context, tenantID string, filter *repositories.RelationFilter, pageSize int, pageToken string) ([]*entities.RelationTuple, string, error) {
+	return nil, "", nil
+}
+
 // Mock AttributeRepository
 type mockAttributeRepository struct {
 	writeFunc func(ctx context.Context, tenantID string, attr *entities.Attribute) error
@@ -210,17 +218,10 @@ func TestAuthorizationHandler_WriteSchema_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !resp.Success {
-		t.Errorf("expected success=true, got false")
-	}
-
-	if resp.Message != "Schema written successfully" {
-		t.Errorf("expected success message, got %s", resp.Message)
-	}
-
-	if len(resp.Errors) != 0 {
-		t.Errorf("expected no errors, got %v", resp.Errors)
-	}
+	// WriteSchemaResponse now only contains SchemaVersion (Permify compatible)
+	// Success is indicated by absence of error
+	// SchemaVersion is empty for now (TODO: will be implemented later)
+	_ = resp.SchemaVersion
 }
 
 func TestAuthorizationHandler_WriteSchema_EmptyDSL(t *testing.T) {
@@ -238,17 +239,11 @@ func TestAuthorizationHandler_WriteSchema_EmptyDSL(t *testing.T) {
 		SchemaDsl: "",
 	}
 
-	resp, err := handler.WriteSchema(context.Background(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if resp.Success {
-		t.Errorf("expected success=false for empty DSL")
-	}
-
-	if len(resp.Errors) == 0 {
-		t.Errorf("expected errors for empty DSL")
+	_, err := handler.WriteSchema(context.Background(), req)
+	// WriteSchemaResponse now only contains SchemaVersion (Permify compatible)
+	// Errors are returned via gRPC error, not in response fields
+	if err == nil {
+		t.Errorf("expected error for empty DSL")
 	}
 }
 
@@ -273,21 +268,11 @@ func TestAuthorizationHandler_WriteSchema_ParseError(t *testing.T) {
 		SchemaDsl: `invalid syntax`,
 	}
 
-	resp, err := handler.WriteSchema(context.Background(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if resp.Success {
-		t.Errorf("expected success=false for parse error")
-	}
-
-	if resp.Message != "Failed to parse schema DSL" {
-		t.Errorf("expected parse error message, got %s", resp.Message)
-	}
-
-	if len(resp.Errors) == 0 {
-		t.Errorf("expected errors for parse error")
+	_, err := handler.WriteSchema(context.Background(), req)
+	// WriteSchemaResponse now only contains SchemaVersion (Permify compatible)
+	// Errors are returned via gRPC error, not in response fields
+	if err == nil {
+		t.Errorf("expected error for parse error")
 	}
 }
 
@@ -312,21 +297,11 @@ func TestAuthorizationHandler_WriteSchema_ValidationError(t *testing.T) {
 		SchemaDsl: `entity document { permission view = owner }`,
 	}
 
-	resp, err := handler.WriteSchema(context.Background(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if resp.Success {
-		t.Errorf("expected success=false for validation error")
-	}
-
-	if resp.Message != "Schema validation failed" {
-		t.Errorf("expected validation error message, got %s", resp.Message)
-	}
-
-	if len(resp.Errors) == 0 {
-		t.Errorf("expected errors for validation error")
+	_, err := handler.WriteSchema(context.Background(), req)
+	// WriteSchemaResponse now only contains SchemaVersion (Permify compatible)
+	// Errors are returned via gRPC error, not in response fields
+	if err == nil {
+		t.Errorf("expected error for validation error")
 	}
 }
 
@@ -489,8 +464,10 @@ func TestAuthorizationHandler_WriteRelations_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if resp.WrittenCount != 2 {
-		t.Errorf("expected written count 2, got %d", resp.WrittenCount)
+	// WriteRelationsResponse now only contains snap_token (Permify compatible)
+	// WrittenCount field no longer exists
+	if resp.SnapToken == "" {
+		t.Logf("snap_token is empty (expected for now)")
 	}
 }
 
@@ -509,19 +486,13 @@ func TestAuthorizationHandler_WriteRelations_EmptyTuples(t *testing.T) {
 		Tuples: []*pb.RelationTuple{},
 	}
 
-	_, err := handler.WriteRelations(context.Background(), req)
-	if err == nil {
-		t.Fatal("expected error for empty tuples")
+	// Empty tuples is allowed now (WriteRelations can also write attributes)
+	resp, err := handler.WriteRelations(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-
-	st, ok := status.FromError(err)
-	if !ok {
-		t.Fatal("expected gRPC status error")
-	}
-
-	if st.Code() != codes.InvalidArgument {
-		t.Errorf("expected InvalidArgument error, got %v", st.Code())
-	}
+	// WriteRelationsResponse now only contains snap_token (Permify compatible)
+	_ = resp.SnapToken
 }
 
 func TestAuthorizationHandler_WriteRelations_InvalidTuple(t *testing.T) {
@@ -584,11 +555,15 @@ func TestAuthorizationHandler_DeleteRelations_Success(t *testing.T) {
 	)
 
 	req := &pb.DeleteRelationsRequest{
-		Tuples: []*pb.RelationTuple{
-			{
-				Entity:   &pb.Entity{Type: "document", Id: "1"},
-				Relation: "owner",
-				Subject:  &pb.Subject{Type: "user", Id: "alice"},
+		Filter: &pb.TupleFilter{
+			Entity: &pb.EntityFilter{
+				Type: "document",
+				Ids:  []string{"1"},
+			},
+			Relation: "owner",
+			Subject: &pb.SubjectFilter{
+				Type: "user",
+				Ids:  []string{"alice"},
 			},
 		},
 	}
@@ -598,8 +573,10 @@ func TestAuthorizationHandler_DeleteRelations_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if resp.DeletedCount != 1 {
-		t.Errorf("expected deleted count 1, got %d", resp.DeletedCount)
+	// DeleteRelationsResponse now only contains snap_token (Permify compatible)
+	// DeletedCount field no longer exists
+	if resp.SnapToken == "" {
+		t.Logf("snap_token is empty (expected for now)")
 	}
 }
 
@@ -615,12 +592,12 @@ func TestAuthorizationHandler_DeleteRelations_EmptyTuples(t *testing.T) {
 	)
 
 	req := &pb.DeleteRelationsRequest{
-		Tuples: []*pb.RelationTuple{},
+		Filter: nil,
 	}
 
 	_, err := handler.DeleteRelations(context.Background(), req)
 	if err == nil {
-		t.Fatal("expected error for empty tuples")
+		t.Fatal("expected error for empty filter")
 	}
 
 	st, ok := status.FromError(err)
@@ -658,11 +635,14 @@ func TestAuthorizationHandler_WriteAttributes_Success(t *testing.T) {
 	req := &pb.WriteAttributesRequest{
 		Attributes: []*pb.AttributeData{
 			{
-				Entity: &pb.Entity{Type: "document", Id: "1"},
-				Data: map[string]*structpb.Value{
-					"public": structpb.NewBoolValue(true),
-					"title":  structpb.NewStringValue("Test Document"),
-				},
+				Entity:    &pb.Entity{Type: "document", Id: "1"},
+				Attribute: "public",
+				Value:     structpb.NewBoolValue(true),
+			},
+			{
+				Entity:    &pb.Entity{Type: "document", Id: "1"},
+				Attribute: "title",
+				Value:     structpb.NewStringValue("Test Document"),
 			},
 		},
 	}
@@ -672,8 +652,10 @@ func TestAuthorizationHandler_WriteAttributes_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if resp.WrittenCount != 2 {
-		t.Errorf("expected written count 2, got %d", resp.WrittenCount)
+	// WriteAttributesResponse now only contains snap_token (Permify compatible)
+	// WrittenCount field no longer exists
+	if resp.SnapToken == "" {
+		t.Logf("snap_token is empty (expected for now)")
 	}
 
 	if writtenAttrs != 2 {
@@ -725,10 +707,9 @@ func TestAuthorizationHandler_WriteAttributes_InvalidAttribute(t *testing.T) {
 	req := &pb.WriteAttributesRequest{
 		Attributes: []*pb.AttributeData{
 			{
-				Entity: &pb.Entity{Type: "", Id: "1"}, // Missing type
-				Data: map[string]*structpb.Value{
-					"public": structpb.NewBoolValue(true),
-				},
+				Entity:    &pb.Entity{Type: "", Id: "1"}, // Missing type
+				Attribute: "public",
+				Value:     structpb.NewBoolValue(true),
 			},
 		},
 	}
@@ -768,10 +749,9 @@ func TestAuthorizationHandler_WriteAttributes_RepositoryError(t *testing.T) {
 	req := &pb.WriteAttributesRequest{
 		Attributes: []*pb.AttributeData{
 			{
-				Entity: &pb.Entity{Type: "document", Id: "1"},
-				Data: map[string]*structpb.Value{
-					"public": structpb.NewBoolValue(true),
-				},
+				Entity:    &pb.Entity{Type: "document", Id: "1"},
+				Attribute: "public",
+				Value:     structpb.NewBoolValue(true),
 			},
 		},
 	}
@@ -1492,39 +1472,35 @@ func compareInterfaces(a, b interface{}) bool {
 	}
 }
 
-func TestProtoToAttributes(t *testing.T) {
+func TestProtoToAttribute(t *testing.T) {
 	tests := []struct {
 		name      string
 		proto     *pb.AttributeData
 		wantError bool
-		wantCount int
 	}{
 		{
-			name: "valid attributes",
+			name: "valid attribute",
 			proto: &pb.AttributeData{
-				Entity: &pb.Entity{Type: "document", Id: "1"},
-				Data: map[string]*structpb.Value{
-					"public": structpb.NewBoolValue(true),
-					"title":  structpb.NewStringValue("Test"),
-				},
+				Entity:    &pb.Entity{Type: "document", Id: "1"},
+				Attribute: "public",
+				Value:     structpb.NewBoolValue(true),
 			},
 			wantError: false,
-			wantCount: 2,
 		},
 		{
 			name: "missing entity",
 			proto: &pb.AttributeData{
-				Data: map[string]*structpb.Value{
-					"public": structpb.NewBoolValue(true),
-				},
+				Attribute: "public",
+				Value:     structpb.NewBoolValue(true),
 			},
 			wantError: true,
 		},
 		{
-			name: "empty data",
+			name: "empty attribute",
 			proto: &pb.AttributeData{
-				Entity: &pb.Entity{Type: "document", Id: "1"},
-				Data:   map[string]*structpb.Value{},
+				Entity:    &pb.Entity{Type: "document", Id: "1"},
+				Attribute: "",
+				Value:     structpb.NewBoolValue(true),
 			},
 			wantError: true,
 		},
@@ -1532,12 +1508,12 @@ func TestProtoToAttributes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			attrs, err := protoToAttributes(tt.proto)
+			attr, err := protoToAttribute(tt.proto)
 			if (err != nil) != tt.wantError {
-				t.Errorf("protoToAttributes() error = %v, wantError %v", err, tt.wantError)
+				t.Errorf("protoToAttribute() error = %v, wantError %v", err, tt.wantError)
 			}
-			if !tt.wantError && len(attrs) != tt.wantCount {
-				t.Errorf("protoToAttributes() got %d attributes, want %d", len(attrs), tt.wantCount)
+			if !tt.wantError && attr == nil {
+				t.Errorf("protoToAttribute() returned nil attribute")
 			}
 		})
 	}

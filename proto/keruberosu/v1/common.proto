@@ -43,9 +43,29 @@ message Context {
   repeated AttributeData attributes = 2;  // contextual attributes
 }
 
+// Permify互換: 単一属性の設定
 message AttributeData {
   Entity entity = 1;
-  map<string, google.protobuf.Value> data = 2;
+  string attribute = 2;            // 属性名（単数）
+  google.protobuf.Value value = 3; // 属性値（単数）
+}
+
+// Permify互換: タプルフィルター（DeleteRelations、ReadRelationships用）
+message TupleFilter {
+  EntityFilter entity = 1;
+  string relation = 2;
+  SubjectFilter subject = 3;
+}
+
+message EntityFilter {
+  string type = 1;
+  repeated string ids = 2;  // 複数ID指定可能
+}
+
+message SubjectFilter {
+  string type = 1;
+  repeated string ids = 2;  // 複数ID指定可能
+  string relation = 3;
 }
 
 enum CheckResult {

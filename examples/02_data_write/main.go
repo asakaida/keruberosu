@@ -50,10 +50,7 @@ entity document {
 	if err != nil {
 		log.Fatalf("スキーマ書き込み失敗: %v", err)
 	}
-	if !schemaResp.Success {
-		log.Fatalf("スキーマエラー: %s", schemaResp.Message)
-	}
-	fmt.Println("✅ スキーマが書き込まれました")
+	fmt.Printf("✅ スキーマが書き込まれました (version: %s)\n", schemaResp.SchemaVersion)
 
 	// Step 2: 関係性（Relations）を書き込み
 	relResp, err := client.WriteRelations(ctx, &pb.WriteRelationsRequest{
@@ -81,24 +78,30 @@ entity document {
 	if err != nil {
 		log.Fatalf("関係性書き込み失敗: %v", err)
 	}
-	fmt.Printf("✅ 関係性が書き込まれました: %d件\n", relResp.WrittenCount)
+	fmt.Printf("✅ 関係性が書き込まれました (snap_token: %s)\n", relResp.SnapToken)
 
-	// Step 3: 属性（Attributes）を書き込み
+	// Step 3: 属性（Attributes）を書き込み（Permify互換: 単一属性形式）
 	_, err = client.WriteAttributes(ctx, &pb.WriteAttributesRequest{
 		Attributes: []*pb.AttributeData{
 			{
-				Entity: &pb.Entity{Type: "document", Id: "doc1"},
-				Data: map[string]*structpb.Value{
-					"public":   structpb.NewBoolValue(true),
-					"owner_id": structpb.NewStringValue("alice"),
-				},
+				Entity:    &pb.Entity{Type: "document", Id: "doc1"},
+				Attribute: "public",
+				Value:     structpb.NewBoolValue(true),
 			},
 			{
-				Entity: &pb.Entity{Type: "document", Id: "doc2"},
-				Data: map[string]*structpb.Value{
-					"public":   structpb.NewBoolValue(false),
-					"owner_id": structpb.NewStringValue("bob"),
-				},
+				Entity:    &pb.Entity{Type: "document", Id: "doc1"},
+				Attribute: "owner_id",
+				Value:     structpb.NewStringValue("alice"),
+			},
+			{
+				Entity:    &pb.Entity{Type: "document", Id: "doc2"},
+				Attribute: "public",
+				Value:     structpb.NewBoolValue(false),
+			},
+			{
+				Entity:    &pb.Entity{Type: "document", Id: "doc2"},
+				Attribute: "owner_id",
+				Value:     structpb.NewStringValue("bob"),
 			},
 		},
 	})

@@ -33,20 +33,14 @@ type LookupInterface interface {
 }
 
 // AuthorizationHandler handles all authorization service gRPC requests
-// This includes schema management, data management, and authorization operations
 type AuthorizationHandler struct {
-	// Schema management
 	schemaService services.SchemaServiceInterface
-
-	// Data management (Relations & Attributes)
 	relationRepo  repositories.RelationRepository
 	attributeRepo repositories.AttributeRepository
-
-	// Authorization operations
-	checker    CheckerInterface
-	expander   ExpanderInterface
-	lookup     LookupInterface
-	schemaRepo repositories.SchemaRepository
+	checker       CheckerInterface
+	expander      ExpanderInterface
+	lookup        LookupInterface
+	schemaRepo    repositories.SchemaRepository
 
 	pb.UnimplementedAuthorizationServiceServer
 }
@@ -72,53 +66,38 @@ func NewAuthorizationHandler(
 	}
 }
 
-// === Schema Management ===
-
 // WriteSchema handles the WriteSchema RPC
 func (h *AuthorizationHandler) WriteSchema(ctx context.Context, req *pb.WriteSchemaRequest) (*pb.WriteSchemaResponse, error) {
-	// Validate request
 	if req.SchemaDsl == "" {
-		return &pb.WriteSchemaResponse{
-			Success: false,
-			Message: "schema_dsl is required",
-			Errors:  []string{"schema_dsl field cannot be empty"},
-		}, nil
+		return nil, status.Error(codes.InvalidArgument, "schema_dsl is required")
 	}
 
-	// Phase 1: Use fixed tenant ID "default"
 	tenantID := "default"
 
-	// Call schema service
 	err := h.schemaService.WriteSchema(ctx, tenantID, req.SchemaDsl)
 	if err != nil {
-		return h.handleWriteSchemaError(err)
+		return nil, status.Errorf(codes.InvalidArgument, "failed to write schema: %v", err)
 	}
 
 	return &pb.WriteSchemaResponse{
-		Success: true,
-		Message: "Schema written successfully",
-		Errors:  nil,
+		SchemaVersion: "", // TODO: schema_version機能実装時に更新
 	}, nil
 }
 
 // ReadSchema handles the ReadSchema RPC
 func (h *AuthorizationHandler) ReadSchema(ctx context.Context, req *pb.ReadSchemaRequest) (*pb.ReadSchemaResponse, error) {
-	// Phase 1: Use fixed tenant ID "default"
 	tenantID := "default"
 
-	// Call schema service
 	schemaDSL, err := h.schemaService.ReadSchema(ctx, tenantID)
 	if err != nil {
 		return nil, h.handleReadSchemaError(err)
 	}
 
-	// Get schema entity to retrieve metadata
 	schema, err := h.schemaService.GetSchemaEntity(ctx, tenantID)
 	if err != nil {
 		return nil, h.handleReadSchemaError(err)
 	}
 
-	// Format updated_at as ISO8601
 	updatedAt := ""
 	if !schema.UpdatedAt.IsZero() {
 		updatedAt = schema.UpdatedAt.Format("2006-01-02T15:04:05Z07:00")
@@ -130,105 +109,149 @@ func (h *AuthorizationHandler) ReadSchema(ctx context.Context, req *pb.ReadSchem
 	}, nil
 }
 
-// === Data Management ===
-
 // WriteRelations handles the WriteRelations RPC
 func (h *AuthorizationHandler) WriteRelations(ctx context.Context, req *pb.WriteRelationsRequest) (*pb.WriteRelationsResponse, error) {
-	// Validate request
-	if len(req.Tuples) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "at least one relation tuple is required")
-	}
-
-	// Phase 1: Use fixed tenant ID "default"
 	tenantID := "default"
 
-	// Convert proto tuples to entities
-	tuples := make([]*entities.RelationTuple, 0, len(req.Tuples))
-	for i, protoTuple := range req.Tuples {
-		tuple, err := protoToRelationTuple(protoTuple)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid tuple at index %d: %v", i, err)
+	// Write tuples if provided
+	if len(req.Tuples) > 0 {
+		tuples := make([]*entities.RelationTuple, 0, len(req.Tuples))
+		for i, protoTuple := range req.Tuples {
+			tuple, err := protoToRelationTuple(protoTuple)
+			if err != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "invalid tuple at index %d: %v", i, err)
+			}
+			tuples = append(tuples, tuple)
 		}
-		tuples = append(tuples, tuple)
+
+		if err := h.relationRepo.BatchWrite(ctx, tenantID, tuples); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to write relations: %v", err)
+		}
 	}
 
-	// Batch write to repository
-	if err := h.relationRepo.BatchWrite(ctx, tenantID, tuples); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to write relations: %v", err)
+	// Write attributes if provided (Permify互換)
+	if len(req.Attributes) > 0 {
+		for i, protoAttr := range req.Attributes {
+			attr, err := protoToAttribute(protoAttr)
+			if err != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "invalid attribute at index %d: %v", i, err)
+			}
+
+			if err := h.attributeRepo.Write(ctx, tenantID, attr); err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to write attribute: %v", err)
+			}
+		}
 	}
 
 	return &pb.WriteRelationsResponse{
-		WrittenCount: int32(len(tuples)),
+		SnapToken: "", // TODO: cache機構実装時に更新
 	}, nil
 }
 
-// DeleteRelations handles the DeleteRelations RPC
+// DeleteRelations handles the DeleteRelations RPC (Permify互換: フィルター形式)
 func (h *AuthorizationHandler) DeleteRelations(ctx context.Context, req *pb.DeleteRelationsRequest) (*pb.DeleteRelationsResponse, error) {
-	// Validate request
-	if len(req.Tuples) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "at least one relation tuple is required")
+	if req.Filter == nil {
+		return nil, status.Error(codes.InvalidArgument, "filter is required")
 	}
 
-	// Phase 1: Use fixed tenant ID "default"
 	tenantID := "default"
 
-	// Convert proto tuples to entities
-	tuples := make([]*entities.RelationTuple, 0, len(req.Tuples))
-	for i, protoTuple := range req.Tuples {
-		tuple, err := protoToRelationTuple(protoTuple)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid tuple at index %d: %v", i, err)
-		}
-		tuples = append(tuples, tuple)
+	// Convert filter to repository format
+	filter := &repositories.RelationFilter{
+		EntityType:      req.Filter.Entity.GetType(),
+		EntityIDs:       req.Filter.Entity.GetIds(),
+		Relation:        req.Filter.GetRelation(),
+		SubjectType:     req.Filter.Subject.GetType(),
+		SubjectIDs:      req.Filter.Subject.GetIds(),
+		SubjectRelation: req.Filter.Subject.GetRelation(),
 	}
 
-	// Batch delete from repository
-	if err := h.relationRepo.BatchDelete(ctx, tenantID, tuples); err != nil {
+	if err := h.relationRepo.DeleteByFilter(ctx, tenantID, filter); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to delete relations: %v", err)
 	}
 
 	return &pb.DeleteRelationsResponse{
-		DeletedCount: int32(len(tuples)),
+		SnapToken: "", // TODO: cache機構実装時に更新
 	}, nil
 }
 
 // WriteAttributes handles the WriteAttributes RPC
 func (h *AuthorizationHandler) WriteAttributes(ctx context.Context, req *pb.WriteAttributesRequest) (*pb.WriteAttributesResponse, error) {
-	// Validate request
 	if len(req.Attributes) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "at least one attribute is required")
 	}
 
-	// Phase 1: Use fixed tenant ID "default"
 	tenantID := "default"
 
-	// Convert proto attributes to entities and write
-	writtenCount := 0
 	for i, protoAttr := range req.Attributes {
-		attributes, err := protoToAttributes(protoAttr)
+		attr, err := protoToAttribute(protoAttr)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "invalid attribute at index %d: %v", i, err)
 		}
 
-		// Write each attribute
-		for _, attr := range attributes {
-			if err := h.attributeRepo.Write(ctx, tenantID, attr); err != nil {
-				return nil, status.Errorf(codes.Internal, "failed to write attribute %s: %v", attr.Name, err)
-			}
-			writtenCount++
+		if err := h.attributeRepo.Write(ctx, tenantID, attr); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to write attribute: %v", err)
 		}
 	}
 
 	return &pb.WriteAttributesResponse{
-		WrittenCount: int32(writtenCount),
+		SnapToken: "", // TODO: cache機構実装時に更新
 	}, nil
 }
 
-// === Authorization Operations ===
+// ReadRelationships handles the ReadRelationships RPC (Permify互換)
+func (h *AuthorizationHandler) ReadRelationships(ctx context.Context, req *pb.ReadRelationshipsRequest) (*pb.ReadRelationshipsResponse, error) {
+	tenantID := "default"
+
+	// Convert filter
+	filter := &repositories.RelationFilter{}
+	if req.Filter != nil {
+		if req.Filter.Entity != nil {
+			filter.EntityType = req.Filter.Entity.GetType()
+			filter.EntityIDs = req.Filter.Entity.GetIds()
+		}
+		filter.Relation = req.Filter.GetRelation()
+		if req.Filter.Subject != nil {
+			filter.SubjectType = req.Filter.Subject.GetType()
+			filter.SubjectIDs = req.Filter.Subject.GetIds()
+			filter.SubjectRelation = req.Filter.Subject.GetRelation()
+		}
+	}
+
+	// Set pagination
+	pageSize := int(req.PageSize)
+	if pageSize <= 0 {
+		pageSize = 100 // default
+	}
+
+	// Read from repository
+	tuples, nextToken, err := h.relationRepo.ReadByFilter(ctx, tenantID, filter, pageSize, req.ContinuousToken)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to read relationships: %v", err)
+	}
+
+	// Convert to proto
+	protoTuples := make([]*pb.RelationTuple, 0, len(tuples))
+	for _, tuple := range tuples {
+		protoTuples = append(protoTuples, &pb.RelationTuple{
+			Entity:   &pb.Entity{Type: tuple.EntityType, Id: tuple.EntityID},
+			Relation: tuple.Relation,
+			Subject: &pb.Subject{
+				Type:     tuple.SubjectType,
+				Id:       tuple.SubjectID,
+				Relation: tuple.SubjectRelation,
+			},
+		})
+	}
+
+	return &pb.ReadRelationshipsResponse{
+		Tuples:          protoTuples,
+		ContinuousToken: nextToken,
+	}, nil
+}
 
 // Check handles the Check RPC
 func (h *AuthorizationHandler) Check(ctx context.Context, req *pb.CheckRequest) (*pb.CheckResponse, error) {
-	// Validate request
 	if req.Entity == nil {
 		return nil, status.Error(codes.InvalidArgument, "entity is required")
 	}
@@ -239,16 +262,13 @@ func (h *AuthorizationHandler) Check(ctx context.Context, req *pb.CheckRequest) 
 		return nil, status.Error(codes.InvalidArgument, "subject is required")
 	}
 
-	// Phase 1: Use fixed tenant ID "default"
 	tenantID := "default"
 
-	// Convert contextual tuples
 	contextualTuples, err := protoContextToTuples(req.Context)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid context: %v", err)
 	}
 
-	// Create check request
 	checkReq := &authorization.CheckRequest{
 		TenantID:         tenantID,
 		EntityType:       req.Entity.Type,
@@ -259,13 +279,11 @@ func (h *AuthorizationHandler) Check(ctx context.Context, req *pb.CheckRequest) 
 		ContextualTuples: contextualTuples,
 	}
 
-	// Execute check
 	checkResp, err := h.checker.Check(ctx, checkReq)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "check failed: %v", err)
 	}
 
-	// Convert result
 	result := pb.CheckResult_CHECK_RESULT_DENIED
 	if checkResp.Allowed {
 		result = pb.CheckResult_CHECK_RESULT_ALLOWED
@@ -274,14 +292,13 @@ func (h *AuthorizationHandler) Check(ctx context.Context, req *pb.CheckRequest) 
 	return &pb.CheckResponse{
 		Can: result,
 		Metadata: &pb.CheckResponseMetadata{
-			CheckCount: 1, // Simple implementation: one check performed
+			CheckCount: 1,
 		},
 	}, nil
 }
 
 // Expand handles the Expand RPC
 func (h *AuthorizationHandler) Expand(ctx context.Context, req *pb.ExpandRequest) (*pb.ExpandResponse, error) {
-	// Validate request
 	if req.Entity == nil {
 		return nil, status.Error(codes.InvalidArgument, "entity is required")
 	}
@@ -289,10 +306,8 @@ func (h *AuthorizationHandler) Expand(ctx context.Context, req *pb.ExpandRequest
 		return nil, status.Error(codes.InvalidArgument, "permission is required")
 	}
 
-	// Phase 1: Use fixed tenant ID "default"
 	tenantID := "default"
 
-	// Create expand request
 	expandReq := &authorization.ExpandRequest{
 		TenantID:   tenantID,
 		EntityType: req.Entity.Type,
@@ -300,13 +315,11 @@ func (h *AuthorizationHandler) Expand(ctx context.Context, req *pb.ExpandRequest
 		Permission: req.Permission,
 	}
 
-	// Execute expand
 	expandResp, err := h.expander.Expand(ctx, expandReq)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "expand failed: %v", err)
 	}
 
-	// Convert tree to proto
 	tree := expandNodeToProto(expandResp.Tree)
 
 	return &pb.ExpandResponse{
@@ -316,7 +329,6 @@ func (h *AuthorizationHandler) Expand(ctx context.Context, req *pb.ExpandRequest
 
 // LookupEntity handles the LookupEntity RPC
 func (h *AuthorizationHandler) LookupEntity(ctx context.Context, req *pb.LookupEntityRequest) (*pb.LookupEntityResponse, error) {
-	// Validate request
 	if req.EntityType == "" {
 		return nil, status.Error(codes.InvalidArgument, "entity_type is required")
 	}
@@ -327,16 +339,13 @@ func (h *AuthorizationHandler) LookupEntity(ctx context.Context, req *pb.LookupE
 		return nil, status.Error(codes.InvalidArgument, "subject is required")
 	}
 
-	// Phase 1: Use fixed tenant ID "default"
 	tenantID := "default"
 
-	// Convert contextual tuples
 	contextualTuples, err := protoContextToTuples(req.Context)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid context: %v", err)
 	}
 
-	// Create lookup request
 	lookupReq := &authorization.LookupEntityRequest{
 		TenantID:         tenantID,
 		EntityType:       req.EntityType,
@@ -348,7 +357,6 @@ func (h *AuthorizationHandler) LookupEntity(ctx context.Context, req *pb.LookupE
 		PageToken:        req.ContinuousToken,
 	}
 
-	// Execute lookup
 	lookupResp, err := h.lookup.LookupEntity(ctx, lookupReq)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "lookup entity failed: %v", err)
@@ -362,7 +370,6 @@ func (h *AuthorizationHandler) LookupEntity(ctx context.Context, req *pb.LookupE
 
 // LookupSubject handles the LookupSubject RPC
 func (h *AuthorizationHandler) LookupSubject(ctx context.Context, req *pb.LookupSubjectRequest) (*pb.LookupSubjectResponse, error) {
-	// Validate request
 	if req.Entity == nil {
 		return nil, status.Error(codes.InvalidArgument, "entity is required")
 	}
@@ -373,16 +380,13 @@ func (h *AuthorizationHandler) LookupSubject(ctx context.Context, req *pb.Lookup
 		return nil, status.Error(codes.InvalidArgument, "subject_reference is required")
 	}
 
-	// Phase 1: Use fixed tenant ID "default"
 	tenantID := "default"
 
-	// Convert contextual tuples
 	contextualTuples, err := protoContextToTuples(req.Context)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid context: %v", err)
 	}
 
-	// Create lookup request
 	lookupReq := &authorization.LookupSubjectRequest{
 		TenantID:         tenantID,
 		EntityType:       req.Entity.Type,
@@ -394,7 +398,6 @@ func (h *AuthorizationHandler) LookupSubject(ctx context.Context, req *pb.Lookup
 		PageToken:        req.ContinuousToken,
 	}
 
-	// Execute lookup
 	lookupResp, err := h.lookup.LookupSubject(ctx, lookupReq)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "lookup subject failed: %v", err)
@@ -408,7 +411,6 @@ func (h *AuthorizationHandler) LookupSubject(ctx context.Context, req *pb.Lookup
 
 // SubjectPermission handles the SubjectPermission RPC
 func (h *AuthorizationHandler) SubjectPermission(ctx context.Context, req *pb.SubjectPermissionRequest) (*pb.SubjectPermissionResponse, error) {
-	// Validate request
 	if req.Entity == nil {
 		return nil, status.Error(codes.InvalidArgument, "entity is required")
 	}
@@ -416,10 +418,8 @@ func (h *AuthorizationHandler) SubjectPermission(ctx context.Context, req *pb.Su
 		return nil, status.Error(codes.InvalidArgument, "subject is required")
 	}
 
-	// Phase 1: Use fixed tenant ID "default"
 	tenantID := "default"
 
-	// Get parsed schema to find all permissions for this entity type
 	schema, err := h.schemaService.GetSchemaEntity(ctx, tenantID)
 	if err != nil {
 		if errors.Is(err, repositories.ErrNotFound) {
@@ -428,19 +428,16 @@ func (h *AuthorizationHandler) SubjectPermission(ctx context.Context, req *pb.Su
 		return nil, status.Errorf(codes.Internal, "failed to get schema: %v", err)
 	}
 
-	// Get entity definition
 	entity := schema.GetEntity(req.Entity.Type)
 	if entity == nil {
 		return nil, status.Errorf(codes.NotFound, "entity type %s not found in schema", req.Entity.Type)
 	}
 
-	// Convert contextual tuples
 	contextualTuples, err := protoContextToTuples(req.Context)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid context: %v", err)
 	}
 
-	// Check each permission
 	results := make(map[string]pb.CheckResult)
 	for _, permission := range entity.Permissions {
 		checkReq := &authorization.CheckRequest{
@@ -455,7 +452,6 @@ func (h *AuthorizationHandler) SubjectPermission(ctx context.Context, req *pb.Su
 
 		checkResp, err := h.checker.Check(ctx, checkReq)
 		if err != nil {
-			// If check fails, mark as denied
 			results[permission.Name] = pb.CheckResult_CHECK_RESULT_DENIED
 			continue
 		}
@@ -472,13 +468,13 @@ func (h *AuthorizationHandler) SubjectPermission(ctx context.Context, req *pb.Su
 	}, nil
 }
 
-// LookupEntityStream handles the LookupEntityStream RPC (streaming version)
-// Phase 1: Not implemented yet
+// LookupEntityStream handles the LookupEntityStream RPC
 func (h *AuthorizationHandler) LookupEntityStream(req *pb.LookupEntityRequest, stream pb.AuthorizationService_LookupEntityStreamServer) error {
-	return status.Error(codes.Unimplemented, "LookupEntityStream not implemented in Phase 1")
+	return status.Error(codes.Unimplemented, "LookupEntityStream not implemented")
 }
 
-// protoContextToTuples converts proto Context to entities.RelationTuple slice
+// === Helper Functions ===
+
 func protoContextToTuples(ctx *pb.Context) ([]*entities.RelationTuple, error) {
 	if ctx == nil || len(ctx.Tuples) == 0 {
 		return nil, nil
@@ -496,7 +492,6 @@ func protoContextToTuples(ctx *pb.Context) ([]*entities.RelationTuple, error) {
 	return tuples, nil
 }
 
-// expandNodeToProto converts authorization.ExpandNode to proto ExpandNode
 func expandNodeToProto(node *authorization.ExpandNode) *pb.ExpandNode {
 	if node == nil {
 		return nil
@@ -506,7 +501,6 @@ func expandNodeToProto(node *authorization.ExpandNode) *pb.ExpandNode {
 		Operation: node.Type,
 	}
 
-	// Convert children recursively
 	if len(node.Children) > 0 {
 		protoNode.Children = make([]*pb.ExpandNode, 0, len(node.Children))
 		for _, child := range node.Children {
@@ -514,22 +508,10 @@ func expandNodeToProto(node *authorization.ExpandNode) *pb.ExpandNode {
 		}
 	}
 
-	// For leaf nodes, set entity and subject
-	if node.Type == "leaf" && node.Subject != "" {
-		// Parse entity reference (e.g., "document:doc1")
-		// Parse subject reference (e.g., "user:alice")
-		// For simplicity in Phase 1, store as string in operation
-		// Full implementation would parse these properly
-	}
-
 	return protoNode
 }
 
-// === Helper Functions ===
-
-// protoToRelationTuple converts proto RelationTuple to entities.RelationTuple
 func protoToRelationTuple(proto *pb.RelationTuple) (*entities.RelationTuple, error) {
-	// Validate entity
 	if proto.Entity == nil {
 		return nil, fmt.Errorf("entity is required")
 	}
@@ -540,12 +522,10 @@ func protoToRelationTuple(proto *pb.RelationTuple) (*entities.RelationTuple, err
 		return nil, fmt.Errorf("entity id is required")
 	}
 
-	// Validate relation
 	if proto.Relation == "" {
 		return nil, fmt.Errorf("relation is required")
 	}
 
-	// Validate subject
 	if proto.Subject == nil {
 		return nil, fmt.Errorf("subject is required")
 	}
@@ -562,10 +542,9 @@ func protoToRelationTuple(proto *pb.RelationTuple) (*entities.RelationTuple, err
 		Relation:        proto.Relation,
 		SubjectType:     proto.Subject.Type,
 		SubjectID:       proto.Subject.Id,
-		SubjectRelation: proto.Subject.Relation, // Permify互換: subject.relationをサポート
+		SubjectRelation: proto.Subject.Relation,
 	}
 
-	// Validate the tuple
 	if err := tuple.Validate(); err != nil {
 		return nil, err
 	}
@@ -573,9 +552,7 @@ func protoToRelationTuple(proto *pb.RelationTuple) (*entities.RelationTuple, err
 	return tuple, nil
 }
 
-// protoToAttributes converts proto AttributeData to entities.Attribute slice
-func protoToAttributes(proto *pb.AttributeData) ([]*entities.Attribute, error) {
-	// Validate entity
+func protoToAttribute(proto *pb.AttributeData) (*entities.Attribute, error) {
 	if proto.Entity == nil {
 		return nil, fmt.Errorf("entity is required")
 	}
@@ -586,39 +563,29 @@ func protoToAttributes(proto *pb.AttributeData) ([]*entities.Attribute, error) {
 		return nil, fmt.Errorf("entity id is required")
 	}
 
-	// Validate data
-	if len(proto.Data) == 0 {
-		return nil, fmt.Errorf("at least one attribute is required")
+	if proto.Attribute == "" {
+		return nil, fmt.Errorf("attribute name is required")
 	}
 
-	// Convert map to attribute slice
-	attributes := make([]*entities.Attribute, 0, len(proto.Data))
-	for name, value := range proto.Data {
-		// Convert protobuf Value to interface{}
-		val, err := protoValueToInterface(value)
-		if err != nil {
-			return nil, fmt.Errorf("invalid value for attribute %s: %v", name, err)
-		}
-
-		attr := &entities.Attribute{
-			EntityType: proto.Entity.Type,
-			EntityID:   proto.Entity.Id,
-			Name:       name,
-			Value:      val,
-		}
-
-		// Validate the attribute
-		if err := attr.Validate(); err != nil {
-			return nil, fmt.Errorf("validation failed for attribute %s: %v", name, err)
-		}
-
-		attributes = append(attributes, attr)
+	val, err := protoValueToInterface(proto.Value)
+	if err != nil {
+		return nil, fmt.Errorf("invalid value: %v", err)
 	}
 
-	return attributes, nil
+	attr := &entities.Attribute{
+		EntityType: proto.Entity.Type,
+		EntityID:   proto.Entity.Id,
+		Name:       proto.Attribute,
+		Value:      val,
+	}
+
+	if err := attr.Validate(); err != nil {
+		return nil, err
+	}
+
+	return attr, nil
 }
 
-// protoValueToInterface converts protobuf Value to Go interface{}
 func protoValueToInterface(v *structpb.Value) (interface{}, error) {
 	if v == nil {
 		return nil, fmt.Errorf("value cannot be nil")
@@ -651,48 +618,9 @@ func protoValueToInterface(v *structpb.Value) (interface{}, error) {
 	}
 }
 
-// handleWriteSchemaError converts domain errors to WriteSchemaResponse with errors
-func (h *AuthorizationHandler) handleWriteSchemaError(err error) (*pb.WriteSchemaResponse, error) {
-	errMsg := err.Error()
-
-	// Check error type and categorize
-	if strings.Contains(errMsg, "failed to parse DSL") {
-		return &pb.WriteSchemaResponse{
-			Success: false,
-			Message: "Failed to parse schema DSL",
-			Errors:  []string{errMsg},
-		}, nil
-	}
-
-	if strings.Contains(errMsg, "schema validation failed") {
-		return &pb.WriteSchemaResponse{
-			Success: false,
-			Message: "Schema validation failed",
-			Errors:  []string{errMsg},
-		}, nil
-	}
-
-	if strings.Contains(errMsg, "is required") {
-		return &pb.WriteSchemaResponse{
-			Success: false,
-			Message: "Validation error",
-			Errors:  []string{errMsg},
-		}, nil
-	}
-
-	// Generic error
-	return &pb.WriteSchemaResponse{
-		Success: false,
-		Message: "Failed to write schema",
-		Errors:  []string{errMsg},
-	}, nil
-}
-
-// handleReadSchemaError converts domain errors to gRPC status errors
 func (h *AuthorizationHandler) handleReadSchemaError(err error) error {
 	errMsg := err.Error()
 
-	// Check error type and return appropriate gRPC status
 	if strings.Contains(errMsg, "schema not found") || strings.Contains(errMsg, "not found") {
 		return status.Errorf(codes.NotFound, "schema not found")
 	}
@@ -701,6 +629,5 @@ func (h *AuthorizationHandler) handleReadSchemaError(err error) error {
 		return status.Errorf(codes.InvalidArgument, "%s", errMsg)
 	}
 
-	// Generic error
 	return status.Errorf(codes.Internal, "failed to read schema: %s", errMsg)
 }

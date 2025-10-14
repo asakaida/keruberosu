@@ -53,85 +53,50 @@ entity document {
 		log.Fatalf("スキーマ書き込み失敗: %v", err)
 	}
 
-	// Step 2: ドキュメントの属性を書き込み
+	// Step 2: ドキュメントの属性を書き込み（Permify互換: 単一属性形式）
 	_, err = client.WriteAttributes(ctx, &pb.WriteAttributesRequest{
 		Attributes: []*pb.AttributeData{
 			// doc1: 公開ドキュメント
-			{
-				Entity: &pb.Entity{Type: "document", Id: "doc1"},
-				Data: map[string]*structpb.Value{
-					"public":         structpb.NewBoolValue(true),
-					"security_level": structpb.NewNumberValue(1),
-					"department":     structpb.NewStringValue("general"),
-					"price":          structpb.NewNumberValue(0),
-				},
-			},
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Attribute: "public", Value: structpb.NewBoolValue(true)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Attribute: "security_level", Value: structpb.NewNumberValue(1)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Attribute: "department", Value: structpb.NewStringValue("general")},
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Attribute: "price", Value: structpb.NewNumberValue(0)},
 			// doc2: セキュリティレベル2の機密文書
-			{
-				Entity: &pb.Entity{Type: "document", Id: "doc2"},
-				Data: map[string]*structpb.Value{
-					"public":         structpb.NewBoolValue(false),
-					"security_level": structpb.NewNumberValue(2),
-					"department":     structpb.NewStringValue("engineering"),
-					"price":          structpb.NewNumberValue(0),
-				},
-			},
+			{Entity: &pb.Entity{Type: "document", Id: "doc2"}, Attribute: "public", Value: structpb.NewBoolValue(false)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc2"}, Attribute: "security_level", Value: structpb.NewNumberValue(2)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc2"}, Attribute: "department", Value: structpb.NewStringValue("engineering")},
+			{Entity: &pb.Entity{Type: "document", Id: "doc2"}, Attribute: "price", Value: structpb.NewNumberValue(0)},
 			// doc3: engineering部署限定
-			{
-				Entity: &pb.Entity{Type: "document", Id: "doc3"},
-				Data: map[string]*structpb.Value{
-					"public":         structpb.NewBoolValue(false),
-					"security_level": structpb.NewNumberValue(1),
-					"department":     structpb.NewStringValue("engineering"),
-					"price":          structpb.NewNumberValue(50),
-				},
-			},
+			{Entity: &pb.Entity{Type: "document", Id: "doc3"}, Attribute: "public", Value: structpb.NewBoolValue(false)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc3"}, Attribute: "security_level", Value: structpb.NewNumberValue(1)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc3"}, Attribute: "department", Value: structpb.NewStringValue("engineering")},
+			{Entity: &pb.Entity{Type: "document", Id: "doc3"}, Attribute: "price", Value: structpb.NewNumberValue(50)},
 			// doc4: プレミアムコンテンツ（高額）
-			{
-				Entity: &pb.Entity{Type: "document", Id: "doc4"},
-				Data: map[string]*structpb.Value{
-					"public":         structpb.NewBoolValue(false),
-					"security_level": structpb.NewNumberValue(1),
-					"department":     structpb.NewStringValue("general"),
-					"price":          structpb.NewNumberValue(150),
-				},
-			},
+			{Entity: &pb.Entity{Type: "document", Id: "doc4"}, Attribute: "public", Value: structpb.NewBoolValue(false)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc4"}, Attribute: "security_level", Value: structpb.NewNumberValue(1)},
+			{Entity: &pb.Entity{Type: "document", Id: "doc4"}, Attribute: "department", Value: structpb.NewStringValue("general")},
+			{Entity: &pb.Entity{Type: "document", Id: "doc4"}, Attribute: "price", Value: structpb.NewNumberValue(150)},
 		},
 	})
 	if err != nil {
 		log.Fatalf("ドキュメント属性書き込み失敗: %v", err)
 	}
 
-	// Step 3: ユーザーの属性を書き込み
+	// Step 3: ユーザーの属性を書き込み（Permify互換: 単一属性形式）
 	_, err = client.WriteAttributes(ctx, &pb.WriteAttributesRequest{
 		Attributes: []*pb.AttributeData{
 			// alice: セキュリティレベル3、engineering部署、プレミアムユーザー
-			{
-				Entity: &pb.Entity{Type: "user", Id: "alice"},
-				Data: map[string]*structpb.Value{
-					"security_level":     structpb.NewNumberValue(3),
-					"department":         structpb.NewStringValue("engineering"),
-					"subscription_tier":  structpb.NewStringValue("premium"),
-				},
-			},
+			{Entity: &pb.Entity{Type: "user", Id: "alice"}, Attribute: "security_level", Value: structpb.NewNumberValue(3)},
+			{Entity: &pb.Entity{Type: "user", Id: "alice"}, Attribute: "department", Value: structpb.NewStringValue("engineering")},
+			{Entity: &pb.Entity{Type: "user", Id: "alice"}, Attribute: "subscription_tier", Value: structpb.NewStringValue("premium")},
 			// bob: セキュリティレベル1、engineering部署、ベーシックユーザー
-			{
-				Entity: &pb.Entity{Type: "user", Id: "bob"},
-				Data: map[string]*structpb.Value{
-					"security_level":     structpb.NewNumberValue(1),
-					"department":         structpb.NewStringValue("engineering"),
-					"subscription_tier":  structpb.NewStringValue("basic"),
-				},
-			},
+			{Entity: &pb.Entity{Type: "user", Id: "bob"}, Attribute: "security_level", Value: structpb.NewNumberValue(1)},
+			{Entity: &pb.Entity{Type: "user", Id: "bob"}, Attribute: "department", Value: structpb.NewStringValue("engineering")},
+			{Entity: &pb.Entity{Type: "user", Id: "bob"}, Attribute: "subscription_tier", Value: structpb.NewStringValue("basic")},
 			// charlie: セキュリティレベル5、security部署
-			{
-				Entity: &pb.Entity{Type: "user", Id: "charlie"},
-				Data: map[string]*structpb.Value{
-					"security_level":     structpb.NewNumberValue(5),
-					"department":         structpb.NewStringValue("security"),
-					"subscription_tier":  structpb.NewStringValue("basic"),
-				},
-			},
+			{Entity: &pb.Entity{Type: "user", Id: "charlie"}, Attribute: "security_level", Value: structpb.NewNumberValue(5)},
+			{Entity: &pb.Entity{Type: "user", Id: "charlie"}, Attribute: "department", Value: structpb.NewStringValue("security")},
+			{Entity: &pb.Entity{Type: "user", Id: "charlie"}, Attribute: "subscription_tier", Value: structpb.NewStringValue("basic")},
 		},
 	})
 	if err != nil {

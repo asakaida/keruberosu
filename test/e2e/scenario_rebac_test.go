@@ -51,8 +51,10 @@ entity document {
 	if err != nil {
 		t.Fatalf("WriteSchema failed: %v", err)
 	}
-	if !writeSchemaResp.Success {
-		t.Fatalf("WriteSchema returned error: %s (errors: %v)", writeSchemaResp.Message, writeSchemaResp.Errors)
+	// WriteSchemaResponse now only contains SchemaVersion (Permify compatible)
+	// Errors are returned via gRPC error, not in response fields
+	if writeSchemaResp.SchemaVersion == "" {
+		t.Logf("WriteSchema returned empty schema_version (expected for now - TODO: implement schema versioning)")
 	}
 	t.Log("✓ Schema defined successfully")
 
@@ -66,7 +68,7 @@ entity document {
 	// - doc2: bob is editor, parent is folder1
 	// - doc3: owned by charlie, parent is folder2
 
-	writeRelResp, err := client.WriteRelations(ctx, &pb.WriteRelationsRequest{
+	_, err = client.WriteRelations(ctx, &pb.WriteRelationsRequest{
 		Tuples: []*pb.RelationTuple{
 			// folder1
 			{Entity: &pb.Entity{Type: "folder", Id: "folder1"}, Relation: "owner", Subject: &pb.Subject{Type: "user", Id: "alice"}},
@@ -91,7 +93,9 @@ entity document {
 	if err != nil {
 		t.Fatalf("WriteRelations failed: %v", err)
 	}
-	t.Logf("✓ Relation tuples written successfully (%d written)", writeRelResp.WrittenCount)
+	// WriteRelationsResponse now only contains snap_token (Permify compatible)
+	// WrittenCount field no longer exists
+	t.Logf("✓ Relation tuples written successfully")
 
 
 	// Step 3: Check permissions

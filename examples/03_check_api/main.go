@@ -122,15 +122,18 @@ entity document {
 		log.Fatalf("関係性書き込み失敗: %v", err)
 	}
 
-	// 属性を書き込み
+	// 属性を書き込み（Permify互換: 単一属性形式）
 	_, err = client.WriteAttributes(ctx, &pb.WriteAttributesRequest{
 		Attributes: []*pb.AttributeData{
 			{
-				Entity: &pb.Entity{Type: "document", Id: "doc1"},
-				Data: map[string]*structpb.Value{
-					"public":   structpb.NewBoolValue(true),
-					"owner_id": structpb.NewStringValue("alice"),
-				},
+				Entity:    &pb.Entity{Type: "document", Id: "doc1"},
+				Attribute: "public",
+				Value:     structpb.NewBoolValue(true),
+			},
+			{
+				Entity:    &pb.Entity{Type: "document", Id: "doc1"},
+				Attribute: "owner_id",
+				Value:     structpb.NewStringValue("alice"),
 			},
 		},
 	})

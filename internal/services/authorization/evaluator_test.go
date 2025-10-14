@@ -92,6 +92,14 @@ func (m *mockRelationRepository) BatchDelete(ctx context.Context, tenantID strin
 	return nil
 }
 
+func (m *mockRelationRepository) DeleteByFilter(ctx context.Context, tenantID string, filter *repositories.RelationFilter) error {
+	return nil
+}
+
+func (m *mockRelationRepository) ReadByFilter(ctx context.Context, tenantID string, filter *repositories.RelationFilter, pageSize int, pageToken string) ([]*entities.RelationTuple, string, error) {
+	return nil, "", nil
+}
+
 type mockAttributeRepository struct {
 	attributes map[string]map[string]interface{} // key: entityType:entityID, value: attributes
 }
