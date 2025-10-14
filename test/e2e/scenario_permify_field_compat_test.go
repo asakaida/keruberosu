@@ -177,17 +177,17 @@ entity document {
 	}
 	t.Log("✓ Expand with tenant_id works correctly")
 
-	// Test 8: Verify all Permission APIs work without tenant_id (backwards compatibility)
-	t.Log("Test 8: Backwards compatibility - all APIs work without tenant_id")
+	// Test 8: Verify empty tenant_id defaults to "default" for all APIs
+	t.Log("Test 8: Empty tenant_id defaulting - all APIs work without explicit tenant_id")
 
-	// Check without tenant_id
+	// Check without tenant_id (should default to "default")
 	_, err = permissionClient.Check(ctx, &pb.PermissionCheckRequest{
 		Entity:     &pb.Entity{Type: "document", Id: "doc1"},
 		Permission: "view",
 		Subject:    &pb.Subject{Type: "user", Id: "bob"},
 	})
 	if err != nil {
-		t.Errorf("Check without tenant_id failed: %v", err)
+		t.Errorf("Check with empty tenant_id failed: %v", err)
 	}
 
 	// LookupEntity without tenant_id
@@ -197,7 +197,7 @@ entity document {
 		Subject:    &pb.Subject{Type: "user", Id: "alice"},
 	})
 	if err != nil {
-		t.Errorf("LookupEntity without tenant_id failed: %v", err)
+		t.Errorf("LookupEntity with empty tenant_id failed: %v", err)
 	}
 
 	// LookupSubject without tenant_id
@@ -207,7 +207,7 @@ entity document {
 		SubjectReference: &pb.SubjectReference{Type: "user"},
 	})
 	if err != nil {
-		t.Errorf("LookupSubject without tenant_id failed: %v", err)
+		t.Errorf("LookupSubject with empty tenant_id failed: %v", err)
 	}
 
 	// SubjectPermission without tenant_id
@@ -216,7 +216,7 @@ entity document {
 		Subject: &pb.Subject{Type: "user", Id: "alice"},
 	})
 	if err != nil {
-		t.Errorf("SubjectPermission without tenant_id failed: %v", err)
+		t.Errorf("SubjectPermission with empty tenant_id failed: %v", err)
 	}
 
 	// Expand without tenant_id
@@ -225,10 +225,10 @@ entity document {
 		Permission: "view",
 	})
 	if err != nil {
-		t.Errorf("Expand without tenant_id failed: %v", err)
+		t.Errorf("Expand with empty tenant_id failed: %v", err)
 	}
 
-	t.Log("✓ All APIs work without tenant_id (backwards compatibility)")
+	t.Log("✓ All APIs work with empty tenant_id (defaults to 'default')")
 
 	t.Log("✓ All Permify field compatibility tests passed")
 }

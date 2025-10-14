@@ -103,25 +103,15 @@ func parseSubjectRef(ref string) (string, string) {
 	return ref, ""
 }
 
-// protoToRelationTuple handles both pb.RelationTuple and pb.Tuple
-func protoToRelationTuple(proto interface{}) (*entities.RelationTuple, error) {
-	var entity *pb.Entity
-	var relation string
-	var subject *pb.Subject
-
-	// Handle both pb.RelationTuple and pb.Tuple
-	switch t := proto.(type) {
-	case *pb.RelationTuple:
-		entity = t.Entity
-		relation = t.Relation
-		subject = t.Subject
-	case *pb.Tuple:
-		entity = t.Entity
-		relation = t.Relation
-		subject = t.Subject
-	default:
-		return nil, fmt.Errorf("unsupported tuple type: %T", proto)
+// protoToRelationTuple converts pb.Tuple to domain entity
+func protoToRelationTuple(proto *pb.Tuple) (*entities.RelationTuple, error) {
+	if proto == nil {
+		return nil, fmt.Errorf("tuple is required")
 	}
+
+	entity := proto.Entity
+	relation := proto.Relation
+	subject := proto.Subject
 
 	if entity == nil {
 		return nil, fmt.Errorf("entity is required")

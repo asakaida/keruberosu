@@ -385,7 +385,7 @@ func TestPermissionHandler_Check_WithContextualTuples(t *testing.T) {
 		Permission: "view",
 		Subject:    &pb.Subject{Type: "user", Id: "alice"},
 		Context: &pb.Context{
-			Tuples: []*pb.RelationTuple{
+			Tuples: []*pb.Tuple{
 				{
 					Entity:   &pb.Entity{Type: "document", Id: "1"},
 					Relation: "owner",

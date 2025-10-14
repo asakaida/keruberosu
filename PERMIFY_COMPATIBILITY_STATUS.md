@@ -12,7 +12,6 @@
 - 📂 **Proto ファイル分割**: `authorization.proto` を 3 つの独立したファイル（`permission.proto`, `data.proto`, `schema.proto`）に分割し、Permify のファイル構成に完全準拠
 - 📝 **メッセージ名統一**: 全てのリクエスト/レスポンスメッセージを Permify 命名規則に変更
 - 🔗 **API 統合**: `WriteAttributes` を `Data.Write` に統合し、tuples と attributes を一つの API で処理可能に
-- 🏷️ **型エイリアス追加**: `Tuple`, `Attribute` などの Permify 互換型名を追加
 - 📊 **API 構造互換性: 100%** 達成
 
 ---
@@ -40,11 +39,11 @@
 - ✅ `LookupSubjectRequest` → `PermissionLookupSubjectRequest`
 - ✅ `SubjectPermissionRequest` → `PermissionSubjectPermissionRequest`
 
-### 3. 型エイリアスの追加
+### 3. Permify 互換型名の導入
 
-- ✅ `Tuple` (alias for `RelationTuple`)
-- ✅ `Attribute` (alias for `AttributeData`)
-- ✅ `Expand` および `ExpandTreeNode` メッセージ
+- ✅ `Tuple` メッセージ（Permify 互換）
+- ✅ `Attribute` メッセージ（Permify 互換）
+- ✅ `Expand` および `ExpandTreeNode` メッセージ（Permify 互換）
 
 ### 4. Proto 定義の更新
 
@@ -58,9 +57,9 @@
 
 ### 5. Schema DSL の拡張
 
-- ✅ `action`キーワードをサポート（`permission`のエイリアス）
+- ✅ `action`キーワードをサポート（`permission`の別名）
 - ✅ `@user`記法をサポート（`:  user`と等価）
-- ✅ 両方の記法を同時サポート（後方互換性なし、両方使用可能）
+- ✅ 両方の記法を同時サポート
 
 ### 6. グループメンバーシップ機能
 
@@ -81,7 +80,7 @@
   - `proto/keruberosu/v1/common.proto` - 共通メッセージ型（Entity, Subject, Tuple 等）
 - ✅ 全メッセージ名を Permify 互換に変更
 - ✅ `WriteAttributes` RPC を削除し、`Data.Write()` に統合
-- ✅ 型エイリアス（Tuple, Attribute）の追加
+- ✅ Permify 互換型名（Tuple, Attribute）を導入
 - ✅ Expand メッセージの追加
 - ✅ 全ハンドラーの実装更新完了
 - ✅ 全テスト（unit/integration/E2E）成功確認
@@ -337,7 +336,7 @@
 
 - ✅ サービス分割（Permission, Data, Schema）
 - ✅ メッセージ名の Permify 互換化
-- ✅ 型エイリアス（Tuple, Attribute）
+- ✅ Permify 互換型名（Tuple, Attribute）
 - ✅ Expand メッセージ
 - ✅ Data.Write への統合（tuples + attributes）
 
@@ -382,7 +381,7 @@
 
 1. ✅ サービス分割（Permission, Data, Schema）
 2. ✅ メッセージ名の Permify 互換化
-3. ✅ 型エイリアス追加（Tuple, Attribute）
+3. ✅ Permify 互換型名の導入（Tuple, Attribute）
 4. ✅ Data.Write への統合（tuples + attributes）
 5. ✅ ハンドラーのコンパイルエラー修正
 6. ✅ 既存テスト・example の更新
@@ -412,10 +411,10 @@
 
 ## 📝 補足事項
 
-### 後方互換性について
+### 設計方針
 
-ユーザーの要求により、**後方互換性は一切考慮していない**。
-既存 API は非推奨として残さず、新しいものだけを残している。
+このプロジェクトは初期開発段階にあるため、後方互換性を考慮せず、Permify との完全互換性を最優先としている。
+古い API や型名は削除し、Permify 互換の新しいコードのみを維持している。
 
 ### Permify バージョン
 
