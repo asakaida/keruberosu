@@ -76,15 +76,15 @@ entity repository {
 	_, err = client.WriteRelations(ctx, &pb.WriteRelationsRequest{
 		Tuples: []*pb.RelationTuple{
 			// Organization structure
-			{Entity: &pb.Entity{Type: "organization", Id: "acme"}, Relation: "admin", Subject: &pb.Entity{Type: "user", Id: "alice"}},
-			{Entity: &pb.Entity{Type: "organization", Id: "acme"}, Relation: "member", Subject: &pb.Entity{Type: "user", Id: "bob"}},
-			{Entity: &pb.Entity{Type: "organization", Id: "acme"}, Relation: "member", Subject: &pb.Entity{Type: "user", Id: "charlie"}},
+			{Entity: &pb.Entity{Type: "organization", Id: "acme"}, Relation: "admin", Subject: &pb.Subject{Type: "user", Id: "alice"}},
+			{Entity: &pb.Entity{Type: "organization", Id: "acme"}, Relation: "member", Subject: &pb.Subject{Type: "user", Id: "bob"}},
+			{Entity: &pb.Entity{Type: "organization", Id: "acme"}, Relation: "member", Subject: &pb.Subject{Type: "user", Id: "charlie"}},
 
 			// Repository structure
-			{Entity: &pb.Entity{Type: "repository", Id: "repo1"}, Relation: "parent", Subject: &pb.Entity{Type: "organization", Id: "acme"}},
-			{Entity: &pb.Entity{Type: "repository", Id: "repo1"}, Relation: "owner", Subject: &pb.Entity{Type: "user", Id: "alice"}},
-			{Entity: &pb.Entity{Type: "repository", Id: "repo1"}, Relation: "maintainer", Subject: &pb.Entity{Type: "user", Id: "bob"}},
-			{Entity: &pb.Entity{Type: "repository", Id: "repo1"}, Relation: "reader", Subject: &pb.Entity{Type: "user", Id: "dave"}},
+			{Entity: &pb.Entity{Type: "repository", Id: "repo1"}, Relation: "parent", Subject: &pb.Subject{Type: "organization", Id: "acme"}},
+			{Entity: &pb.Entity{Type: "repository", Id: "repo1"}, Relation: "owner", Subject: &pb.Subject{Type: "user", Id: "alice"}},
+			{Entity: &pb.Entity{Type: "repository", Id: "repo1"}, Relation: "maintainer", Subject: &pb.Subject{Type: "user", Id: "bob"}},
+			{Entity: &pb.Entity{Type: "repository", Id: "repo1"}, Relation: "reader", Subject: &pb.Subject{Type: "user", Id: "dave"}},
 		},
 	})
 	if err != nil {
@@ -239,7 +239,7 @@ entity repository {
 	t.Log("Test 9: Testing DeleteRelations API")
 	_, err = client.DeleteRelations(ctx, &pb.DeleteRelationsRequest{
 		Tuples: []*pb.RelationTuple{
-			{Entity: &pb.Entity{Type: "repository", Id: "repo1"}, Relation: "reader", Subject: &pb.Entity{Type: "user", Id: "dave"}},
+			{Entity: &pb.Entity{Type: "repository", Id: "repo1"}, Relation: "reader", Subject: &pb.Subject{Type: "user", Id: "dave"}},
 		},
 	})
 	if err != nil {

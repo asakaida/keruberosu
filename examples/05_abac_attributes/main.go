@@ -27,7 +27,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	fmt.Println("===== ABAC: 属性ベースアクセス制御 =====\n")
+	fmt.Println("===== ABAC: 属性ベースアクセス制御 =====")
 
 	// Step 1: スキーマを定義
 	schema := `

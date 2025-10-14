@@ -26,7 +26,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	fmt.Println("===== ReBAC: Google Docs風の権限管理 =====\n")
+	fmt.Println("===== ReBAC: Google Docs風の権限管理 =====")
 
 	// Step 1: スキーマを定義
 	schema := `
@@ -61,17 +61,17 @@ entity document {
 
 	// Step 2: データを書き込み
 	fmt.Println("alice は folder1 の owner です")
-	fmt.Println("bob は folder1 の editor です\n")
+	fmt.Println("bob は folder1 の editor です")
 
 	_, err = client.WriteRelations(ctx, &pb.WriteRelationsRequest{
 		Tuples: []*pb.RelationTuple{
 			// folder1
-			{Entity: &pb.Entity{Type: "folder", Id: "folder1"}, Relation: "owner", Subject: &pb.Entity{Type: "user", Id: "alice"}},
-			{Entity: &pb.Entity{Type: "folder", Id: "folder1"}, Relation: "editor", Subject: &pb.Entity{Type: "user", Id: "bob"}},
+			{Entity: &pb.Entity{Type: "folder", Id: "folder1"}, Relation: "owner", Subject: &pb.Subject{Type: "user", Id: "alice"}},
+			{Entity: &pb.Entity{Type: "folder", Id: "folder1"}, Relation: "editor", Subject: &pb.Subject{Type: "user", Id: "bob"}},
 
 			// doc1 は folder1 に所属、alice が所有
-			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "parent", Subject: &pb.Entity{Type: "folder", Id: "folder1"}},
-			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "owner", Subject: &pb.Entity{Type: "user", Id: "alice"}},
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "parent", Subject: &pb.Subject{Type: "folder", Id: "folder1"}},
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "owner", Subject: &pb.Subject{Type: "user", Id: "alice"}},
 		},
 	})
 	if err != nil {
@@ -84,7 +84,7 @@ entity document {
 	checkPermission(ctx, client, "charlie", "folder", "folder1", "edit", "charlie", false)
 
 	fmt.Println("\ndoc1 は folder1 に所属しています")
-	fmt.Println("doc1 の owner は alice です\n")
+	fmt.Println("doc1 の owner は alice です")
 
 	// Step 4: ドキュメントの権限チェック（直接権限）
 	checkPermission(ctx, client, "alice (owner)", "document", "doc1", "delete", "alice", true)

@@ -26,12 +26,18 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	fmt.Println("===== ReBAC: GitHub風の組織・リポジトリ・Issue管理（3階層ネスト） =====\n")
+	fmt.Println("===== ReBAC: GitHub風の組織・リポジトリ・Issue管理（3階層ネスト） =====")
 
 	// Step 1: スキーマを定義
-	// Organization → Repository → Issue の3階層構造
+	// Organization → Repository → Issue の3階層構造 + Team (グループメンバーシップ)
 	schema := `
 entity user {}
+
+entity team {
+  relation member: user
+
+  permission view = member
+}
 
 entity organization {
   relation admin: user
@@ -44,7 +50,7 @@ entity organization {
 entity repository {
   relation org: organization
   relation maintainer: user
-  relation contributor: user
+  relation contributor: user | team#member
 
   permission delete = org.admin
   permission manage = org.admin or maintainer
@@ -69,7 +75,7 @@ entity issue {
 	if err != nil {
 		log.Fatalf("スキーマ書き込み失敗: %v", err)
 	}
-	fmt.Println("✅ スキーマ定義完了\n")
+	fmt.Println("✅ スキーマ定義完了")
 
 	// Step 2: データ構造の説明
 	fmt.Println("📁 組織構造:")
@@ -77,10 +83,15 @@ entity issue {
 	fmt.Println("    ├─ Alice: admin (組織管理者)")
 	fmt.Println("    └─ Diana: member (組織メンバー)")
 	fmt.Println()
+	fmt.Println("  backend-team (チーム) ✨ グループメンバーシップ")
+	fmt.Println("    ├─ Frank: member (チームメンバー)")
+	fmt.Println("    └─ Grace: member (チームメンバー)")
+	fmt.Println()
 	fmt.Println("  backend-api (リポジトリ)")
 	fmt.Println("    ├─ 所属: Acme Corp")
 	fmt.Println("    ├─ Bob: maintainer (リポジトリ管理者)")
-	fmt.Println("    └─ Eve: contributor (コントリビューター)")
+	fmt.Println("    ├─ Eve: contributor (コントリビューター)")
+	fmt.Println("    └─ backend-team#member: contributor ✨ 1つのタプルでチーム全員に権限付与")
 	fmt.Println()
 	fmt.Println("  frontend-app (リポジトリ)")
 	fmt.Println("    └─ 所属: Acme Corp")
@@ -95,32 +106,38 @@ entity issue {
 	_, err = client.WriteRelations(ctx, &pb.WriteRelationsRequest{
 		Tuples: []*pb.RelationTuple{
 			// Acme Corp 組織
-			{Entity: &pb.Entity{Type: "organization", Id: "acme"}, Relation: "admin", Subject: &pb.Entity{Type: "user", Id: "alice"}},
-			{Entity: &pb.Entity{Type: "organization", Id: "acme"}, Relation: "member", Subject: &pb.Entity{Type: "user", Id: "diana"}},
+			{Entity: &pb.Entity{Type: "organization", Id: "acme"}, Relation: "admin", Subject: &pb.Subject{Type: "user", Id: "alice"}},
+			{Entity: &pb.Entity{Type: "organization", Id: "acme"}, Relation: "member", Subject: &pb.Subject{Type: "user", Id: "diana"}},
+
+			// backend-team チームメンバー
+			{Entity: &pb.Entity{Type: "team", Id: "backend-team"}, Relation: "member", Subject: &pb.Subject{Type: "user", Id: "frank"}},
+			{Entity: &pb.Entity{Type: "team", Id: "backend-team"}, Relation: "member", Subject: &pb.Subject{Type: "user", Id: "grace"}},
 
 			// backend-api リポジトリ
-			{Entity: &pb.Entity{Type: "repository", Id: "backend-api"}, Relation: "org", Subject: &pb.Entity{Type: "organization", Id: "acme"}},
-			{Entity: &pb.Entity{Type: "repository", Id: "backend-api"}, Relation: "maintainer", Subject: &pb.Entity{Type: "user", Id: "bob"}},
-			{Entity: &pb.Entity{Type: "repository", Id: "backend-api"}, Relation: "contributor", Subject: &pb.Entity{Type: "user", Id: "eve"}},
+			{Entity: &pb.Entity{Type: "repository", Id: "backend-api"}, Relation: "org", Subject: &pb.Subject{Type: "organization", Id: "acme"}},
+			{Entity: &pb.Entity{Type: "repository", Id: "backend-api"}, Relation: "maintainer", Subject: &pb.Subject{Type: "user", Id: "bob"}},
+			{Entity: &pb.Entity{Type: "repository", Id: "backend-api"}, Relation: "contributor", Subject: &pb.Subject{Type: "user", Id: "eve"}},
+			// ✨ Permify互換: 1つのタプルでチーム全員にcontributor権限を付与
+			{Entity: &pb.Entity{Type: "repository", Id: "backend-api"}, Relation: "contributor", Subject: &pb.Subject{Type: "team", Id: "backend-team", Relation: "member"}},
 
 			// frontend-app リポジトリ
-			{Entity: &pb.Entity{Type: "repository", Id: "frontend-app"}, Relation: "org", Subject: &pb.Entity{Type: "organization", Id: "acme"}},
+			{Entity: &pb.Entity{Type: "repository", Id: "frontend-app"}, Relation: "org", Subject: &pb.Subject{Type: "organization", Id: "acme"}},
 
 			// Issue #123（backend-api に所属）
-			{Entity: &pb.Entity{Type: "issue", Id: "123"}, Relation: "repo", Subject: &pb.Entity{Type: "repository", Id: "backend-api"}},
-			{Entity: &pb.Entity{Type: "issue", Id: "123"}, Relation: "assignee", Subject: &pb.Entity{Type: "user", Id: "charlie"}},
+			{Entity: &pb.Entity{Type: "issue", Id: "123"}, Relation: "repo", Subject: &pb.Subject{Type: "repository", Id: "backend-api"}},
+			{Entity: &pb.Entity{Type: "issue", Id: "123"}, Relation: "assignee", Subject: &pb.Subject{Type: "user", Id: "charlie"}},
 
 			// Issue #456（frontend-app に所属）
-			{Entity: &pb.Entity{Type: "issue", Id: "456"}, Relation: "repo", Subject: &pb.Entity{Type: "repository", Id: "frontend-app"}},
+			{Entity: &pb.Entity{Type: "issue", Id: "456"}, Relation: "repo", Subject: &pb.Subject{Type: "repository", Id: "frontend-app"}},
 		},
 	})
 	if err != nil {
 		log.Fatalf("関係性書き込み失敗: %v", err)
 	}
-	fmt.Println("✅ データ書き込み完了\n")
+	fmt.Println("✅ データ書き込み完了")
 
 	// Step 4: 階層的権限のテスト
-	fmt.Println("🔐 権限チェック開始\n")
+	fmt.Println("🔐 権限チェック開始")
 
 	// 4-1: Alice（組織管理者）の権限
 	fmt.Println("【Alice（組織管理者）の権限】")
@@ -165,6 +182,23 @@ entity issue {
 	checkPermission(ctx, client, "Eve", "issue", "123", "edit", "eve", false, "Issue 編集不可（担当者でない）")
 	fmt.Println()
 
+	// 4-6: Frank（backend-team メンバー）の権限 ✨ グループメンバーシップ経由
+	fmt.Println("【Frank（backend-team メンバー）の権限】✨ 1つのタプルによるチーム権限継承")
+	checkPermission(ctx, client, "Frank", "repository", "backend-api", "write", "frank", true, "リポジトリ書き込み権限（team#member経由）")
+	checkPermission(ctx, client, "Frank", "repository", "backend-api", "manage", "frank", false, "リポジトリ管理不可")
+	checkPermission(ctx, client, "Frank", "issue", "123", "view", "frank", true, "Issue 閲覧権限（repo.read → team#member経由）")
+	checkPermission(ctx, client, "Frank", "issue", "123", "edit", "frank", false, "Issue 編集不可（担当者でない）")
+	checkPermission(ctx, client, "Frank", "repository", "frontend-app", "write", "frank", false, "他リポジトリ書き込み不可")
+	fmt.Println()
+
+	// 4-7: Grace（backend-team メンバー）の権限 ✨ グループメンバーシップ経由
+	fmt.Println("【Grace（backend-team メンバー）の権限】✨ 1つのタプルによるチーム権限継承")
+	checkPermission(ctx, client, "Grace", "repository", "backend-api", "write", "grace", true, "リポジトリ書き込み権限（team#member経由）")
+	checkPermission(ctx, client, "Grace", "repository", "backend-api", "manage", "grace", false, "リポジトリ管理不可")
+	checkPermission(ctx, client, "Grace", "issue", "123", "view", "grace", true, "Issue 閲覧権限（repo.read → team#member経由）")
+	checkPermission(ctx, client, "Grace", "issue", "123", "edit", "grace", false, "Issue 編集不可（担当者でない）")
+	fmt.Println()
+
 	// Step 5: LookupEntity でIssue検索
 	fmt.Println("🔍 LookupEntity: Bob が閲覧できる Issue を検索")
 	lookupResp, err := client.LookupEntity(ctx, &pb.LookupEntityRequest{
@@ -179,17 +213,23 @@ entity issue {
 	fmt.Println()
 
 	// まとめ
-	fmt.Println("🎉 3階層ネストのReBAC シナリオ完了!")
+	fmt.Println("🎉 3階層ネスト + グループメンバーシップのReBAC シナリオ完了!")
 	fmt.Println()
 	fmt.Println("階層構造:")
 	fmt.Println("  Organization (組織)")
 	fmt.Println("    └─ Repository (リポジトリ)")
 	fmt.Println("        └─ Issue (課題)")
 	fmt.Println()
+	fmt.Println("✨ グループメンバーシップ (Permify互換):")
+	fmt.Println("  Team (チーム)")
+	fmt.Println("    └─ 1つのタプルでチーム全員に権限付与")
+	fmt.Println("    └─ repository:backend-api#contributor@team:backend-team#member")
+	fmt.Println()
 	fmt.Println("権限継承の例:")
 	fmt.Println("  - issue.view → repo.read → org.view")
 	fmt.Println("  - issue.close → repo.manage → org.admin")
 	fmt.Println("  - repo.delete → org.admin")
+	fmt.Println("  - repo.write → contributor → team#member (グループ経由) ✨")
 }
 
 func checkPermission(ctx context.Context, client pb.AuthorizationServiceClient, user, entityType, entityID, permission, subjectID string, expected bool, description string) {

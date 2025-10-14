@@ -141,7 +141,7 @@ entity document {
 						Id:   "doc1",
 					},
 					Relation: "owner",
-					Subject: &pb.Entity{
+					Subject: &pb.Subject{
 						Type: "user",
 						Id:   "alice",
 					},
@@ -152,7 +152,7 @@ entity document {
 						Id:   "doc1",
 					},
 					Relation: "viewer",
-					Subject: &pb.Entity{
+					Subject: &pb.Subject{
 						Type: "user",
 						Id:   "bob",
 					},
@@ -296,7 +296,7 @@ entity document {
 						Id:   "doc1",
 					},
 					Relation: "viewer",
-					Subject: &pb.Entity{
+					Subject: &pb.Subject{
 						Type: "user",
 						Id:   "bob",
 					},
@@ -376,7 +376,7 @@ entity document {
 						Id:   "doc2",
 					},
 					Relation: "owner",
-					Subject: &pb.Entity{
+					Subject: &pb.Subject{
 						Type: "user",
 						Id:   "alice",
 					},

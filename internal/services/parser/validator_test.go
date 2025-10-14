@@ -311,7 +311,7 @@ entity document {
 		t.Fatal("expected validation error for undefined permission in hierarchical permission")
 	}
 
-	if !strings.Contains(err.Error(), "references undefined permission edit in entity folder") {
+	if !strings.Contains(err.Error(), "references undefined permission or relation edit in entity folder") {
 		t.Errorf("expected undefined permission error, got: %v", err)
 	}
 }

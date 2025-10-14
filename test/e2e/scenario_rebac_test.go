@@ -69,23 +69,23 @@ entity document {
 	writeRelResp, err := client.WriteRelations(ctx, &pb.WriteRelationsRequest{
 		Tuples: []*pb.RelationTuple{
 			// folder1
-			{Entity: &pb.Entity{Type: "folder", Id: "folder1"}, Relation: "owner", Subject: &pb.Entity{Type: "user", Id: "alice"}},
-			{Entity: &pb.Entity{Type: "folder", Id: "folder1"}, Relation: "editor", Subject: &pb.Entity{Type: "user", Id: "bob"}},
+			{Entity: &pb.Entity{Type: "folder", Id: "folder1"}, Relation: "owner", Subject: &pb.Subject{Type: "user", Id: "alice"}},
+			{Entity: &pb.Entity{Type: "folder", Id: "folder1"}, Relation: "editor", Subject: &pb.Subject{Type: "user", Id: "bob"}},
 
 			// folder2
-			{Entity: &pb.Entity{Type: "folder", Id: "folder2"}, Relation: "owner", Subject: &pb.Entity{Type: "user", Id: "charlie"}},
+			{Entity: &pb.Entity{Type: "folder", Id: "folder2"}, Relation: "owner", Subject: &pb.Subject{Type: "user", Id: "charlie"}},
 
 			// doc1
-			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "owner", Subject: &pb.Entity{Type: "user", Id: "alice"}},
-			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "parent", Subject: &pb.Entity{Type: "folder", Id: "folder1"}},
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "owner", Subject: &pb.Subject{Type: "user", Id: "alice"}},
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "parent", Subject: &pb.Subject{Type: "folder", Id: "folder1"}},
 
 			// doc2
-			{Entity: &pb.Entity{Type: "document", Id: "doc2"}, Relation: "editor", Subject: &pb.Entity{Type: "user", Id: "bob"}},
-			{Entity: &pb.Entity{Type: "document", Id: "doc2"}, Relation: "parent", Subject: &pb.Entity{Type: "folder", Id: "folder1"}},
+			{Entity: &pb.Entity{Type: "document", Id: "doc2"}, Relation: "editor", Subject: &pb.Subject{Type: "user", Id: "bob"}},
+			{Entity: &pb.Entity{Type: "document", Id: "doc2"}, Relation: "parent", Subject: &pb.Subject{Type: "folder", Id: "folder1"}},
 
 			// doc3
-			{Entity: &pb.Entity{Type: "document", Id: "doc3"}, Relation: "owner", Subject: &pb.Entity{Type: "user", Id: "charlie"}},
-			{Entity: &pb.Entity{Type: "document", Id: "doc3"}, Relation: "parent", Subject: &pb.Entity{Type: "folder", Id: "folder2"}},
+			{Entity: &pb.Entity{Type: "document", Id: "doc3"}, Relation: "owner", Subject: &pb.Subject{Type: "user", Id: "charlie"}},
+			{Entity: &pb.Entity{Type: "document", Id: "doc3"}, Relation: "parent", Subject: &pb.Subject{Type: "folder", Id: "folder2"}},
 		},
 	})
 	if err != nil {

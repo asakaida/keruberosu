@@ -62,19 +62,19 @@ entity document {
 			{
 				Entity:   &pb.Entity{Type: "document", Id: "doc1"},
 				Relation: "owner",
-				Subject:  &pb.Entity{Type: "user", Id: "alice"},
+				Subject:  &pb.Subject{Type: "user", Id: "alice"},
 			},
 			// doc1 は bob が編集可能
 			{
 				Entity:   &pb.Entity{Type: "document", Id: "doc1"},
 				Relation: "editor",
-				Subject:  &pb.Entity{Type: "user", Id: "bob"},
+				Subject:  &pb.Subject{Type: "user", Id: "bob"},
 			},
 			// doc1 は charlie が閲覧可能
 			{
 				Entity:   &pb.Entity{Type: "document", Id: "doc1"},
 				Relation: "viewer",
-				Subject:  &pb.Entity{Type: "user", Id: "charlie"},
+				Subject:  &pb.Subject{Type: "user", Id: "charlie"},
 			},
 		},
 	})

@@ -562,7 +562,7 @@ func protoToRelationTuple(proto *pb.RelationTuple) (*entities.RelationTuple, err
 		Relation:        proto.Relation,
 		SubjectType:     proto.Subject.Type,
 		SubjectID:       proto.Subject.Id,
-		SubjectRelation: "", // proto.Subject is Entity type, not Subject type (no Relation field)
+		SubjectRelation: proto.Subject.Relation, // Permify互換: subject.relationをサポート
 	}
 
 	// Validate the tuple

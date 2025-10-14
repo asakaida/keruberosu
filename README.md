@@ -519,7 +519,46 @@ if resp.Can == pb.CheckResult_CHECK_RESULT_ALLOWED {
 }
 ```
 
-詳細な使用例は [PRD.md](PRD.md) の「API 利用ガイド」セクションを参照してください。
+### グループメンバーシップ（Permify 完全互換）
+
+Keruberosu は、Permify と完全に互換性のある**subject relation**機能をサポートしています。これにより、`drive:eng_drive#member@group:engineering#member`のような、グループ全体を一つのタプルで関係付けることができます。
+
+```go
+// グループに所属するユーザーを定義
+client.WriteRelations(ctx, &pb.WriteRelationsRequest{
+    Tuples: []*pb.RelationTuple{
+        {
+            Entity:   &pb.Entity{Type: "group", Id: "engineering"},
+            Relation: "member",
+            Subject:  &pb.Subject{Type: "user", Id: "alice"},
+        },
+        {
+            Entity:   &pb.Entity{Type: "group", Id: "engineering"},
+            Relation: "member",
+            Subject:  &pb.Subject{Type: "user", Id: "bob"},
+        },
+    },
+})
+
+// グループ全体をドライブのメンバーとして割り当て（1つのタプルで完結）
+client.WriteRelations(ctx, &pb.WriteRelationsRequest{
+    Tuples: []*pb.RelationTuple{
+        {
+            Entity:   &pb.Entity{Type: "drive", Id: "eng_drive"},
+            Relation: "member",
+            Subject: &pb.Subject{
+                Type:     "group",
+                Id:       "engineering",
+                Relation: "member", // ✅ subject relationを指定
+            },
+        },
+    },
+})
+
+// これでaliceとbobはeng_driveのメンバーとして自動的に権限を持ちます
+```
+
+詳細な使用例は [PRD.md](PRD.md) の「API 利用ガイド」セクションと [examples/](examples/) ディレクトリを参照してください。
 
 ## プロジェクト構造
 

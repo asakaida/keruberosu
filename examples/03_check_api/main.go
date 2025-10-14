@@ -31,7 +31,7 @@ func main() {
 	setupSchemaAndData(ctx, client)
 
 	// Check API のテスト
-	fmt.Println("\n===== Check API テスト =====\n")
+	fmt.Println("\n===== Check API テスト =====")
 
 	testCases := []struct {
 		name       string
@@ -113,9 +113,9 @@ entity document {
 	// 関係性を書き込み
 	_, err = client.WriteRelations(ctx, &pb.WriteRelationsRequest{
 		Tuples: []*pb.RelationTuple{
-			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "owner", Subject: &pb.Entity{Type: "user", Id: "alice"}},
-			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "editor", Subject: &pb.Entity{Type: "user", Id: "bob"}},
-			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "viewer", Subject: &pb.Entity{Type: "user", Id: "charlie"}},
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "owner", Subject: &pb.Subject{Type: "user", Id: "alice"}},
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "editor", Subject: &pb.Subject{Type: "user", Id: "bob"}},
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "viewer", Subject: &pb.Subject{Type: "user", Id: "charlie"}},
 		},
 	})
 	if err != nil {

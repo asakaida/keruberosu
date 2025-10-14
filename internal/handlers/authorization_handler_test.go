@@ -474,12 +474,12 @@ func TestAuthorizationHandler_WriteRelations_Success(t *testing.T) {
 			{
 				Entity:   &pb.Entity{Type: "document", Id: "1"},
 				Relation: "owner",
-				Subject:  &pb.Entity{Type: "user", Id: "alice"},
+				Subject:  &pb.Subject{Type: "user", Id: "alice"},
 			},
 			{
 				Entity:   &pb.Entity{Type: "document", Id: "2"},
 				Relation: "editor",
-				Subject:  &pb.Entity{Type: "user", Id: "bob"},
+				Subject:  &pb.Subject{Type: "user", Id: "bob"},
 			},
 		},
 	}
@@ -540,7 +540,7 @@ func TestAuthorizationHandler_WriteRelations_InvalidTuple(t *testing.T) {
 			{
 				Entity:   &pb.Entity{Type: "document", Id: ""}, // Missing ID
 				Relation: "owner",
-				Subject:  &pb.Entity{Type: "user", Id: "alice"},
+				Subject:  &pb.Subject{Type: "user", Id: "alice"},
 			},
 		},
 	}
@@ -588,7 +588,7 @@ func TestAuthorizationHandler_DeleteRelations_Success(t *testing.T) {
 			{
 				Entity:   &pb.Entity{Type: "document", Id: "1"},
 				Relation: "owner",
-				Subject:  &pb.Entity{Type: "user", Id: "alice"},
+				Subject:  &pb.Subject{Type: "user", Id: "alice"},
 			},
 		},
 	}
@@ -1226,7 +1226,7 @@ func TestAuthorizationHandler_Check_WithContextualTuples(t *testing.T) {
 				{
 					Entity:   &pb.Entity{Type: "document", Id: "1"},
 					Relation: "owner",
-					Subject:  &pb.Entity{Type: "user", Id: "alice"},
+					Subject:  &pb.Subject{Type: "user", Id: "alice"},
 				},
 			},
 		},
@@ -1293,7 +1293,7 @@ func TestProtoToRelationTuple(t *testing.T) {
 			proto: &pb.RelationTuple{
 				Entity:   &pb.Entity{Type: "document", Id: "1"},
 				Relation: "owner",
-				Subject:  &pb.Entity{Type: "user", Id: "alice"},
+				Subject:  &pb.Subject{Type: "user", Id: "alice"},
 			},
 			wantError: false,
 		},
@@ -1301,7 +1301,7 @@ func TestProtoToRelationTuple(t *testing.T) {
 			name: "missing entity",
 			proto: &pb.RelationTuple{
 				Relation: "owner",
-				Subject:  &pb.Entity{Type: "user", Id: "alice"},
+				Subject:  &pb.Subject{Type: "user", Id: "alice"},
 			},
 			wantError: true,
 		},
@@ -1309,7 +1309,7 @@ func TestProtoToRelationTuple(t *testing.T) {
 			name: "missing relation",
 			proto: &pb.RelationTuple{
 				Entity:  &pb.Entity{Type: "document", Id: "1"},
-				Subject: &pb.Entity{Type: "user", Id: "alice"},
+				Subject: &pb.Subject{Type: "user", Id: "alice"},
 			},
 			wantError: true,
 		},

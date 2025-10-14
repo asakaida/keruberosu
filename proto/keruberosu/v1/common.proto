@@ -29,7 +29,7 @@ message SubjectReference {
 message RelationTuple {
   Entity entity = 1;   // 対象エンティティ（Permify互換）
   string relation = 2;
-  Entity subject = 3;
+  Subject subject = 3; // subjectはSubject型（relation指定可能、Permify互換）
 }
 
 message PermissionCheckMetadata {
