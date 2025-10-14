@@ -148,8 +148,12 @@ func TestPermissionHandler_Expand_Success(t *testing.T) {
 		t.Fatal("expected tree to be set")
 	}
 
-	if resp.Tree.Node.Operation != "union" {
-		t.Errorf("expected operation 'union', got %s", resp.Tree.Node.Operation)
+	if resp.Tree.GetExpand() == nil {
+		t.Fatal("expected expand node to be set")
+	}
+
+	if resp.Tree.GetExpand().Operation != pb.ExpandTreeNode_OPERATION_UNION {
+		t.Errorf("expected operation UNION, got %v", resp.Tree.GetExpand().Operation)
 	}
 }
 

@@ -161,10 +161,14 @@ entity repository {
 	if expandResp.Tree == nil {
 		t.Fatal("Expand returned nil tree")
 	}
-	if expandResp.Tree.Node == nil {
+	if expandResp.Tree.GetExpand() == nil && expandResp.Tree.GetLeaf() == nil {
 		t.Fatal("Expand tree node is nil")
 	}
-	t.Logf("✓ Expand returned tree with type: %s", expandResp.Tree.Node.Operation)
+	if expandResp.Tree.GetExpand() != nil {
+		t.Logf("✓ Expand returned tree with type: %v", expandResp.Tree.GetExpand().Operation)
+	} else {
+		t.Log("✓ Expand returned leaf node")
+	}
 
 	// Test 6: LookupEntity API
 	t.Log("Test 6: Testing LookupEntity API")

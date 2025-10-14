@@ -47,7 +47,7 @@ go run main.go
 
 **内容:**
 
-- Data.Write API の使用（Permify互換）
+- Data.Write API の使用（Permify 互換）
 - 関係性（Tuples）と属性（Attributes）の書き込み
 - 複数タプルの一括書き込み
 
@@ -142,6 +142,57 @@ go run main.go
 | 権限継承   | シンプル（parent.view）         | 複雑（複数の継承パス）                                     |
 | 役割の種類 | 3 種類（owner, editor, viewer） | 5 種類（admin, maintainer, contributor, member, assignee） |
 
+### 7. 一覧系 API（List APIs） (`07_list_apis/`)
+
+LookupEntity、LookupSubject、SubjectPermission API の実践的な使用方法を示します。
+
+**内容:**
+
+- **LookupEntity**: ユーザーがアクセスできるリソース一覧を取得
+- **LookupSubject**: リソースにアクセスできるユーザー一覧を取得
+- **SubjectPermission**: 特定のユーザー・リソースの組み合わせで持つ全権限を取得
+
+```bash
+cd 07_list_apis
+go run main.go
+```
+
+**特徴:**
+
+- 企業のドキュメント管理システムを想定したシナリオ
+- 5 人のユーザー、3 つの部署、5 つのドキュメント
+- ReBAC（部署メンバーシップ）と ABAC（セキュリティレベル）の組み合わせ
+- 実践的なユースケース：
+  - ダッシュボード（ユーザーがアクセスできるドキュメント一覧）
+  - アクセス監査（特定ドキュメントにアクセスできるユーザー一覧）
+  - UI 制御（ユーザーが実行できる操作の判定）
+
+### 8. Expand API - 権限ツリーの可視化 (`08_expand/`)
+
+Expand API を使用して、権限決定ツリーを可視化する方法を示します。
+
+**内容:**
+
+- **Expand API**: 権限がどのように決定されるかをツリー構造で取得
+- Union（OR）、Intersection（AND）、Exclusion（EXCLUDE）の可視化
+- 再帰的な権限継承の展開
+
+```bash
+cd 08_expand
+go run main.go
+```
+
+**特徴:**
+
+- GitHub 風の 3 階層構造（Organization → Repository → Issue）
+- プライベート/パブリックリポジトリの権限ルール
+- 機密/非機密 Issue の権限ルール
+- 実践的なユースケース：
+  - 🐛 デバッグ: なぜアクセスが拒否されたのか？
+  - 📊 監査: リソースへのアクセス経路を可視化
+  - ✅ 検証: 権限ルールが意図通りに動作しているか確認
+  - 📚 ドキュメント: 複雑な権限ロジックをチームに説明
+
 ## 推奨学習順序
 
 1. **基礎編:**
@@ -158,6 +209,11 @@ go run main.go
 3. **応用編（ABAC）:**
 
    5. ABAC - 属性ベースアクセス制御（Example 5）
+
+4. **高度な API 編:**
+
+   7. 一覧系 API（Example 7）- LookupEntity, LookupSubject, SubjectPermission
+   8. Expand API（Example 8）- 権限決定ツリーの可視化とデバッグ
 
 ## よくある質問
 

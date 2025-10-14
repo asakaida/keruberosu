@@ -177,13 +177,13 @@ entity document {
 		t.Fatal("Expand returned nil tree")
 	}
 	// Verify tree structure (should be a union node with multiple children)
-	if expandResp.Tree.Node == nil {
+	if expandResp.Tree.GetExpand() == nil {
 		t.Fatal("Expand tree node is nil")
 	}
-	if expandResp.Tree.Node.Operation != "union" {
-		t.Errorf("Expected union node, got %s", expandResp.Tree.Node.Operation)
+	if expandResp.Tree.GetExpand().Operation != pb.ExpandTreeNode_OPERATION_UNION {
+		t.Errorf("Expected union node, got %v", expandResp.Tree.GetExpand().Operation)
 	}
-	t.Logf("✓ Expand API returned tree with type: %s", expandResp.Tree.Node.Operation)
+	t.Logf("✓ Expand API returned tree with type: %v", expandResp.Tree.GetExpand().Operation)
 
 	// Step 5: Test LookupEntity API
 	t.Log("Step 5: Testing LookupEntity API")

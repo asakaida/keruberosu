@@ -48,7 +48,10 @@ func (h *PermissionHandler) Check(ctx context.Context, req *pb.PermissionCheckRe
 		return nil, status.Error(codes.InvalidArgument, "subject is required")
 	}
 
-	tenantID := "default"
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = "default"
+	}
 
 	contextualTuples, err := protoContextToTuples(req.Context)
 	if err != nil {
@@ -92,7 +95,10 @@ func (h *PermissionHandler) Expand(ctx context.Context, req *pb.PermissionExpand
 		return nil, status.Error(codes.InvalidArgument, "permission is required")
 	}
 
-	tenantID := "default"
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = "default"
+	}
 
 	expandReq := &authorization.ExpandRequest{
 		TenantID:   tenantID,
@@ -109,9 +115,7 @@ func (h *PermissionHandler) Expand(ctx context.Context, req *pb.PermissionExpand
 	tree := expandNodeToProto(expandResp.Tree)
 
 	return &pb.PermissionExpandResponse{
-		Tree: &pb.Expand{
-			Node: tree,
-		},
+		Tree: tree,
 	}, nil
 }
 
@@ -127,7 +131,10 @@ func (h *PermissionHandler) LookupEntity(ctx context.Context, req *pb.Permission
 		return nil, status.Error(codes.InvalidArgument, "subject is required")
 	}
 
-	tenantID := "default"
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = "default"
+	}
 
 	contextualTuples, err := protoContextToTuples(req.Context)
 	if err != nil {
@@ -168,7 +175,10 @@ func (h *PermissionHandler) LookupSubject(ctx context.Context, req *pb.Permissio
 		return nil, status.Error(codes.InvalidArgument, "subject_reference is required")
 	}
 
-	tenantID := "default"
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = "default"
+	}
 
 	contextualTuples, err := protoContextToTuples(req.Context)
 	if err != nil {
@@ -211,7 +221,10 @@ func (h *PermissionHandler) SubjectPermission(ctx context.Context, req *pb.Permi
 		return nil, status.Error(codes.InvalidArgument, "subject is required")
 	}
 
-	tenantID := "default"
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = "default"
+	}
 
 	schema, err := h.schemaService.GetSchemaEntity(ctx, tenantID)
 	if err != nil {

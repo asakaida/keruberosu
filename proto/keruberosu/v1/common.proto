@@ -3,6 +3,7 @@ syntax = "proto3";
 package keruberosu.v1;
 
 import "google/protobuf/struct.proto";
+import "google/protobuf/any.proto";
 
 option go_package = "github.com/asakaida/keruberosu/proto/keruberosu/v1;keruberosupb";
 
@@ -91,14 +92,42 @@ message AttributeFilter {
 
 // Permify互換: Expand (ツリー展開結果)
 message Expand {
-  ExpandTreeNode node = 1;
+  oneof node {
+    ExpandTreeNode expand = 1;
+    ExpandLeaf leaf = 2;
+  }
 }
 
 message ExpandTreeNode {
-  string operation = 1;  // "union", "intersection", "exclusion", "leaf"
-  repeated ExpandTreeNode children = 2;
-  Entity entity = 3;     // leaf nodeの場合のエンティティ
-  Subject subject = 4;   // leaf nodeの場合のsubject
+  enum Operation {
+    OPERATION_UNSPECIFIED = 0;
+    OPERATION_UNION = 1;
+    OPERATION_INTERSECTION = 2;
+    OPERATION_EXCLUSION = 3;
+  }
+  Operation operation = 1;
+  repeated Expand children = 2;
+}
+
+message ExpandLeaf {
+  oneof type {
+    Subjects subjects = 1;
+    Values values = 2;
+    google.protobuf.Any value = 3;
+  }
+}
+
+message Subjects {
+  repeated Subject subjects = 1;
+}
+
+message Values {
+  map<string, google.protobuf.Value> values = 1;
+}
+
+// Permify互換: 文字列配列（scope等で使用）
+message StringArrayValue {
+  repeated string data = 1;
 }
 
 enum CheckResult {

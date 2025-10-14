@@ -30,23 +30,77 @@ func protoContextToTuples(ctx *pb.Context) ([]*entities.RelationTuple, error) {
 	return tuples, nil
 }
 
-func expandNodeToProto(node *authorization.ExpandNode) *pb.ExpandTreeNode {
+func expandNodeToProto(node *authorization.ExpandNode) *pb.Expand {
 	if node == nil {
 		return nil
 	}
 
-	protoNode := &pb.ExpandTreeNode{
-		Operation: node.Type,
-	}
+	// Leafノードの場合
+	if node.Type == "leaf" {
+		subjects := &pb.Subjects{
+			Subjects: []*pb.Subject{},
+		}
 
-	if len(node.Children) > 0 {
-		protoNode.Children = make([]*pb.ExpandTreeNode, 0, len(node.Children))
-		for _, child := range node.Children {
-			protoNode.Children = append(protoNode.Children, expandNodeToProto(child))
+		if node.Subject != "" {
+			// Subjectを解析（例: "user:alice" -> type="user", id="alice"）
+			subjectType, subjectID := parseSubjectRef(node.Subject)
+			subjects.Subjects = append(subjects.Subjects, &pb.Subject{
+				Type: subjectType,
+				Id:   subjectID,
+			})
+		}
+
+		return &pb.Expand{
+			Node: &pb.Expand_Leaf{
+				Leaf: &pb.ExpandLeaf{
+					Type: &pb.ExpandLeaf_Subjects{
+						Subjects: subjects,
+					},
+				},
+			},
 		}
 	}
 
-	return protoNode
+	// ツリーノードの場合（union, intersection, exclusion）
+	var operation pb.ExpandTreeNode_Operation
+	switch node.Type {
+	case "union":
+		operation = pb.ExpandTreeNode_OPERATION_UNION
+	case "intersection":
+		operation = pb.ExpandTreeNode_OPERATION_INTERSECTION
+	case "exclusion":
+		operation = pb.ExpandTreeNode_OPERATION_EXCLUSION
+	default:
+		operation = pb.ExpandTreeNode_OPERATION_UNSPECIFIED
+	}
+
+	treeNode := &pb.ExpandTreeNode{
+		Operation: operation,
+		Children:  make([]*pb.Expand, 0, len(node.Children)),
+	}
+
+	for _, child := range node.Children {
+		treeNode.Children = append(treeNode.Children, expandNodeToProto(child))
+	}
+
+	return &pb.Expand{
+		Node: &pb.Expand_Expand{
+			Expand: treeNode,
+		},
+	}
+}
+
+// parseSubjectRef parses a subject reference like "user:alice" into type and ID
+func parseSubjectRef(ref string) (string, string) {
+	for i := 0; i < len(ref); i++ {
+		if ref[i] == ':' {
+			if i == 0 || i == len(ref)-1 {
+				return ref, ""
+			}
+			return ref[:i], ref[i+1:]
+		}
+	}
+	return ref, ""
 }
 
 // protoToRelationTuple handles both pb.RelationTuple and pb.Tuple

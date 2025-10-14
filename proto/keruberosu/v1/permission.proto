@@ -26,12 +26,13 @@ service Permission {
 // ========================================
 
 message PermissionCheckRequest {
-  PermissionCheckMetadata metadata = 1;
-  Entity entity = 2;
-  string permission = 3;
-  Subject subject = 4;
-  Context context = 5;
-  repeated google.protobuf.Value arguments = 6;
+  string tenant_id = 1;
+  PermissionCheckMetadata metadata = 2;
+  Entity entity = 3;
+  string permission = 4;
+  Subject subject = 5;
+  Context context = 6;
+  repeated google.protobuf.Value arguments = 7;
 }
 
 message PermissionCheckResponse {
@@ -44,11 +45,12 @@ message PermissionCheckResponseMetadata {
 }
 
 message PermissionExpandRequest {
-  PermissionCheckMetadata metadata = 1;
-  Entity entity = 2;
-  string permission = 3;
-  Context context = 4;
-  repeated google.protobuf.Value arguments = 5;
+  string tenant_id = 1;
+  PermissionCheckMetadata metadata = 2;
+  Entity entity = 3;
+  string permission = 4;
+  Context context = 5;
+  repeated google.protobuf.Value arguments = 6;
 }
 
 message PermissionExpandResponse {
@@ -56,13 +58,15 @@ message PermissionExpandResponse {
 }
 
 message PermissionLookupEntityRequest {
-  PermissionCheckMetadata metadata = 1;
-  string entity_type = 2;
-  string permission = 3;
-  Subject subject = 4;
-  Context context = 5;
-  int32 page_size = 6;
-  string continuous_token = 7;
+  string tenant_id = 1;
+  PermissionCheckMetadata metadata = 2;
+  string entity_type = 3;
+  string permission = 4;
+  Subject subject = 5;
+  Context context = 6;
+  map<string, StringArrayValue> scope = 7;
+  uint32 page_size = 8;
+  string continuous_token = 9;
 }
 
 message PermissionLookupEntityResponse {
@@ -76,13 +80,14 @@ message PermissionLookupEntityStreamResponse {
 }
 
 message PermissionLookupSubjectRequest {
-  PermissionCheckMetadata metadata = 1;
-  Entity entity = 2;
-  string permission = 3;
-  SubjectReference subject_reference = 4;
-  Context context = 5;
-  int32 page_size = 6;
-  string continuous_token = 7;
+  string tenant_id = 1;
+  PermissionCheckMetadata metadata = 2;
+  Entity entity = 3;
+  string permission = 4;
+  SubjectReference subject_reference = 5;
+  Context context = 6;
+  uint32 page_size = 7;
+  string continuous_token = 8;
 }
 
 message PermissionLookupSubjectResponse {
@@ -91,10 +96,11 @@ message PermissionLookupSubjectResponse {
 }
 
 message PermissionSubjectPermissionRequest {
-  PermissionCheckMetadata metadata = 1;
-  Entity entity = 2;
-  Subject subject = 3;
-  Context context = 4;
+  string tenant_id = 1;
+  PermissionCheckMetadata metadata = 2;
+  Entity entity = 3;
+  Subject subject = 4;
+  Context context = 5;
 }
 
 message PermissionSubjectPermissionResponse {
