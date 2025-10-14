@@ -18,13 +18,13 @@ Keruberosu は、関係性ベース (ReBAC) と属性ベース (ABAC) の両方�
 
 ## アーキテクチャ
 
-**3 つの独立したサービス構成**:
+### 3 つの独立したサービス構成
 
 Keruberosu は、Permify 互換 API として以下の 3 つの独立したサービスで構成されています：
 
-- **Permission Service**: 権限チェック (Check)、権限ツリー展開 (Expand)、エンティティ検索 (LookupEntity)、サブジェクト検索 (LookupSubject)、サブジェクトの権限一覧 (SubjectPermission) を提供
-- **Data Service**: 関係性（Relations）と属性（Attributes）の書き込み (Write)、削除 (Delete)、読み取り (Read) を管理
-- **Schema Service**: スキーマ定義の作成・更新 (Write)、取得 (Read) を管理
+- Permission Service: 権限チェック (Check)、権限ツリー展開 (Expand)、エンティティ検索 (LookupEntity)、サブジェクト検索 (LookupSubject)、サブジェクトの権限一覧 (SubjectPermission) を提供
+- Data Service: 関係性（Relations）と属性（Attributes）の書き込み (Write)、削除 (Delete)、読み取り (Read) を管理
+- Schema Service: スキーマ定義の作成・更新 (Write)、取得 (Read) を管理
 
 この設計は、Permify の API 構造に準拠し、Google Zanzibar、Auth0 FGA などの業界標準に従っています。
 
@@ -72,20 +72,20 @@ Protocol Buffers のコード生成に必要なツールをインストールし
 
 #### 3-1. Protocol Buffers コンパイラ（protoc）のインストール
 
-**macOS（Homebrew を使用）:**
+##### macOS（Homebrew を使用）:
 
 ```bash
 brew install protobuf
 ```
 
-**Ubuntu / Debian:**
+##### Ubuntu / Debian:
 
 ```bash
 sudo apt update
 sudo apt install -y protobuf-compiler
 ```
 
-**その他の OS や手動インストール:**
+##### その他の OS や手動インストール:
 
 公式ドキュメントを参照してください：https://grpc.io/docs/protoc-installation/
 
@@ -114,7 +114,7 @@ protoc-gen-go-grpc --version
 # 例: protoc-gen-go-grpc 1.3.0
 ```
 
-> **注意**: `protoc-gen-go` と `protoc-gen-go-grpc` は `$GOPATH/bin` にインストールされます。
+> 注意: `protoc-gen-go` と `protoc-gen-go-grpc` は `$GOPATH/bin` にインストールされます。
 > `$GOPATH/bin` が PATH に含まれていることを確認してください。
 >
 > ```bash
@@ -127,9 +127,9 @@ protoc-gen-go-grpc --version
 
 #### 代替手段: buf を使う場合
 
-**buf** は Protocol Buffers の最新管理ツールで、`protoc` 本体のインストールが不要になります。
+buf は Protocol Buffers の最新管理ツールで、`protoc` 本体のインストールが不要になります。
 
-**buf のインストール:**
+##### buf のインストール:
 
 macOS（Homebrew を使用）:
 
@@ -152,19 +152,19 @@ chmod +x "${BIN}/buf"
 
 https://buf.build/docs/installation
 
-**インストール確認:**
+##### インストール確認:
 
 ```bash
 buf --version
 # 例: 1.57.2
 ```
 
-> **注意**: buf を使う場合、`protoc`、`protoc-gen-go`、`protoc-gen-go-grpc` のインストールは**不要**です。
+> 注意: buf を使う場合、`protoc`、`protoc-gen-go`、`protoc-gen-go-grpc` のインストールは不要です。
 > buf がリモートプラグインを使用して自動的に処理します。
 
 ### 4. Protocol Buffers のコード生成
 
-**重要**: この手順は、Go のコマンド（`go run` など）を実行する前に必ず完了してください。
+重要: この手順は、Go のコマンド（`go run` など）を実行する前に必ず完了してください。
 
 #### protoc を使う場合（従来の方法）
 
@@ -200,7 +200,7 @@ protoc \
 buf generate
 ```
 
-> **注意**: Go のソースコードは `proto/keruberosu/v1` パッケージをインポートしています。
+> 注意: Go のソースコードは `proto/keruberosu/v1` パッケージをインポートしています。
 > このパッケージは proto ファイルから生成されるため、proto 生成を先に実行しないと
 > `go run` や `go build` などのコマンドが失敗します。
 >
@@ -282,15 +282,15 @@ go run cmd/server/main.go --help
 
 ### Proto コード生成前に Go コマンドを実行するとエラーが出る
 
-**問題**: `go run`、`go build`、`go mod download` などを実行すると、以下のようなエラーや警告が出る：
+問題:
 
 ```
 no required module provides package github.com/asakaida/keruberosu/proto/keruberosu/v1
 ```
 
-**原因**: Keruberosu のソースコードは `proto/keruberosu/v1` パッケージをインポートしていますが、このパッケージは Protocol Buffers から自動生成されるものです。proto コード生成を実行する前に Go コマンドを実行すると、存在しないパッケージを参照しようとしてエラーになります。
+原因: Keruberosu のソースコードは `proto/keruberosu/v1` パッケージをインポートしていますが、このパッケージは Protocol Buffers から自動生成されるものです。proto コード生成を実行する前に Go コマンドを実行すると、存在しないパッケージを参照しようとしてエラーになります。
 
-**解決方法**:
+解決方法:
 
 1. まず Protocol Buffers のコード生成を実行してください：
 
@@ -303,7 +303,7 @@ no required module provides package github.com/asakaida/keruberosu/proto/keruber
    go run cmd/server/main.go
    ```
 
-**注意**: `go mod download` は不要です。Go は `go run` や `go build` の実行時に自動的に依存パッケージをダウンロードします。
+注意: `go mod download` は不要です。Go は `go run` や `go build` の実行時に自動的に依存パッケージをダウンロードします。
 
 ### 依存関係の手動インストール
 
@@ -319,15 +319,15 @@ go mod download
 
 ### protoc が見つからない
 
-**問題**: `./scripts/generate-proto.sh` を実行すると、以下のエラーが出る：
+問題: `./scripts/generate-proto.sh` を実行すると、以下のエラーが出る：
 
 ```
 Error: protoc is not installed. Please install Protocol Buffers compiler.
 ```
 
-**原因**: Protocol Buffers コンパイラ（protoc）がインストールされていません。
+原因: Protocol Buffers コンパイラ（protoc）がインストールされていません。
 
-**解決方法**:
+解決方法:
 
 クイックスタートの [Step 3-1](#3-1-protocol-buffers-コンパイラprotocのインストール) を参照して、`protoc` をインストールしてください。
 
@@ -339,7 +339,7 @@ protoc --version
 
 ### protoc-gen-go または protoc-gen-go-grpc が見つからない
 
-**問題**: `./scripts/generate-proto.sh` を実行すると、以下のエラーが出る：
+問題: `./scripts/generate-proto.sh` を実行すると、以下のエラーが出る：
 
 ```
 Error: protoc-gen-go is not installed.
@@ -353,9 +353,9 @@ Error: protoc-gen-go-grpc is not installed.
 Run: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 ```
 
-**原因**: Go 用の Protocol Buffers プラグインがインストールされていないか、PATH に含まれていません。
+原因: Go 用の Protocol Buffers プラグインがインストールされていないか、PATH に含まれていません。
 
-**解決方法**:
+解決方法:
 
 1. クイックスタートの [Step 3-2](#3-2-go-用の-protocol-buffers-プラグインのインストール) を参照して、プラグインをインストールしてください。
 
@@ -386,15 +386,15 @@ Run: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 ### buf が見つからない
 
-**問題**: `./scripts/generate-proto-buf.sh` または `buf generate` を実行すると、以下のエラーが出る：
+問題: `./scripts/generate-proto-buf.sh` または `buf generate` を実行すると、以下のエラーが出る：
 
 ```
 Error: buf is not installed.
 ```
 
-**原因**: buf ツールがインストールされていません。
+原因: buf ツールがインストールされていません。
 
-**解決方法**:
+解決方法:
 
 クイックスタートの [代替手段: buf を使う場合](#代替手段-bufを使う場合) を参照して、`buf` をインストールしてください。
 
@@ -476,7 +476,7 @@ docker compose down postgres-test
 docker compose down postgres-test -v
 ```
 
-**注意**: テストは自動的に `.env.test` を読み込み、test 環境で実行されます。`DB_PASSWORD` などの設定は `.env.test` に記載してください。
+注意: テストは自動的に `.env.test` を読み込み、test 環境で実行されます。`DB_PASSWORD` などの設定は `.env.test` に記載してください。
 
 ## 使用例
 
@@ -525,7 +525,7 @@ if resp.Can == pb.CheckResult_CHECK_RESULT_ALLOWED {
 
 ### グループメンバーシップ（Permify 完全互換）
 
-Keruberosu は、Permify と完全に互換性のある**subject relation**機能をサポートしています。これにより、`drive:eng_drive#member@group:engineering#member`のような、グループ全体を一つのタプルで関係付けることができます。
+Keruberosu は、Permify と完全に互換性のあるsubject relation機能をサポートしています。これにより、`drive:eng_drive#member@group:engineering#member`のような、グループ全体を一つのタプルで関係付けることができます。
 
 ```go
 // グループに所属するユーザーを定義
@@ -596,7 +596,7 @@ keruberosu/
 
 ### テスト結果
 
-✅ **全 E2E テスト成功: 45/45 テストケース (100% パス率)**
+✅ 全 E2E テスト成功: 45/45 テストケース (100% パス率)
 
 - ReBAC シナリオ（Google Docs 風）: 14/14 ✓
 - ABAC シナリオ（全演算子）: 19/19 ✓
