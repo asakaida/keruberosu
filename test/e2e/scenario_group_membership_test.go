@@ -26,7 +26,9 @@ func TestGroupMembershipWithSubjectRelation(t *testing.T) {
 	}
 	defer conn.Close()
 
-	client := pb.NewAuthorizationServiceClient(conn)
+	schemaClient := pb.NewSchemaClient(conn)
+	dataClient := pb.NewDataClient(conn)
+	permissionClient := pb.NewPermissionClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -48,8 +50,8 @@ entity drive {
 `
 
 	t.Log("Step 1: Writing schema with group membership support")
-	_, err = client.WriteSchema(ctx, &pb.WriteSchemaRequest{
-		SchemaDsl: schema,
+	_, err = schemaClient.Write(ctx, &pb.SchemaWriteRequest{
+		Schema: schema,
 	})
 	if err != nil {
 		t.Fatalf("WriteSchema failed: %v", err)
@@ -58,8 +60,8 @@ entity drive {
 
 	// Step 2: Create group memberships
 	t.Log("Step 2: Creating group memberships")
-	_, err = client.WriteRelations(ctx, &pb.WriteRelationsRequest{
-		Tuples: []*pb.RelationTuple{
+	_, err = dataClient.Write(ctx, &pb.DataWriteRequest{
+		Tuples: []*pb.Tuple{
 			// Engineering group members
 			{
 				Entity:   &pb.Entity{Type: "group", Id: "engineering"},
@@ -87,8 +89,8 @@ entity drive {
 	// Step 3: Assign group as drive member with subject relation
 	// This is the KEY FEATURE: drive:eng_drive#member@group:engineering#member
 	t.Log("Step 3: Assigning group to drive with subject relation")
-	_, err = client.WriteRelations(ctx, &pb.WriteRelationsRequest{
-		Tuples: []*pb.RelationTuple{
+	_, err = dataClient.Write(ctx, &pb.DataWriteRequest{
+		Tuples: []*pb.Tuple{
 			{
 				Entity:   &pb.Entity{Type: "drive", Id: "eng_drive"},
 				Relation: "member",
@@ -107,7 +109,7 @@ entity drive {
 
 	// Step 4: Verify that alice (engineering member) can view eng_drive
 	t.Log("Step 4: Verifying alice can view eng_drive")
-	checkResp, err := client.Check(ctx, &pb.CheckRequest{
+	checkResp, err := permissionClient.Check(ctx, &pb.PermissionCheckRequest{
 		Entity:     &pb.Entity{Type: "drive", Id: "eng_drive"},
 		Permission: "view",
 		Subject:    &pb.Subject{Type: "user", Id: "alice"},
@@ -122,7 +124,7 @@ entity drive {
 
 	// Step 5: Verify that bob (engineering member) can view eng_drive
 	t.Log("Step 5: Verifying bob can view eng_drive")
-	checkResp, err = client.Check(ctx, &pb.CheckRequest{
+	checkResp, err = permissionClient.Check(ctx, &pb.PermissionCheckRequest{
 		Entity:     &pb.Entity{Type: "drive", Id: "eng_drive"},
 		Permission: "view",
 		Subject:    &pb.Subject{Type: "user", Id: "bob"},
@@ -137,7 +139,7 @@ entity drive {
 
 	// Step 6: Verify that charlie (marketing member) CANNOT view eng_drive
 	t.Log("Step 6: Verifying charlie cannot view eng_drive")
-	checkResp, err = client.Check(ctx, &pb.CheckRequest{
+	checkResp, err = permissionClient.Check(ctx, &pb.PermissionCheckRequest{
 		Entity:     &pb.Entity{Type: "drive", Id: "eng_drive"},
 		Permission: "view",
 		Subject:    &pb.Subject{Type: "user", Id: "charlie"},
@@ -152,7 +154,7 @@ entity drive {
 
 	// Step 7: LookupEntity - find all drives alice can view
 	t.Log("Step 7: Looking up all drives alice can view")
-	lookupResp, err := client.LookupEntity(ctx, &pb.LookupEntityRequest{
+	lookupResp, err := permissionClient.LookupEntity(ctx, &pb.PermissionLookupEntityRequest{
 		EntityType: "drive",
 		Permission: "view",
 		Subject:    &pb.Subject{Type: "user", Id: "alice"},
@@ -167,7 +169,7 @@ entity drive {
 
 	// Step 8: LookupSubject - find all users who can view eng_drive
 	t.Log("Step 8: Looking up all users who can view eng_drive")
-	lookupSubjectResp, err := client.LookupSubject(ctx, &pb.LookupSubjectRequest{
+	lookupSubjectResp, err := permissionClient.LookupSubject(ctx, &pb.PermissionLookupSubjectRequest{
 		Entity:           &pb.Entity{Type: "drive", Id: "eng_drive"},
 		Permission:       "view",
 		SubjectReference: &pb.SubjectReference{Type: "user"},

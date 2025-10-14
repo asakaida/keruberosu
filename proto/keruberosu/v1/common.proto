@@ -26,10 +26,18 @@ message SubjectReference {
   string relation = 2; // optional: 特定のrelationに限定する場合
 }
 
-message RelationTuple {
-  Entity entity = 1;   // 対象エンティティ（Permify互換）
+// Permify互換: Tuple (RelationTupleのエイリアス)
+message Tuple {
+  Entity entity = 1;   // 対象エンティティ
   string relation = 2;
-  Subject subject = 3; // subjectはSubject型（relation指定可能、Permify互換）
+  Subject subject = 3; // subjectはSubject型（relation指定可能）
+}
+
+// 後方互換のためのエイリアス
+message RelationTuple {
+  Entity entity = 1;
+  string relation = 2;
+  Subject subject = 3;
 }
 
 message PermissionCheckMetadata {
@@ -43,11 +51,18 @@ message Context {
   repeated AttributeData attributes = 2;  // contextual attributes
 }
 
-// Permify互換: 単一属性の設定
+// Permify互換: Attribute (単一属性)
+message Attribute {
+  Entity entity = 1;
+  string attribute = 2;            // 属性名
+  google.protobuf.Value value = 3; // 属性値
+}
+
+// 後方互換のためのエイリアス
 message AttributeData {
   Entity entity = 1;
-  string attribute = 2;            // 属性名（単数）
-  google.protobuf.Value value = 3; // 属性値（単数）
+  string attribute = 2;
+  google.protobuf.Value value = 3;
 }
 
 // Permify互換: タプルフィルター（DeleteRelations、ReadRelationships用）
@@ -66,6 +81,24 @@ message SubjectFilter {
   string type = 1;
   repeated string ids = 2;  // 複数ID指定可能
   string relation = 3;
+}
+
+// 属性フィルター（AttributeReadRequest用）
+message AttributeFilter {
+  EntityFilter entity = 1;
+  repeated string attributes = 2;  // 属性名のリスト
+}
+
+// Permify互換: Expand (ツリー展開結果)
+message Expand {
+  ExpandTreeNode node = 1;
+}
+
+message ExpandTreeNode {
+  string operation = 1;  // "union", "intersection", "exclusion", "leaf"
+  repeated ExpandTreeNode children = 2;
+  Entity entity = 3;     // leaf nodeの場合のエンティティ
+  Subject subject = 4;   // leaf nodeの場合のsubject
 }
 
 enum CheckResult {

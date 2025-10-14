@@ -26,12 +26,14 @@ const bufSize = 1024 * 1024
 
 // E2ETestServer represents an E2E test server
 type E2ETestServer struct {
-	Server   *grpc.Server
-	Client   pb.AuthorizationServiceClient
-	Conn     *grpc.ClientConn
-	DB       *sql.DB
-	Listener *bufconn.Listener
-	cancel   context.CancelFunc
+	Server         *grpc.Server
+	PermissionClient pb.PermissionClient
+	DataClient       pb.DataClient
+	SchemaClient     pb.SchemaClient
+	Conn           *grpc.ClientConn
+	DB             *sql.DB
+	Listener       *bufconn.Listener
+	cancel         context.CancelFunc
 }
 
 // SetupE2ETest sets up an E2E test environment
@@ -80,21 +82,28 @@ func SetupE2ETest(t *testing.T) *E2ETestServer {
 	expander := authorization.NewExpander(schemaService, relationRepo)
 	lookup := authorization.NewLookup(checker, schemaService, relationRepo)
 
-	// Initialize handler
-	handler := handlers.NewAuthorizationHandler(
-		schemaService,
-		relationRepo,
-		attributeRepo,
+	// Initialize handlers for the three separate services
+	permissionHandler := handlers.NewPermissionHandler(
 		checker,
 		expander,
 		lookup,
+		schemaService,
+	)
+	dataHandler := handlers.NewDataHandler(
+		relationRepo,
+		attributeRepo,
+	)
+	schemaHandler := handlers.NewSchemaHandler(
+		schemaService,
 		schemaRepo,
 	)
 
 	// Create in-memory gRPC server with bufconn
 	listener := bufconn.Listen(bufSize)
 	server := grpc.NewServer()
-	pb.RegisterAuthorizationServiceServer(server, handler)
+	pb.RegisterPermissionServer(server, permissionHandler)
+	pb.RegisterDataServer(server, dataHandler)
+	pb.RegisterSchemaServer(server, schemaHandler)
 
 	// Start server in background
 	_, cancel := context.WithCancel(context.Background())
@@ -119,15 +128,20 @@ func SetupE2ETest(t *testing.T) *E2ETestServer {
 		t.Fatalf("failed to create client connection: %v", err)
 	}
 
-	client := pb.NewAuthorizationServiceClient(conn)
+	// Create the three separate clients
+	permissionClient := pb.NewPermissionClient(conn)
+	dataClient := pb.NewDataClient(conn)
+	schemaClient := pb.NewSchemaClient(conn)
 
 	return &E2ETestServer{
-		Server:   server,
-		Client:   client,
-		Conn:     conn,
-		DB:       pg.DB,
-		Listener: listener,
-		cancel:   cancel,
+		Server:           server,
+		PermissionClient: permissionClient,
+		DataClient:       dataClient,
+		SchemaClient:     schemaClient,
+		Conn:             conn,
+		DB:               pg.DB,
+		Listener:         listener,
+		cancel:           cancel,
 	}
 }
 
@@ -185,8 +199,8 @@ func (e *E2ETestServer) WaitForServer(t *testing.T, timeout time.Duration) {
 		case <-ctx.Done():
 			t.Fatal("timeout waiting for server to be ready")
 		case <-ticker.C:
-			// Try to make a simple request
-			_, err := e.Client.ReadSchema(ctx, &pb.ReadSchemaRequest{})
+			// Try to make a simple request using SchemaClient
+			_, err := e.SchemaClient.Read(ctx, &pb.SchemaReadRequest{})
 			if err == nil || err.Error() != "context deadline exceeded" {
 				return
 			}

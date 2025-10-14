@@ -23,7 +23,9 @@ func main() {
 	}
 	defer conn.Close()
 
-	client := pb.NewAuthorizationServiceClient(conn)
+	permissionClient := pb.NewPermissionClient(conn)
+	dataClient := pb.NewDataClient(conn)
+	schemaClient := pb.NewSchemaClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -46,16 +48,16 @@ entity document {
 }
 `
 
-	_, err = client.WriteSchema(ctx, &pb.WriteSchemaRequest{
-		SchemaDsl: schema,
+	_, err = schemaClient.Write(ctx, &pb.SchemaWriteRequest{
+		Schema: schema,
 	})
 	if err != nil {
 		log.Fatalf("スキーマ書き込み失敗: %v", err)
 	}
 
 	// Step 2: ドキュメントの属性を書き込み（Permify互換: 単一属性形式）
-	_, err = client.WriteAttributes(ctx, &pb.WriteAttributesRequest{
-		Attributes: []*pb.AttributeData{
+	_, err = dataClient.Write(ctx, &pb.DataWriteRequest{
+		Attributes: []*pb.Attribute{
 			// doc1: 公開ドキュメント
 			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Attribute: "public", Value: structpb.NewBoolValue(true)},
 			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Attribute: "security_level", Value: structpb.NewNumberValue(1)},
@@ -83,8 +85,8 @@ entity document {
 	}
 
 	// Step 3: ユーザーの属性を書き込み（Permify互換: 単一属性形式）
-	_, err = client.WriteAttributes(ctx, &pb.WriteAttributesRequest{
-		Attributes: []*pb.AttributeData{
+	_, err = dataClient.Write(ctx, &pb.DataWriteRequest{
+		Attributes: []*pb.Attribute{
 			// alice: セキュリティレベル3、engineering部署、プレミアムユーザー
 			{Entity: &pb.Entity{Type: "user", Id: "alice"}, Attribute: "security_level", Value: structpb.NewNumberValue(3)},
 			{Entity: &pb.Entity{Type: "user", Id: "alice"}, Attribute: "department", Value: structpb.NewStringValue("engineering")},
@@ -105,26 +107,26 @@ entity document {
 
 	// Step 4: 権限チェックテスト
 	fmt.Println("テストケース 1: 公開ドキュメント")
-	checkABAC(ctx, client, "誰でも", "document", "doc1", "view_public", "guest123", true)
+	checkABAC(ctx, permissionClient, "誰でも", "document", "doc1", "view_public", "guest123", true)
 
 	fmt.Println("\nテストケース 2: セキュリティレベル")
-	checkABAC(ctx, client, "alice (level=3)", "document", "doc2", "view_classified", "alice", true)
-	checkABAC(ctx, client, "bob (level=1)", "document", "doc2", "view_classified", "bob", false)
+	checkABAC(ctx, permissionClient, "alice (level=3)", "document", "doc2", "view_classified", "alice", true)
+	checkABAC(ctx, permissionClient, "bob (level=1)", "document", "doc2", "view_classified", "bob", false)
 
 	fmt.Println("\nテストケース 3: 部署制限")
-	checkABAC(ctx, client, "alice (engineering)", "document", "doc3", "view_department", "alice", true)
-	checkABAC(ctx, client, "charlie (security)", "document", "doc3", "view_department", "charlie", false)
+	checkABAC(ctx, permissionClient, "alice (engineering)", "document", "doc3", "view_department", "alice", true)
+	checkABAC(ctx, permissionClient, "charlie (security)", "document", "doc3", "view_department", "charlie", false)
 
 	fmt.Println("\nテストケース 4: プレミアムコンテンツ")
-	checkABAC(ctx, client, "alice (premium, price>100)", "document", "doc4", "view_premium", "alice", true)
-	checkABAC(ctx, client, "bob (basic)", "document", "doc4", "view_premium", "bob", false)
+	checkABAC(ctx, permissionClient, "alice (premium, price>100)", "document", "doc4", "view_premium", "alice", true)
+	checkABAC(ctx, permissionClient, "bob (basic)", "document", "doc4", "view_premium", "bob", false)
 
 	fmt.Println("\n🎉 ABAC シナリオ完了!")
 	fmt.Println("属性ベースの柔軟な権限管理が実現できました")
 }
 
-func checkABAC(ctx context.Context, client pb.AuthorizationServiceClient, description, entityType, entityID, permission, subjectID string, expected bool) {
-	resp, err := client.Check(ctx, &pb.CheckRequest{
+func checkABAC(ctx context.Context, client pb.PermissionClient, description, entityType, entityID, permission, subjectID string, expected bool) {
+	resp, err := client.Check(ctx, &pb.PermissionCheckRequest{
 		Entity:     &pb.Entity{Type: entityType, Id: entityID},
 		Permission: permission,
 		Subject:    &pb.Subject{Type: "user", Id: subjectID},

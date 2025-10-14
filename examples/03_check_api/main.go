@@ -23,12 +23,14 @@ func main() {
 	}
 	defer conn.Close()
 
-	client := pb.NewAuthorizationServiceClient(conn)
+	permissionClient := pb.NewPermissionClient(conn)
+	dataClient := pb.NewDataClient(conn)
+	schemaClient := pb.NewSchemaClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// まず、スキーマとデータを準備（Example 1, 2 と同じ）
-	setupSchemaAndData(ctx, client)
+	setupSchemaAndData(ctx, schemaClient, dataClient)
 
 	// Check API のテスト
 	fmt.Println("\n===== Check API テスト =====")
@@ -52,7 +54,7 @@ func main() {
 	for i, tc := range testCases {
 		fmt.Printf("テストケース %d: %s\n", i+1, tc.name)
 
-		resp, err := client.Check(ctx, &pb.CheckRequest{
+		resp, err := permissionClient.Check(ctx, &pb.PermissionCheckRequest{
 			Entity: &pb.Entity{
 				Type: tc.entityType,
 				Id:   tc.entityID,
@@ -85,7 +87,7 @@ func main() {
 	fmt.Println("🎉 全てのテストケースが成功しました!")
 }
 
-func setupSchemaAndData(ctx context.Context, client pb.AuthorizationServiceClient) {
+func setupSchemaAndData(ctx context.Context, schemaClient pb.SchemaClient, dataClient pb.DataClient) {
 	// スキーマを書き込み
 	schema := `
 entity user {}
@@ -103,16 +105,16 @@ entity document {
 }
 `
 
-	_, err := client.WriteSchema(ctx, &pb.WriteSchemaRequest{
-		SchemaDsl: schema,
+	_, err := schemaClient.Write(ctx, &pb.SchemaWriteRequest{
+		Schema: schema,
 	})
 	if err != nil {
 		log.Fatalf("スキーマ書き込み失敗: %v", err)
 	}
 
 	// 関係性を書き込み
-	_, err = client.WriteRelations(ctx, &pb.WriteRelationsRequest{
-		Tuples: []*pb.RelationTuple{
+	_, err = dataClient.Write(ctx, &pb.DataWriteRequest{
+		Tuples: []*pb.Tuple{
 			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "owner", Subject: &pb.Subject{Type: "user", Id: "alice"}},
 			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "editor", Subject: &pb.Subject{Type: "user", Id: "bob"}},
 			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "viewer", Subject: &pb.Subject{Type: "user", Id: "charlie"}},
@@ -123,8 +125,8 @@ entity document {
 	}
 
 	// 属性を書き込み（Permify互換: 単一属性形式）
-	_, err = client.WriteAttributes(ctx, &pb.WriteAttributesRequest{
-		Attributes: []*pb.AttributeData{
+	_, err = dataClient.Write(ctx, &pb.DataWriteRequest{
+		Attributes: []*pb.Attribute{
 			{
 				Entity:    &pb.Entity{Type: "document", Id: "doc1"},
 				Attribute: "public",

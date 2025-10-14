@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package keruberosu.v1;
+
+import "keruberosu/v1/common.proto";
+
+option go_package = "github.com/asakaida/keruberosu/proto/keruberosu/v1;keruberosupb";
+
+// ========================================
+// Schema Service (Permify互換)
+// スキーマ管理
+// ========================================
+
+service Schema {
+  rpc Write(SchemaWriteRequest) returns (SchemaWriteResponse);
+  rpc Read(SchemaReadRequest) returns (SchemaReadResponse);
+}
+
+// ========================================
+// Schema Service Messages
+// ========================================
+
+message SchemaWriteRequest {
+  string schema = 1;  // Permify互換: schema_dsl → schema
+}
+
+message SchemaWriteResponse {
+  string schema_version = 1;  // 将来実装予定
+}
+
+message SchemaReadRequest {
+  PermissionCheckMetadata metadata = 1;
+}
+
+message SchemaReadResponse {
+  string schema = 1;  // Permify互換: schema_dsl → schema
+  string updated_at = 2;
+}

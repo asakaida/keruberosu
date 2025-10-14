@@ -18,15 +18,15 @@ Keruberosu は、関係性ベース (ReBAC) と属性ベース (ABAC) の両方�
 
 ## アーキテクチャ
 
-**単一サービスアプローチ**:
+**3 つの独立したサービス構成**:
 
-Keruberosu は単一の `AuthorizationService` として設計されており、以下の全ての機能を提供します：
+Keruberosu は、Permify 互換 API として以下の 3 つの独立したサービスで構成されています：
 
-- **Schema 管理**: スキーマ定義の作成・更新・取得
-- **Data 管理**: 関係性（Relations）と属性（Attributes）の書き込み・削除
-- **Authorization**: 権限チェック、ツリー展開、エンティティ検索
+- **Permission Service**: 権限チェック (Check)、権限ツリー展開 (Expand)、エンティティ検索 (LookupEntity)、サブジェクト検索 (LookupSubject)、サブジェクトの権限一覧 (SubjectPermission) を提供
+- **Data Service**: 関係性（Relations）と属性（Attributes）の書き込み (Write)、削除 (Delete)、読み取り (Read) を管理
+- **Schema Service**: スキーマ定義の作成・更新 (Write)、取得 (Read) を管理
 
-この設計は、Google Zanzibar、Permify、Auth0 FGA などの業界標準に従っています。
+この設計は、Permify の API 構造に準拠し、Google Zanzibar、Auth0 FGA などの業界標準に従っています。
 
 詳細は [DESIGN.md](DESIGN.md) および [PRD.md](PRD.md) の「アーキテクチャ方針」セクションを参照してください。
 
@@ -500,9 +500,13 @@ entity document {
 ```go
 import pb "github.com/asakaida/keruberosu/proto/keruberosu/v1"
 
-client := pb.NewAuthorizationServiceClient(conn)
+// 3つの独立したクライアントを作成
+permissionClient := pb.NewPermissionClient(conn)
+dataClient := pb.NewDataClient(conn)
+schemaClient := pb.NewSchemaClient(conn)
 
-resp, err := client.Check(ctx, &pb.CheckRequest{
+// Permission Service を使用した権限チェック
+resp, err := permissionClient.Check(ctx, &pb.PermissionCheckRequest{
     Entity: &pb.Entity{
         Type: "document",
         Id:   "doc1",
@@ -525,8 +529,8 @@ Keruberosu は、Permify と完全に互換性のある**subject relation**機�
 
 ```go
 // グループに所属するユーザーを定義
-client.WriteRelations(ctx, &pb.WriteRelationsRequest{
-    Tuples: []*pb.RelationTuple{
+dataClient.Write(ctx, &pb.DataWriteRequest{
+    Tuples: []*pb.Tuple{
         {
             Entity:   &pb.Entity{Type: "group", Id: "engineering"},
             Relation: "member",
@@ -541,8 +545,8 @@ client.WriteRelations(ctx, &pb.WriteRelationsRequest{
 })
 
 // グループ全体をドライブのメンバーとして割り当て（1つのタプルで完結）
-client.WriteRelations(ctx, &pb.WriteRelationsRequest{
-    Tuples: []*pb.RelationTuple{
+dataClient.Write(ctx, &pb.DataWriteRequest{
+    Tuples: []*pb.Tuple{
         {
             Entity:   &pb.Entity{Type: "drive", Id: "eng_drive"},
             Relation: "member",

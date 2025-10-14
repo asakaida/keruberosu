@@ -23,7 +23,8 @@ func main() {
 	}
 	defer conn.Close()
 
-	client := pb.NewAuthorizationServiceClient(conn)
+	schemaClient := pb.NewSchemaClient(conn)
+	dataClient := pb.NewDataClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -44,8 +45,8 @@ entity document {
 }
 `
 
-	schemaResp, err := client.WriteSchema(ctx, &pb.WriteSchemaRequest{
-		SchemaDsl: schema,
+	schemaResp, err := schemaClient.Write(ctx, &pb.SchemaWriteRequest{
+		Schema: schema,
 	})
 	if err != nil {
 		log.Fatalf("スキーマ書き込み失敗: %v", err)
@@ -53,8 +54,8 @@ entity document {
 	fmt.Printf("✅ スキーマが書き込まれました (version: %s)\n", schemaResp.SchemaVersion)
 
 	// Step 2: 関係性（Relations）を書き込み
-	relResp, err := client.WriteRelations(ctx, &pb.WriteRelationsRequest{
-		Tuples: []*pb.RelationTuple{
+	relResp, err := dataClient.Write(ctx, &pb.DataWriteRequest{
+		Tuples: []*pb.Tuple{
 			// doc1 は alice が所有
 			{
 				Entity:   &pb.Entity{Type: "document", Id: "doc1"},
@@ -81,8 +82,8 @@ entity document {
 	fmt.Printf("✅ 関係性が書き込まれました (snap_token: %s)\n", relResp.SnapToken)
 
 	// Step 3: 属性（Attributes）を書き込み（Permify互換: 単一属性形式）
-	_, err = client.WriteAttributes(ctx, &pb.WriteAttributesRequest{
-		Attributes: []*pb.AttributeData{
+	_, err = dataClient.Write(ctx, &pb.DataWriteRequest{
+		Attributes: []*pb.Attribute{
 			{
 				Entity:    &pb.Entity{Type: "document", Id: "doc1"},
 				Attribute: "public",

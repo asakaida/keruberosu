@@ -18,7 +18,9 @@ func TestScenario_ABAC_AllOperators(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client := testServer.Client
+	schemaClient := testServer.SchemaClient
+	dataClient := testServer.DataClient
+	permissionClient := testServer.PermissionClient
 
 	// Step 1: Define schema with ABAC rules
 	t.Log("Step 1: Defining schema with ABAC rules")
@@ -62,8 +64,8 @@ entity document {
 }
 `
 
-	writeSchemaResp, err := client.WriteSchema(ctx, &pb.WriteSchemaRequest{
-		SchemaDsl: schema,
+	writeSchemaResp, err := schemaClient.Write(ctx, &pb.SchemaWriteRequest{
+		Schema: schema,
 	})
 	if err != nil {
 		t.Fatalf("WriteSchema failed: %v", err)
@@ -77,8 +79,8 @@ entity document {
 
 	// Step 2: Write attributes for documents
 	t.Log("Step 2: Writing document attributes")
-	_, err = client.WriteAttributes(ctx, &pb.WriteAttributesRequest{
-		Attributes: []*pb.AttributeData{
+	_, err = dataClient.Write(ctx, &pb.DataWriteRequest{
+		Attributes: []*pb.Attribute{
 			// doc1: public document
 			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Attribute: "public", Value: structpb.NewBoolValue(true)},
 			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Attribute: "owner_id", Value: structpb.NewStringValue("alice")},
@@ -130,8 +132,8 @@ entity document {
 
 	// Step 3: Write attributes for subjects (users)
 	t.Log("Step 3: Writing user attributes")
-	_, err = client.WriteAttributes(ctx, &pb.WriteAttributesRequest{
-		Attributes: []*pb.AttributeData{
+	_, err = dataClient.Write(ctx, &pb.DataWriteRequest{
+		Attributes: []*pb.Attribute{
 			// alice: engineering, security level 2
 			{Entity: &pb.Entity{Type: "user", Id: "alice"}, Attribute: "id", Value: structpb.NewStringValue("alice")},
 			{Entity: &pb.Entity{Type: "user", Id: "alice"}, Attribute: "department", Value: structpb.NewStringValue("engineering")},
@@ -215,7 +217,7 @@ entity document {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			checkResp, err := client.Check(ctx, &pb.CheckRequest{
+			checkResp, err := permissionClient.Check(ctx, &pb.PermissionCheckRequest{
 				Entity: &pb.Entity{
 					Type: "document",
 					Id:   tc.entityID,

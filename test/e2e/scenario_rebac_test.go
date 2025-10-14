@@ -17,7 +17,9 @@ func TestScenario_ReBAC_GoogleDocs(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client := testServer.Client
+	schemaClient := testServer.SchemaClient
+	dataClient := testServer.DataClient
+	permissionClient := testServer.PermissionClient
 
 	// Step 1: Define schema
 	t.Log("Step 1: Defining schema (document, folder, user)")
@@ -45,8 +47,8 @@ entity document {
 }
 `
 
-	writeSchemaResp, err := client.WriteSchema(ctx, &pb.WriteSchemaRequest{
-		SchemaDsl: schema,
+	writeSchemaResp, err := schemaClient.Write(ctx, &pb.SchemaWriteRequest{
+		Schema: schema,
 	})
 	if err != nil {
 		t.Fatalf("WriteSchema failed: %v", err)
@@ -68,8 +70,8 @@ entity document {
 	// - doc2: bob is editor, parent is folder1
 	// - doc3: owned by charlie, parent is folder2
 
-	_, err = client.WriteRelations(ctx, &pb.WriteRelationsRequest{
-		Tuples: []*pb.RelationTuple{
+	_, err = dataClient.Write(ctx, &pb.DataWriteRequest{
+		Tuples: []*pb.Tuple{
 			// folder1
 			{Entity: &pb.Entity{Type: "folder", Id: "folder1"}, Relation: "owner", Subject: &pb.Subject{Type: "user", Id: "alice"}},
 			{Entity: &pb.Entity{Type: "folder", Id: "folder1"}, Relation: "editor", Subject: &pb.Subject{Type: "user", Id: "bob"}},
@@ -138,7 +140,7 @@ entity document {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			checkResp, err := client.Check(ctx, &pb.CheckRequest{
+			checkResp, err := permissionClient.Check(ctx, &pb.PermissionCheckRequest{
 				Entity: &pb.Entity{
 					Type: tc.entityType,
 					Id:   tc.entityID,
@@ -161,7 +163,7 @@ entity document {
 
 	// Step 4: Test Expand API
 	t.Log("Step 4: Testing Expand API")
-	expandResp, err := client.Expand(ctx, &pb.ExpandRequest{
+	expandResp, err := permissionClient.Expand(ctx, &pb.PermissionExpandRequest{
 		Entity: &pb.Entity{
 			Type: "document",
 			Id:   "doc1",
@@ -175,14 +177,17 @@ entity document {
 		t.Fatal("Expand returned nil tree")
 	}
 	// Verify tree structure (should be a union node with multiple children)
-	if expandResp.Tree.Operation != "union" {
-		t.Errorf("Expected union node, got %s", expandResp.Tree.Operation)
+	if expandResp.Tree.Node == nil {
+		t.Fatal("Expand tree node is nil")
 	}
-	t.Logf("✓ Expand API returned tree with type: %s", expandResp.Tree.Operation)
+	if expandResp.Tree.Node.Operation != "union" {
+		t.Errorf("Expected union node, got %s", expandResp.Tree.Node.Operation)
+	}
+	t.Logf("✓ Expand API returned tree with type: %s", expandResp.Tree.Node.Operation)
 
 	// Step 5: Test LookupEntity API
 	t.Log("Step 5: Testing LookupEntity API")
-	lookupEntityResp, err := client.LookupEntity(ctx, &pb.LookupEntityRequest{
+	lookupEntityResp, err := permissionClient.LookupEntity(ctx, &pb.PermissionLookupEntityRequest{
 		EntityType: "document",
 		Permission: "view",
 		Subject: &pb.Subject{
@@ -201,7 +206,7 @@ entity document {
 
 	// Step 6: Test LookupSubject API
 	t.Log("Step 6: Testing LookupSubject API")
-	lookupSubjectResp, err := client.LookupSubject(ctx, &pb.LookupSubjectRequest{
+	lookupSubjectResp, err := permissionClient.LookupSubject(ctx, &pb.PermissionLookupSubjectRequest{
 		Entity: &pb.Entity{
 			Type: "document",
 			Id:   "doc1",
@@ -222,7 +227,7 @@ entity document {
 
 	// Step 7: Test SubjectPermission API
 	t.Log("Step 7: Testing SubjectPermission API")
-	subjPermResp, err := client.SubjectPermission(ctx, &pb.SubjectPermissionRequest{
+	subjPermResp, err := permissionClient.SubjectPermission(ctx, &pb.PermissionSubjectPermissionRequest{
 		Entity: &pb.Entity{
 			Type: "document",
 			Id:   "doc1",

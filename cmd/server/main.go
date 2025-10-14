@@ -93,20 +93,27 @@ func runServer(cmd *cobra.Command, args []string) {
 	expander := authorization.NewExpander(schemaService, relationRepo)
 	lookup := authorization.NewLookup(checker, schemaService, relationRepo)
 
-	// Initialize unified authorization handler
-	authHandler := handlers.NewAuthorizationHandler(
-		schemaService,
-		relationRepo,
-		attributeRepo,
+	// Initialize service handlers
+	permissionHandler := handlers.NewPermissionHandler(
 		checker,
 		expander,
 		lookup,
+		schemaService,
+	)
+	dataHandler := handlers.NewDataHandler(
+		relationRepo,
+		attributeRepo,
+	)
+	schemaHandler := handlers.NewSchemaHandler(
+		schemaService,
 		schemaRepo,
 	)
 
 	// Create gRPC server
 	grpcServer := grpc.NewServer()
-	pb.RegisterAuthorizationServiceServer(grpcServer, authHandler)
+	pb.RegisterPermissionServer(grpcServer, permissionHandler)
+	pb.RegisterDataServer(grpcServer, dataHandler)
+	pb.RegisterSchemaServer(grpcServer, schemaHandler)
 
 	// Register reflection service (for grpcurl, etc.)
 	reflection.Register(grpcServer)

@@ -8,6 +8,12 @@ import (
 	"github.com/asakaida/keruberosu/internal/repositories"
 )
 
+// LookupInterface defines the interface for entity and subject lookup
+type LookupInterface interface {
+	LookupEntity(ctx context.Context, req *LookupEntityRequest) (*LookupEntityResponse, error)
+	LookupSubject(ctx context.Context, req *LookupSubjectRequest) (*LookupSubjectResponse, error)
+}
+
 // Lookup provides entity and subject lookup functionality
 type Lookup struct {
 	checker       *Checker

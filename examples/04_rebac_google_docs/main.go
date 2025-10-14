@@ -22,7 +22,9 @@ func main() {
 	}
 	defer conn.Close()
 
-	client := pb.NewAuthorizationServiceClient(conn)
+	permissionClient := pb.NewPermissionClient(conn)
+	dataClient := pb.NewDataClient(conn)
+	schemaClient := pb.NewSchemaClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -52,8 +54,8 @@ entity document {
 }
 `
 
-	_, err = client.WriteSchema(ctx, &pb.WriteSchemaRequest{
-		SchemaDsl: schema,
+	_, err = schemaClient.Write(ctx, &pb.SchemaWriteRequest{
+		Schema: schema,
 	})
 	if err != nil {
 		log.Fatalf("スキーマ書き込み失敗: %v", err)
@@ -63,8 +65,8 @@ entity document {
 	fmt.Println("alice は folder1 の owner です")
 	fmt.Println("bob は folder1 の editor です")
 
-	_, err = client.WriteRelations(ctx, &pb.WriteRelationsRequest{
-		Tuples: []*pb.RelationTuple{
+	_, err = dataClient.Write(ctx, &pb.DataWriteRequest{
+		Tuples: []*pb.Tuple{
 			// folder1
 			{Entity: &pb.Entity{Type: "folder", Id: "folder1"}, Relation: "owner", Subject: &pb.Subject{Type: "user", Id: "alice"}},
 			{Entity: &pb.Entity{Type: "folder", Id: "folder1"}, Relation: "editor", Subject: &pb.Subject{Type: "user", Id: "bob"}},
@@ -79,30 +81,30 @@ entity document {
 	}
 
 	// Step 3: フォルダの権限チェック
-	checkPermission(ctx, client, "alice (owner)", "folder", "folder1", "edit", "alice", true)
-	checkPermission(ctx, client, "bob (editor)", "folder", "folder1", "edit", "bob", true)
-	checkPermission(ctx, client, "charlie", "folder", "folder1", "edit", "charlie", false)
+	checkPermission(ctx, permissionClient, "alice (owner)", "folder", "folder1", "edit", "alice", true)
+	checkPermission(ctx, permissionClient, "bob (editor)", "folder", "folder1", "edit", "bob", true)
+	checkPermission(ctx, permissionClient, "charlie", "folder", "folder1", "edit", "charlie", false)
 
 	fmt.Println("\ndoc1 は folder1 に所属しています")
 	fmt.Println("doc1 の owner は alice です")
 
 	// Step 4: ドキュメントの権限チェック（直接権限）
-	checkPermission(ctx, client, "alice (owner)", "document", "doc1", "delete", "alice", true)
-	checkPermission(ctx, client, "alice (owner)", "document", "doc1", "edit", "alice", true)
-	checkPermission(ctx, client, "alice (owner)", "document", "doc1", "view", "alice", true)
+	checkPermission(ctx, permissionClient, "alice (owner)", "document", "doc1", "delete", "alice", true)
+	checkPermission(ctx, permissionClient, "alice (owner)", "document", "doc1", "edit", "alice", true)
+	checkPermission(ctx, permissionClient, "alice (owner)", "document", "doc1", "view", "alice", true)
 
 	// Step 5: 階層的権限の継承チェック
 	fmt.Println()
-	checkPermission(ctx, client, "bob (folder editor)", "document", "doc1", "view", "bob", true)
-	checkPermission(ctx, client, "bob (folder editor)", "document", "doc1", "edit", "bob", false)
-	checkPermission(ctx, client, "bob (folder editor)", "document", "doc1", "delete", "bob", false)
+	checkPermission(ctx, permissionClient, "bob (folder editor)", "document", "doc1", "view", "bob", true)
+	checkPermission(ctx, permissionClient, "bob (folder editor)", "document", "doc1", "edit", "bob", false)
+	checkPermission(ctx, permissionClient, "bob (folder editor)", "document", "doc1", "delete", "bob", false)
 
 	fmt.Println("\n🎉 ReBAC シナリオ完了!")
 	fmt.Println("bob は folder1 の editor なので、parent.view 経由で doc1 を閲覧できます")
 }
 
-func checkPermission(ctx context.Context, client pb.AuthorizationServiceClient, description, entityType, entityID, permission, subjectID string, expected bool) {
-	resp, err := client.Check(ctx, &pb.CheckRequest{
+func checkPermission(ctx context.Context, permissionClient pb.PermissionClient, description, entityType, entityID, permission, subjectID string, expected bool) {
+	resp, err := permissionClient.Check(ctx, &pb.PermissionCheckRequest{
 		Entity:     &pb.Entity{Type: entityType, Id: entityID},
 		Permission: permission,
 		Subject:    &pb.Subject{Type: "user", Id: subjectID},

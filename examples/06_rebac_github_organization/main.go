@@ -22,7 +22,9 @@ func main() {
 	}
 	defer conn.Close()
 
-	client := pb.NewAuthorizationServiceClient(conn)
+	permissionClient := pb.NewPermissionClient(conn)
+	dataClient := pb.NewDataClient(conn)
+	schemaClient := pb.NewSchemaClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -69,8 +71,8 @@ entity issue {
 `
 
 	fmt.Println("📋 スキーマを定義中...")
-	_, err = client.WriteSchema(ctx, &pb.WriteSchemaRequest{
-		SchemaDsl: schema,
+	_, err = schemaClient.Write(ctx, &pb.SchemaWriteRequest{
+		Schema: schema,
 	})
 	if err != nil {
 		log.Fatalf("スキーマ書き込み失敗: %v", err)
@@ -103,8 +105,8 @@ entity issue {
 
 	// Step 3: 関係性データを書き込み
 	fmt.Println("💾 関係性データを書き込み中...")
-	_, err = client.WriteRelations(ctx, &pb.WriteRelationsRequest{
-		Tuples: []*pb.RelationTuple{
+	_, err = dataClient.Write(ctx, &pb.DataWriteRequest{
+		Tuples: []*pb.Tuple{
 			// Acme Corp 組織
 			{Entity: &pb.Entity{Type: "organization", Id: "acme"}, Relation: "admin", Subject: &pb.Subject{Type: "user", Id: "alice"}},
 			{Entity: &pb.Entity{Type: "organization", Id: "acme"}, Relation: "member", Subject: &pb.Subject{Type: "user", Id: "diana"}},
@@ -141,67 +143,67 @@ entity issue {
 
 	// 4-1: Alice（組織管理者）の権限
 	fmt.Println("【Alice（組織管理者）の権限】")
-	checkPermission(ctx, client, "Alice", "organization", "acme", "manage", "alice", true, "組織管理権限")
-	checkPermission(ctx, client, "Alice", "repository", "backend-api", "delete", "alice", true, "リポジトリ削除権限（org.admin経由）")
-	checkPermission(ctx, client, "Alice", "repository", "backend-api", "write", "alice", true, "リポジトリ書き込み権限（org.admin経由）")
-	checkPermission(ctx, client, "Alice", "issue", "123", "close", "alice", true, "Issue クローズ権限（repo.manage → org.admin経由）")
-	checkPermission(ctx, client, "Alice", "issue", "123", "view", "alice", true, "Issue 閲覧権限（repo.read → org.view経由）")
+	checkPermission(ctx, permissionClient, "Alice", "organization", "acme", "manage", "alice", true, "組織管理権限")
+	checkPermission(ctx, permissionClient, "Alice", "repository", "backend-api", "delete", "alice", true, "リポジトリ削除権限（org.admin経由）")
+	checkPermission(ctx, permissionClient, "Alice", "repository", "backend-api", "write", "alice", true, "リポジトリ書き込み権限（org.admin経由）")
+	checkPermission(ctx, permissionClient, "Alice", "issue", "123", "close", "alice", true, "Issue クローズ権限（repo.manage → org.admin経由）")
+	checkPermission(ctx, permissionClient, "Alice", "issue", "123", "view", "alice", true, "Issue 閲覧権限（repo.read → org.view経由）")
 	fmt.Println()
 
 	// 4-2: Bob（リポジトリ管理者）の権限
 	fmt.Println("【Bob（backend-api リポジトリ管理者）の権限】")
-	checkPermission(ctx, client, "Bob", "repository", "backend-api", "manage", "bob", true, "リポジトリ管理権限")
-	checkPermission(ctx, client, "Bob", "repository", "backend-api", "delete", "bob", false, "リポジトリ削除不可（org.admin のみ）")
-	checkPermission(ctx, client, "Bob", "issue", "123", "close", "bob", true, "Issue クローズ権限（repo.manage経由）")
-	checkPermission(ctx, client, "Bob", "issue", "123", "edit", "bob", true, "Issue 編集権限（repo.manage経由）")
-	checkPermission(ctx, client, "Bob", "issue", "456", "view", "bob", false, "他リポジトリのIssue閲覧不可")
+	checkPermission(ctx, permissionClient, "Bob", "repository", "backend-api", "manage", "bob", true, "リポジトリ管理権限")
+	checkPermission(ctx, permissionClient, "Bob", "repository", "backend-api", "delete", "bob", false, "リポジトリ削除不可（org.admin のみ）")
+	checkPermission(ctx, permissionClient, "Bob", "issue", "123", "close", "bob", true, "Issue クローズ権限（repo.manage経由）")
+	checkPermission(ctx, permissionClient, "Bob", "issue", "123", "edit", "bob", true, "Issue 編集権限（repo.manage経由）")
+	checkPermission(ctx, permissionClient, "Bob", "issue", "456", "view", "bob", false, "他リポジトリのIssue閲覧不可")
 	fmt.Println()
 
 	// 4-3: Charlie（Issue担当者）の権限
 	fmt.Println("【Charlie（Issue #123 担当者）の権限】")
-	checkPermission(ctx, client, "Charlie", "issue", "123", "edit", "charlie", true, "担当Issueの編集権限")
-	checkPermission(ctx, client, "Charlie", "issue", "123", "close", "charlie", false, "Issueクローズ不可（repo.manage が必要）")
-	checkPermission(ctx, client, "Charlie", "issue", "456", "edit", "charlie", false, "他のIssue編集不可")
+	checkPermission(ctx, permissionClient, "Charlie", "issue", "123", "edit", "charlie", true, "担当Issueの編集権限")
+	checkPermission(ctx, permissionClient, "Charlie", "issue", "123", "close", "charlie", false, "Issueクローズ不可（repo.manage が必要）")
+	checkPermission(ctx, permissionClient, "Charlie", "issue", "456", "edit", "charlie", false, "他のIssue編集不可")
 	fmt.Println()
 
 	// 4-4: Diana（組織メンバー）の権限
 	fmt.Println("【Diana（組織メンバー）の権限】")
-	checkPermission(ctx, client, "Diana", "organization", "acme", "view", "diana", true, "組織閲覧権限")
-	checkPermission(ctx, client, "Diana", "organization", "acme", "manage", "diana", false, "組織管理不可")
-	checkPermission(ctx, client, "Diana", "repository", "backend-api", "read", "diana", true, "リポジトリ閲覧権限（org.view経由）")
-	checkPermission(ctx, client, "Diana", "repository", "backend-api", "write", "diana", false, "リポジトリ書き込み不可")
-	checkPermission(ctx, client, "Diana", "issue", "123", "view", "diana", true, "Issue 閲覧権限（repo.read → org.view経由）")
-	checkPermission(ctx, client, "Diana", "issue", "123", "edit", "diana", false, "Issue 編集不可")
+	checkPermission(ctx, permissionClient, "Diana", "organization", "acme", "view", "diana", true, "組織閲覧権限")
+	checkPermission(ctx, permissionClient, "Diana", "organization", "acme", "manage", "diana", false, "組織管理不可")
+	checkPermission(ctx, permissionClient, "Diana", "repository", "backend-api", "read", "diana", true, "リポジトリ閲覧権限（org.view経由）")
+	checkPermission(ctx, permissionClient, "Diana", "repository", "backend-api", "write", "diana", false, "リポジトリ書き込み不可")
+	checkPermission(ctx, permissionClient, "Diana", "issue", "123", "view", "diana", true, "Issue 閲覧権限（repo.read → org.view経由）")
+	checkPermission(ctx, permissionClient, "Diana", "issue", "123", "edit", "diana", false, "Issue 編集不可")
 	fmt.Println()
 
 	// 4-5: Eve（コントリビューター）の権限
 	fmt.Println("【Eve（backend-api コントリビューター）の権限】")
-	checkPermission(ctx, client, "Eve", "repository", "backend-api", "write", "eve", true, "リポジトリ書き込み権限")
-	checkPermission(ctx, client, "Eve", "repository", "backend-api", "manage", "eve", false, "リポジトリ管理不可")
-	checkPermission(ctx, client, "Eve", "issue", "123", "view", "eve", true, "Issue 閲覧権限（repo.read経由）")
-	checkPermission(ctx, client, "Eve", "issue", "123", "edit", "eve", false, "Issue 編集不可（担当者でない）")
+	checkPermission(ctx, permissionClient, "Eve", "repository", "backend-api", "write", "eve", true, "リポジトリ書き込み権限")
+	checkPermission(ctx, permissionClient, "Eve", "repository", "backend-api", "manage", "eve", false, "リポジトリ管理不可")
+	checkPermission(ctx, permissionClient, "Eve", "issue", "123", "view", "eve", true, "Issue 閲覧権限（repo.read経由）")
+	checkPermission(ctx, permissionClient, "Eve", "issue", "123", "edit", "eve", false, "Issue 編集不可（担当者でない）")
 	fmt.Println()
 
 	// 4-6: Frank（backend-team メンバー）の権限 ✨ グループメンバーシップ経由
 	fmt.Println("【Frank（backend-team メンバー）の権限】✨ 1つのタプルによるチーム権限継承")
-	checkPermission(ctx, client, "Frank", "repository", "backend-api", "write", "frank", true, "リポジトリ書き込み権限（team#member経由）")
-	checkPermission(ctx, client, "Frank", "repository", "backend-api", "manage", "frank", false, "リポジトリ管理不可")
-	checkPermission(ctx, client, "Frank", "issue", "123", "view", "frank", true, "Issue 閲覧権限（repo.read → team#member経由）")
-	checkPermission(ctx, client, "Frank", "issue", "123", "edit", "frank", false, "Issue 編集不可（担当者でない）")
-	checkPermission(ctx, client, "Frank", "repository", "frontend-app", "write", "frank", false, "他リポジトリ書き込み不可")
+	checkPermission(ctx, permissionClient, "Frank", "repository", "backend-api", "write", "frank", true, "リポジトリ書き込み権限（team#member経由）")
+	checkPermission(ctx, permissionClient, "Frank", "repository", "backend-api", "manage", "frank", false, "リポジトリ管理不可")
+	checkPermission(ctx, permissionClient, "Frank", "issue", "123", "view", "frank", true, "Issue 閲覧権限（repo.read → team#member経由）")
+	checkPermission(ctx, permissionClient, "Frank", "issue", "123", "edit", "frank", false, "Issue 編集不可（担当者でない）")
+	checkPermission(ctx, permissionClient, "Frank", "repository", "frontend-app", "write", "frank", false, "他リポジトリ書き込み不可")
 	fmt.Println()
 
 	// 4-7: Grace（backend-team メンバー）の権限 ✨ グループメンバーシップ経由
 	fmt.Println("【Grace（backend-team メンバー）の権限】✨ 1つのタプルによるチーム権限継承")
-	checkPermission(ctx, client, "Grace", "repository", "backend-api", "write", "grace", true, "リポジトリ書き込み権限（team#member経由）")
-	checkPermission(ctx, client, "Grace", "repository", "backend-api", "manage", "grace", false, "リポジトリ管理不可")
-	checkPermission(ctx, client, "Grace", "issue", "123", "view", "grace", true, "Issue 閲覧権限（repo.read → team#member経由）")
-	checkPermission(ctx, client, "Grace", "issue", "123", "edit", "grace", false, "Issue 編集不可（担当者でない）")
+	checkPermission(ctx, permissionClient, "Grace", "repository", "backend-api", "write", "grace", true, "リポジトリ書き込み権限（team#member経由）")
+	checkPermission(ctx, permissionClient, "Grace", "repository", "backend-api", "manage", "grace", false, "リポジトリ管理不可")
+	checkPermission(ctx, permissionClient, "Grace", "issue", "123", "view", "grace", true, "Issue 閲覧権限（repo.read → team#member経由）")
+	checkPermission(ctx, permissionClient, "Grace", "issue", "123", "edit", "grace", false, "Issue 編集不可（担当者でない）")
 	fmt.Println()
 
 	// Step 5: LookupEntity でIssue検索
 	fmt.Println("🔍 LookupEntity: Bob が閲覧できる Issue を検索")
-	lookupResp, err := client.LookupEntity(ctx, &pb.LookupEntityRequest{
+	lookupResp, err := permissionClient.LookupEntity(ctx, &pb.PermissionLookupEntityRequest{
 		EntityType: "issue",
 		Permission: "view",
 		Subject:    &pb.Subject{Type: "user", Id: "bob"},
@@ -232,8 +234,8 @@ entity issue {
 	fmt.Println("  - repo.write → contributor → team#member (グループ経由) ✨")
 }
 
-func checkPermission(ctx context.Context, client pb.AuthorizationServiceClient, user, entityType, entityID, permission, subjectID string, expected bool, description string) {
-	resp, err := client.Check(ctx, &pb.CheckRequest{
+func checkPermission(ctx context.Context, client pb.PermissionClient, user, entityType, entityID, permission, subjectID string, expected bool, description string) {
+	resp, err := client.Check(ctx, &pb.PermissionCheckRequest{
 		Entity:     &pb.Entity{Type: entityType, Id: entityID},
 		Permission: permission,
 		Subject:    &pb.Subject{Type: "user", Id: subjectID},

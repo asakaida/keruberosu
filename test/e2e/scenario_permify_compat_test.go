@@ -18,7 +18,9 @@ func TestScenario_PermifyCompat(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client := testServer.Client
+	schemaClient := testServer.SchemaClient
+	dataClient := testServer.DataClient
+	permissionClient := testServer.PermissionClient
 
 	// Test 1: Permify-style schema with organization/repository
 	t.Log("Test 1: Permify-style organization/repository schema")
@@ -46,8 +48,8 @@ entity repository {
 `
 
 	// Write schema
-	writeSchemaResp, err := client.WriteSchema(ctx, &pb.WriteSchemaRequest{
-		SchemaDsl: schema,
+	writeSchemaResp, err := schemaClient.Write(ctx, &pb.SchemaWriteRequest{
+		Schema: schema,
 	})
 	if err != nil {
 		t.Fatalf("WriteSchema failed: %v", err)
@@ -61,11 +63,11 @@ entity repository {
 
 	// Test 2: Read schema back
 	t.Log("Test 2: Reading schema back")
-	readSchemaResp, err := client.ReadSchema(ctx, &pb.ReadSchemaRequest{})
+	readSchemaResp, err := schemaClient.Read(ctx, &pb.SchemaReadRequest{})
 	if err != nil {
 		t.Fatalf("ReadSchema failed: %v", err)
 	}
-	if readSchemaResp.SchemaDsl == "" {
+	if readSchemaResp.Schema == "" {
 		t.Fatal("ReadSchema returned empty schema")
 	}
 	if readSchemaResp.UpdatedAt == "" {
@@ -75,8 +77,8 @@ entity repository {
 
 	// Test 3: Write relation tuples (Permify-style)
 	t.Log("Test 3: Writing Permify-style relation tuples")
-	_, err = client.WriteRelations(ctx, &pb.WriteRelationsRequest{
-		Tuples: []*pb.RelationTuple{
+	_, err = dataClient.Write(ctx, &pb.DataWriteRequest{
+		Tuples: []*pb.Tuple{
 			// Organization structure
 			{Entity: &pb.Entity{Type: "organization", Id: "acme"}, Relation: "admin", Subject: &pb.Subject{Type: "user", Id: "alice"}},
 			{Entity: &pb.Entity{Type: "organization", Id: "acme"}, Relation: "member", Subject: &pb.Subject{Type: "user", Id: "bob"}},
@@ -123,7 +125,7 @@ entity repository {
 
 	for _, tc := range checkTests {
 		t.Run(tc.name, func(t *testing.T) {
-			checkResp, err := client.Check(ctx, &pb.CheckRequest{
+			checkResp, err := permissionClient.Check(ctx, &pb.PermissionCheckRequest{
 				Entity: &pb.Entity{
 					Type: tc.entityType,
 					Id:   tc.entityID,
@@ -146,7 +148,7 @@ entity repository {
 
 	// Test 5: Expand API
 	t.Log("Test 5: Testing Expand API")
-	expandResp, err := client.Expand(ctx, &pb.ExpandRequest{
+	expandResp, err := permissionClient.Expand(ctx, &pb.PermissionExpandRequest{
 		Entity: &pb.Entity{
 			Type: "repository",
 			Id:   "repo1",
@@ -159,11 +161,14 @@ entity repository {
 	if expandResp.Tree == nil {
 		t.Fatal("Expand returned nil tree")
 	}
-	t.Logf("✓ Expand returned tree with type: %s", expandResp.Tree.Operation)
+	if expandResp.Tree.Node == nil {
+		t.Fatal("Expand tree node is nil")
+	}
+	t.Logf("✓ Expand returned tree with type: %s", expandResp.Tree.Node.Operation)
 
 	// Test 6: LookupEntity API
 	t.Log("Test 6: Testing LookupEntity API")
-	lookupEntityResp, err := client.LookupEntity(ctx, &pb.LookupEntityRequest{
+	lookupEntityResp, err := permissionClient.LookupEntity(ctx, &pb.PermissionLookupEntityRequest{
 		EntityType: "repository",
 		Permission: "push",
 		Subject: &pb.Subject{
@@ -189,7 +194,7 @@ entity repository {
 
 	// Test 7: LookupSubject API
 	t.Log("Test 7: Testing LookupSubject API")
-	lookupSubjectResp, err := client.LookupSubject(ctx, &pb.LookupSubjectRequest{
+	lookupSubjectResp, err := permissionClient.LookupSubject(ctx, &pb.PermissionLookupSubjectRequest{
 		Entity: &pb.Entity{
 			Type: "repository",
 			Id:   "repo1",
@@ -210,7 +215,7 @@ entity repository {
 
 	// Test 8: SubjectPermission API
 	t.Log("Test 8: Testing SubjectPermission API")
-	subjPermResp, err := client.SubjectPermission(ctx, &pb.SubjectPermissionRequest{
+	subjPermResp, err := permissionClient.SubjectPermission(ctx, &pb.PermissionSubjectPermissionRequest{
 		Entity: &pb.Entity{
 			Type: "repository",
 			Id:   "repo1",
@@ -239,7 +244,7 @@ entity repository {
 
 	// Test 9: Delete relations
 	t.Log("Test 9: Testing DeleteRelations API")
-	_, err = client.DeleteRelations(ctx, &pb.DeleteRelationsRequest{
+	_, err = dataClient.Delete(ctx, &pb.DataDeleteRequest{
 		Filter: &pb.TupleFilter{
 			Entity: &pb.EntityFilter{
 				Type: "repository",
@@ -257,7 +262,7 @@ entity repository {
 	}
 
 	// Verify dave no longer has read access
-	checkResp, err := client.Check(ctx, &pb.CheckRequest{
+	checkResp, err := permissionClient.Check(ctx, &pb.PermissionCheckRequest{
 		Entity: &pb.Entity{
 			Type: "repository",
 			Id:   "repo1",

@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package keruberosu.v1;
+
+import "keruberosu/v1/common.proto";
+
+option go_package = "github.com/asakaida/keruberosu/proto/keruberosu/v1;keruberosupb";
+
+// ========================================
+// Data Service (Permify互換)
+// データの書き込み・読み取り・削除
+// ========================================
+
+service Data {
+  // Permify互換: tuples と attributes を同時に書き込み
+  rpc Write(DataWriteRequest) returns (DataWriteResponse);
+  rpc Delete(DataDeleteRequest) returns (DataDeleteResponse);
+  rpc Read(DataReadRequest) returns (DataReadResponse);
+  rpc ReadAttributes(AttributeReadRequest) returns (AttributeReadResponse);
+}
+
+// ========================================
+// Data Service Messages
+// ========================================
+
+// Permify互換: tuples と attributes を同時に書き込み可能
+message DataWriteRequest {
+  DataWriteRequestMetadata metadata = 1;
+  repeated Tuple tuples = 2;
+  repeated Attribute attributes = 3;
+}
+
+message DataWriteRequestMetadata {
+  string schema_version = 1;  // 将来実装予定
+}
+
+message DataWriteResponse {
+  string snap_token = 1;  // 将来実装予定
+}
+
+// Permify互換: フィルター形式で削除
+message DataDeleteRequest {
+  TupleFilter filter = 1;
+}
+
+message DataDeleteResponse {
+  string snap_token = 1;  // 将来実装予定
+}
+
+// Permify互換: フィルター + ページネーションで読み取り
+message DataReadRequest {
+  PermissionCheckMetadata metadata = 1;
+  TupleFilter filter = 2;
+  int32 page_size = 3;
+  string continuous_token = 4;
+}
+
+message DataReadResponse {
+  repeated Tuple tuples = 1;
+  string continuous_token = 2;
+}
+
+message AttributeReadRequest {
+  PermissionCheckMetadata metadata = 1;
+  AttributeFilter filter = 2;
+  int32 page_size = 3;
+  string continuous_token = 4;
+}
+
+message AttributeReadResponse {
+  repeated Attribute attributes = 1;
+  string continuous_token = 2;
+}

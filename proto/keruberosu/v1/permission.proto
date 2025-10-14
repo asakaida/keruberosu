@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package keruberosu.v1;
+
+import "google/protobuf/struct.proto";
+import "keruberosu/v1/common.proto";
+
+option go_package = "github.com/asakaida/keruberosu/proto/keruberosu/v1;keruberosupb";
+
+// ========================================
+// Permission Service (Permify互換)
+// 権限チェック関連の操作
+// ========================================
+
+service Permission {
+  rpc Check(PermissionCheckRequest) returns (PermissionCheckResponse);
+  rpc Expand(PermissionExpandRequest) returns (PermissionExpandResponse);
+  rpc LookupEntity(PermissionLookupEntityRequest) returns (PermissionLookupEntityResponse);
+  rpc LookupSubject(PermissionLookupSubjectRequest) returns (PermissionLookupSubjectResponse);
+  rpc LookupEntityStream(PermissionLookupEntityRequest) returns (stream PermissionLookupEntityStreamResponse);
+  rpc SubjectPermission(PermissionSubjectPermissionRequest) returns (PermissionSubjectPermissionResponse);
+}
+
+// ========================================
+// Permission Service Messages
+// ========================================
+
+message PermissionCheckRequest {
+  PermissionCheckMetadata metadata = 1;
+  Entity entity = 2;
+  string permission = 3;
+  Subject subject = 4;
+  Context context = 5;
+  repeated google.protobuf.Value arguments = 6;
+}
+
+message PermissionCheckResponse {
+  CheckResult can = 1;
+  PermissionCheckResponseMetadata metadata = 2;
+}
+
+message PermissionCheckResponseMetadata {
+  int32 check_count = 1;
+}
+
+message PermissionExpandRequest {
+  PermissionCheckMetadata metadata = 1;
+  Entity entity = 2;
+  string permission = 3;
+  Context context = 4;
+  repeated google.protobuf.Value arguments = 5;
+}
+
+message PermissionExpandResponse {
+  Expand tree = 1;
+}
+
+message PermissionLookupEntityRequest {
+  PermissionCheckMetadata metadata = 1;
+  string entity_type = 2;
+  string permission = 3;
+  Subject subject = 4;
+  Context context = 5;
+  int32 page_size = 6;
+  string continuous_token = 7;
+}
+
+message PermissionLookupEntityResponse {
+  repeated string entity_ids = 1;
+  string continuous_token = 2;
+}
+
+message PermissionLookupEntityStreamResponse {
+  string entity_id = 1;
+  string continuous_token = 2;
+}
+
+message PermissionLookupSubjectRequest {
+  PermissionCheckMetadata metadata = 1;
+  Entity entity = 2;
+  string permission = 3;
+  SubjectReference subject_reference = 4;
+  Context context = 5;
+  int32 page_size = 6;
+  string continuous_token = 7;
+}
+
+message PermissionLookupSubjectResponse {
+  repeated string subject_ids = 1;
+  string continuous_token = 2;
+}
+
+message PermissionSubjectPermissionRequest {
+  PermissionCheckMetadata metadata = 1;
+  Entity entity = 2;
+  Subject subject = 3;
+  Context context = 4;
+}
+
+message PermissionSubjectPermissionResponse {
+  map<string, CheckResult> results = 1;
+}

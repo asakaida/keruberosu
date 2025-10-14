@@ -7,6 +7,12 @@ import (
 	"github.com/asakaida/keruberosu/internal/entities"
 )
 
+// CheckerInterface defines the interface for permission checking
+type CheckerInterface interface {
+	Check(ctx context.Context, req *CheckRequest) (*CheckResponse, error)
+	CheckMultiple(ctx context.Context, req *CheckRequest, permissions []string) (map[string]bool, error)
+}
+
 // Checker provides permission checking functionality
 type Checker struct {
 	schemaService SchemaServiceInterface

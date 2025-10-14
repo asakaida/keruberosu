@@ -47,8 +47,8 @@ go run main.go
 
 **内容:**
 
-- WriteRelations API の使用
-- WriteAttributes API の使用
+- Data.Write API の使用（Permify互換）
+- 関係性（Tuples）と属性（Attributes）の書き込み
 - 複数タプルの一括書き込み
 
 ```bash

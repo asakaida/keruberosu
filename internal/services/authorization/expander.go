@@ -17,6 +17,11 @@ type ExpandNode struct {
 	Children []*ExpandNode // Child nodes for logical operations
 }
 
+// ExpanderInterface defines the interface for permission expansion
+type ExpanderInterface interface {
+	Expand(ctx context.Context, req *ExpandRequest) (*ExpandResponse, error)
+}
+
 // Expander builds permission trees showing why permissions are granted
 type Expander struct {
 	schemaService SchemaServiceInterface
