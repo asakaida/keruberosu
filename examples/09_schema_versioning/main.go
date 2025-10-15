@@ -28,7 +28,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	fmt.Println("===== スキーマバージョン管理のデモ =====\n")
+	fmt.Println("===== スキーマバージョン管理のデモ =====")
 
 	// === ステップ1: 初期スキーマを書き込み（v1） ===
 	fmt.Println("【ステップ1】初期スキーマを書き込み")
@@ -154,7 +154,7 @@ entity document {
 	if err != nil {
 		log.Fatalf("データ書き込み失敗: %v", err)
 	}
-	fmt.Println("✅ テストデータを書き込みました\n")
+	fmt.Println("✅ テストデータを書き込みました")
 
 	// === ステップ7: バージョンを指定してパーミッションチェック ===
 	fmt.Println("【ステップ7】異なるスキーマバージョンでパーミッションチェック")
