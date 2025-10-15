@@ -17,6 +17,10 @@ type SchemaRepository interface {
 	// GetByVersion retrieves a specific schema version for a tenant
 	GetByVersion(ctx context.Context, tenantID string, version string) (*entities.Schema, error)
 
+	// ListVersions retrieves schema versions for a tenant with pagination
+	// Returns versions ordered by created_at DESC (newest first)
+	ListVersions(ctx context.Context, tenantID string, limit int, offset int) ([]*entities.SchemaVersion, error)
+
 	// Delete deletes all schemas for a tenant
 	Delete(ctx context.Context, tenantID string) error
 

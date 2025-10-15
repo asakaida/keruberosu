@@ -3,9 +3,10 @@ package handlers
 import (
 	"context"
 
-	pb "github.com/asakaida/keruberosu/proto/keruberosu/v1"
+	"github.com/asakaida/keruberosu/internal/entities"
 	"github.com/asakaida/keruberosu/internal/repositories"
 	"github.com/asakaida/keruberosu/internal/services"
+	pb "github.com/asakaida/keruberosu/proto/keruberosu/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -47,7 +48,16 @@ func (h *SchemaHandler) Write(ctx context.Context, req *pb.SchemaWriteRequest) (
 func (h *SchemaHandler) Read(ctx context.Context, req *pb.SchemaReadRequest) (*pb.SchemaReadResponse, error) {
 	tenantID := "default"
 
-	schema, err := h.schemaService.ReadSchema(ctx, tenantID)
+	var schema *entities.Schema
+	var err error
+
+	// Check if specific version is requested
+	if req.Metadata != nil && req.Metadata.SchemaVersion != "" {
+		schema, err = h.schemaRepo.GetByVersion(ctx, tenantID, req.Metadata.SchemaVersion)
+	} else {
+		schema, err = h.schemaService.ReadSchema(ctx, tenantID)
+	}
+
 	if err != nil {
 		return nil, handleReadSchemaError(err)
 	}
@@ -60,5 +70,52 @@ func (h *SchemaHandler) Read(ctx context.Context, req *pb.SchemaReadRequest) (*p
 	return &pb.SchemaReadResponse{
 		Schema:    schema.DSL,
 		UpdatedAt: updatedAt,
+	}, nil
+}
+
+// List handles the List RPC
+func (h *SchemaHandler) List(ctx context.Context, req *pb.SchemaListRequest) (*pb.SchemaListResponse, error) {
+	tenantID := "default"
+
+	// Set default page size if not specified
+	pageSize := req.PageSize
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	// For now, we'll use a simple offset-based pagination
+	// In production, you might want to implement cursor-based pagination
+	offset := 0
+	// TODO: Parse continuous_token to get offset if needed
+
+	// Get versions from repository
+	versions, err := h.schemaRepo.ListVersions(ctx, tenantID, int(pageSize), offset)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list schema versions: %v", err)
+	}
+
+	// Get the latest version (head)
+	var head string
+	if len(versions) > 0 {
+		head = versions[0].Version
+	}
+
+	// Convert to proto format
+	schemaItems := make([]*pb.SchemaListItem, len(versions))
+	for i, v := range versions {
+		schemaItems[i] = &pb.SchemaListItem{
+			Version:   v.Version,
+			CreatedAt: v.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		}
+	}
+
+	return &pb.SchemaListResponse{
+		Head:    head,
+		Schemas: schemaItems,
+		// TODO: Implement continuous_token for pagination
+		ContinuousToken: "",
 	}, nil
 }

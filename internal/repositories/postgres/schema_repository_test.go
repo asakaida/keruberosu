@@ -267,3 +267,134 @@ func TestSchemaRepository_Delete(t *testing.T) {
 		}
 	})
 }
+
+func TestSchemaRepository_ListVersions(t *testing.T) {
+	db := SetupTestDB(t)
+	defer CleanupTestDB(t, db)
+
+	repo := NewPostgresSchemaRepository(db)
+	ctx := context.Background()
+
+	t.Run("正常系: バージョン一覧取得成功", func(t *testing.T) {
+		tenantID := "tenant6"
+		schemaDSL1 := "entity user {}"
+		schemaDSL2 := "entity user {} entity document {}"
+		schemaDSL3 := "entity user {} entity document {} entity file {}"
+
+		// 3つのバージョンを作成
+		version1, err := repo.Create(ctx, tenantID, schemaDSL1)
+		if err != nil {
+			t.Fatalf("Failed to create schema v1: %v", err)
+		}
+
+		version2, err := repo.Create(ctx, tenantID, schemaDSL2)
+		if err != nil {
+			t.Fatalf("Failed to create schema v2: %v", err)
+		}
+
+		version3, err := repo.Create(ctx, tenantID, schemaDSL3)
+		if err != nil {
+			t.Fatalf("Failed to create schema v3: %v", err)
+		}
+
+		// 全バージョンを取得
+		versions, err := repo.ListVersions(ctx, tenantID, 10, 0)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// 3つのバージョンが取得されること
+		if len(versions) != 3 {
+			t.Fatalf("Expected 3 versions, got %d", len(versions))
+		}
+
+		// 新しい順にソートされていること
+		if versions[0].Version != version3 {
+			t.Errorf("Expected first version to be %s, got %s", version3, versions[0].Version)
+		}
+		if versions[1].Version != version2 {
+			t.Errorf("Expected second version to be %s, got %s", version2, versions[1].Version)
+		}
+		if versions[2].Version != version1 {
+			t.Errorf("Expected third version to be %s, got %s", version1, versions[2].Version)
+		}
+
+		// CreatedAtが設定されていること
+		for i, v := range versions {
+			if v.CreatedAt.IsZero() {
+				t.Errorf("Expected non-zero created_at for version %d", i)
+			}
+		}
+	})
+
+	t.Run("正常系: ページネーション（limit）", func(t *testing.T) {
+		tenantID := "tenant7"
+
+		// 5つのバージョンを作成
+		for i := 0; i < 5; i++ {
+			_, err := repo.Create(ctx, tenantID, "entity user {}")
+			if err != nil {
+				t.Fatalf("Failed to create schema v%d: %v", i, err)
+			}
+		}
+
+		// 最初の2つを取得
+		versions, err := repo.ListVersions(ctx, tenantID, 2, 0)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if len(versions) != 2 {
+			t.Fatalf("Expected 2 versions, got %d", len(versions))
+		}
+	})
+
+	t.Run("正常系: ページネーション（offset）", func(t *testing.T) {
+		tenantID := "tenant8"
+
+		// 5つのバージョンを作成
+		var allVersions []string
+		for i := 0; i < 5; i++ {
+			version, err := repo.Create(ctx, tenantID, "entity user {}")
+			if err != nil {
+				t.Fatalf("Failed to create schema v%d: %v", i, err)
+			}
+			allVersions = append(allVersions, version)
+		}
+
+		// 最初の2つを取得
+		page1, err := repo.ListVersions(ctx, tenantID, 2, 0)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// 次の2つを取得
+		page2, err := repo.ListVersions(ctx, tenantID, 2, 2)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// ページ1とページ2が異なること
+		if page1[0].Version == page2[0].Version {
+			t.Error("Expected different versions in different pages")
+		}
+
+		// ページ2が3番目と4番目のバージョンであること（新しい順なので）
+		if len(page2) != 2 {
+			t.Fatalf("Expected 2 versions in page 2, got %d", len(page2))
+		}
+	})
+
+	t.Run("正常系: バージョンが存在しない場合は空配列", func(t *testing.T) {
+		tenantID := "tenant9"
+
+		versions, err := repo.ListVersions(ctx, tenantID, 10, 0)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if len(versions) != 0 {
+			t.Fatalf("Expected 0 versions, got %d", len(versions))
+		}
+	})
+}

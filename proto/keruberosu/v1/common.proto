@@ -42,9 +42,10 @@ message Attribute {
 }
 
 message PermissionCheckMetadata {
-  string snap_token = 1;    // スナップショットトークン（optional）
-  int32 depth = 2;          // 再帰クエリの深さ制限（default: 50）
-  bool only_permission = 3; // SubjectPermission用: permissionのみ返す
+  string snap_token = 1;     // スナップショットトークン（optional）
+  int32 depth = 2;           // 再帰クエリの深さ制限（default: 50）
+  bool only_permission = 3;  // SubjectPermission用: permissionのみ返す
+  string schema_version = 4; // スキーマバージョンID（optional、空の場合は最新）
 }
 
 message Context {

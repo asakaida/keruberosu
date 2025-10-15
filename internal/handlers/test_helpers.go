@@ -164,6 +164,7 @@ func (m *mockLookup) LookupSubject(ctx context.Context, req *authorization.Looku
 type mockSchemaRepository struct {
 	getLatestVersionFunc func(ctx context.Context, tenantID string) (*entities.Schema, error)
 	getByVersionFunc     func(ctx context.Context, tenantID string, version string) (*entities.Schema, error)
+	listVersionsFunc     func(ctx context.Context, tenantID string, limit int, offset int) ([]*entities.SchemaVersion, error)
 }
 
 func (m *mockSchemaRepository) Create(ctx context.Context, tenantID string, schemaDSL string) (string, error) {
@@ -180,6 +181,13 @@ func (m *mockSchemaRepository) GetLatestVersion(ctx context.Context, tenantID st
 func (m *mockSchemaRepository) GetByVersion(ctx context.Context, tenantID string, version string) (*entities.Schema, error) {
 	if m.getByVersionFunc != nil {
 		return m.getByVersionFunc(ctx, tenantID, version)
+	}
+	return nil, nil
+}
+
+func (m *mockSchemaRepository) ListVersions(ctx context.Context, tenantID string, limit int, offset int) ([]*entities.SchemaVersion, error) {
+	if m.listVersionsFunc != nil {
+		return m.listVersionsFunc(ctx, tenantID, limit, offset)
 	}
 	return nil, nil
 }

@@ -30,10 +30,11 @@ type Expander struct {
 
 // ExpandRequest contains the parameters for expanding a permission tree
 type ExpandRequest struct {
-	TenantID   string // Tenant ID
-	EntityType string // Resource entity type (e.g., "document")
-	EntityID   string // Resource entity ID (e.g., "doc1")
-	Permission string // Permission to expand (e.g., "view")
+	TenantID      string // Tenant ID
+	SchemaVersion string // Schema version (empty = latest)
+	EntityType    string // Resource entity type (e.g., "document")
+	EntityID      string // Resource entity ID (e.g., "doc1")
+	Permission    string // Permission to expand (e.g., "view")
 }
 
 // ExpandResponse contains the resulting permission tree
@@ -61,7 +62,7 @@ func (e *Expander) Expand(ctx context.Context, req *ExpandRequest) (*ExpandRespo
 	}
 
 	// Get parsed schema
-	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID, "")
+	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID, req.SchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}

@@ -101,6 +101,41 @@ func (r *PostgresSchemaRepository) GetByVersion(ctx context.Context, tenantID st
 	return schema, nil
 }
 
+// ListVersions retrieves schema versions for a tenant with pagination
+func (r *PostgresSchemaRepository) ListVersions(ctx context.Context, tenantID string, limit int, offset int) ([]*entities.SchemaVersion, error) {
+	query := `
+		SELECT version, created_at
+		FROM schemas
+		WHERE tenant_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+	rows, err := r.db.QueryContext(ctx, query, tenantID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list schema versions: %w", err)
+	}
+	defer rows.Close()
+
+	var versions []*entities.SchemaVersion
+	for rows.Next() {
+		var version string
+		var createdAt time.Time
+		if err := rows.Scan(&version, &createdAt); err != nil {
+			return nil, fmt.Errorf("failed to scan schema version: %w", err)
+		}
+		versions = append(versions, &entities.SchemaVersion{
+			Version:   version,
+			CreatedAt: createdAt,
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating schema versions: %w", err)
+	}
+
+	return versions, nil
+}
+
 // GetByTenant retrieves the latest schema for a tenant (backward compatibility)
 func (r *PostgresSchemaRepository) GetByTenant(ctx context.Context, tenantID string) (*entities.Schema, error) {
 	return r.GetLatestVersion(ctx, tenantID)

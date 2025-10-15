@@ -53,6 +53,11 @@ func (h *PermissionHandler) Check(ctx context.Context, req *pb.PermissionCheckRe
 		tenantID = "default"
 	}
 
+	schemaVersion := ""
+	if req.Metadata != nil {
+		schemaVersion = req.Metadata.SchemaVersion
+	}
+
 	contextualTuples, err := protoContextToTuples(req.Context)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid context: %v", err)
@@ -60,6 +65,7 @@ func (h *PermissionHandler) Check(ctx context.Context, req *pb.PermissionCheckRe
 
 	checkReq := &authorization.CheckRequest{
 		TenantID:         tenantID,
+		SchemaVersion:    schemaVersion,
 		EntityType:       req.Entity.Type,
 		EntityID:         req.Entity.Id,
 		Permission:       req.Permission,
@@ -100,11 +106,17 @@ func (h *PermissionHandler) Expand(ctx context.Context, req *pb.PermissionExpand
 		tenantID = "default"
 	}
 
+	schemaVersion := ""
+	if req.Metadata != nil {
+		schemaVersion = req.Metadata.SchemaVersion
+	}
+
 	expandReq := &authorization.ExpandRequest{
-		TenantID:   tenantID,
-		EntityType: req.Entity.Type,
-		EntityID:   req.Entity.Id,
-		Permission: req.Permission,
+		TenantID:      tenantID,
+		SchemaVersion: schemaVersion,
+		EntityType:    req.Entity.Type,
+		EntityID:      req.Entity.Id,
+		Permission:    req.Permission,
 	}
 
 	expandResp, err := h.expander.Expand(ctx, expandReq)
@@ -136,6 +148,11 @@ func (h *PermissionHandler) LookupEntity(ctx context.Context, req *pb.Permission
 		tenantID = "default"
 	}
 
+	schemaVersion := ""
+	if req.Metadata != nil {
+		schemaVersion = req.Metadata.SchemaVersion
+	}
+
 	contextualTuples, err := protoContextToTuples(req.Context)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid context: %v", err)
@@ -143,6 +160,7 @@ func (h *PermissionHandler) LookupEntity(ctx context.Context, req *pb.Permission
 
 	lookupReq := &authorization.LookupEntityRequest{
 		TenantID:         tenantID,
+		SchemaVersion:    schemaVersion,
 		EntityType:       req.EntityType,
 		Permission:       req.Permission,
 		SubjectType:      req.Subject.Type,
@@ -180,6 +198,11 @@ func (h *PermissionHandler) LookupSubject(ctx context.Context, req *pb.Permissio
 		tenantID = "default"
 	}
 
+	schemaVersion := ""
+	if req.Metadata != nil {
+		schemaVersion = req.Metadata.SchemaVersion
+	}
+
 	contextualTuples, err := protoContextToTuples(req.Context)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid context: %v", err)
@@ -187,6 +210,7 @@ func (h *PermissionHandler) LookupSubject(ctx context.Context, req *pb.Permissio
 
 	lookupReq := &authorization.LookupSubjectRequest{
 		TenantID:         tenantID,
+		SchemaVersion:    schemaVersion,
 		EntityType:       req.Entity.Type,
 		EntityID:         req.Entity.Id,
 		Permission:       req.Permission,
@@ -226,7 +250,12 @@ func (h *PermissionHandler) SubjectPermission(ctx context.Context, req *pb.Permi
 		tenantID = "default"
 	}
 
-	schema, err := h.schemaService.GetSchemaEntity(ctx, tenantID, "")
+	schemaVersion := ""
+	if req.Metadata != nil {
+		schemaVersion = req.Metadata.SchemaVersion
+	}
+
+	schema, err := h.schemaService.GetSchemaEntity(ctx, tenantID, schemaVersion)
 	if err != nil {
 		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, status.Errorf(codes.NotFound, "schema not found for tenant: %s", tenantID)
@@ -248,6 +277,7 @@ func (h *PermissionHandler) SubjectPermission(ctx context.Context, req *pb.Permi
 	for _, permission := range entity.Permissions {
 		checkReq := &authorization.CheckRequest{
 			TenantID:         tenantID,
+			SchemaVersion:    schemaVersion,
 			EntityType:       req.Entity.Type,
 			EntityID:         req.Entity.Id,
 			Permission:       permission.Name,

@@ -199,3 +199,162 @@ func TestSchemaHandler_Read_NoUpdatedAt(t *testing.T) {
 		t.Errorf("expected empty updated_at, got %s", resp.UpdatedAt)
 	}
 }
+
+func TestSchemaHandler_Read_WithSpecificVersion(t *testing.T) {
+	updatedAt := time.Now()
+	mockService := &mockSchemaService{}
+	mockRepo := &mockSchemaRepository{
+		getByVersionFunc: func(ctx context.Context, tenantID string, version string) (*entities.Schema, error) {
+			if tenantID != "default" {
+				t.Errorf("expected tenant ID 'default', got %s", tenantID)
+			}
+			if version != "01ARZ3NDEKTSV4RRFFQ69G5FAV" {
+				t.Errorf("expected version '01ARZ3NDEKTSV4RRFFQ69G5FAV', got %s", version)
+			}
+			return &entities.Schema{
+				TenantID:  tenantID,
+				Version:   version,
+				DSL:       `entity document {}`,
+				UpdatedAt: updatedAt,
+			}, nil
+		},
+	}
+
+	handler := NewSchemaHandler(mockService, mockRepo)
+
+	req := &pb.SchemaReadRequest{
+		Metadata: &pb.PermissionCheckMetadata{
+			SchemaVersion: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+		},
+	}
+
+	resp, err := handler.Read(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.Schema != `entity document {}` {
+		t.Errorf("expected schema 'entity document {}', got %s", resp.Schema)
+	}
+}
+
+func TestSchemaHandler_List_Success(t *testing.T) {
+	createdAt1 := time.Now().Add(-2 * time.Hour)
+	createdAt2 := time.Now().Add(-1 * time.Hour)
+	createdAt3 := time.Now()
+
+	mockService := &mockSchemaService{}
+	mockRepo := &mockSchemaRepository{
+		listVersionsFunc: func(ctx context.Context, tenantID string, limit int, offset int) ([]*entities.SchemaVersion, error) {
+			if tenantID != "default" {
+				t.Errorf("expected tenant ID 'default', got %s", tenantID)
+			}
+			if limit != 10 {
+				t.Errorf("expected limit 10, got %d", limit)
+			}
+			return []*entities.SchemaVersion{
+				{Version: "01ARZ3NDEKTSV4RRFFQ69G5FC", CreatedAt: createdAt3},
+				{Version: "01ARZ3NDEKTSV4RRFFQ69G5FB", CreatedAt: createdAt2},
+				{Version: "01ARZ3NDEKTSV4RRFFQ69G5FA", CreatedAt: createdAt1},
+			}, nil
+		},
+	}
+
+	handler := NewSchemaHandler(mockService, mockRepo)
+
+	req := &pb.SchemaListRequest{
+		PageSize: 10,
+	}
+
+	resp, err := handler.List(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.Head != "01ARZ3NDEKTSV4RRFFQ69G5FC" {
+		t.Errorf("expected head '01ARZ3NDEKTSV4RRFFQ69G5FC', got %s", resp.Head)
+	}
+
+	if len(resp.Schemas) != 3 {
+		t.Fatalf("expected 3 schemas, got %d", len(resp.Schemas))
+	}
+
+	if resp.Schemas[0].Version != "01ARZ3NDEKTSV4RRFFQ69G5FC" {
+		t.Errorf("expected first version '01ARZ3NDEKTSV4RRFFQ69G5FC', got %s", resp.Schemas[0].Version)
+	}
+	if resp.Schemas[0].CreatedAt == "" {
+		t.Error("expected created_at to be set")
+	}
+}
+
+func TestSchemaHandler_List_EmptyResult(t *testing.T) {
+	mockService := &mockSchemaService{}
+	mockRepo := &mockSchemaRepository{
+		listVersionsFunc: func(ctx context.Context, tenantID string, limit int, offset int) ([]*entities.SchemaVersion, error) {
+			return []*entities.SchemaVersion{}, nil
+		},
+	}
+
+	handler := NewSchemaHandler(mockService, mockRepo)
+
+	req := &pb.SchemaListRequest{}
+
+	resp, err := handler.List(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.Head != "" {
+		t.Errorf("expected empty head, got %s", resp.Head)
+	}
+
+	if len(resp.Schemas) != 0 {
+		t.Fatalf("expected 0 schemas, got %d", len(resp.Schemas))
+	}
+}
+
+func TestSchemaHandler_List_DefaultPageSize(t *testing.T) {
+	mockService := &mockSchemaService{}
+	mockRepo := &mockSchemaRepository{
+		listVersionsFunc: func(ctx context.Context, tenantID string, limit int, offset int) ([]*entities.SchemaVersion, error) {
+			if limit != 10 {
+				t.Errorf("expected default limit 10, got %d", limit)
+			}
+			return []*entities.SchemaVersion{}, nil
+		},
+	}
+
+	handler := NewSchemaHandler(mockService, mockRepo)
+
+	req := &pb.SchemaListRequest{
+		PageSize: 0, // Should default to 10
+	}
+
+	_, err := handler.List(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSchemaHandler_List_MaxPageSize(t *testing.T) {
+	mockService := &mockSchemaService{}
+	mockRepo := &mockSchemaRepository{
+		listVersionsFunc: func(ctx context.Context, tenantID string, limit int, offset int) ([]*entities.SchemaVersion, error) {
+			if limit != 100 {
+				t.Errorf("expected max limit 100, got %d", limit)
+			}
+			return []*entities.SchemaVersion{}, nil
+		},
+	}
+
+	handler := NewSchemaHandler(mockService, mockRepo)
+
+	req := &pb.SchemaListRequest{
+		PageSize: 150, // Should be capped at 100
+	}
+
+	_, err := handler.List(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

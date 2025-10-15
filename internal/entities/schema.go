@@ -13,6 +13,12 @@ type Schema struct {
 	UpdatedAt time.Time
 }
 
+// SchemaVersion represents a lightweight schema version for listing
+type SchemaVersion struct {
+	Version   string    // Schema version (ULID)
+	CreatedAt time.Time // When the version was created
+}
+
 // GetRule returns the rule definition by name
 func (s *Schema) GetRule(name string) *RuleDefinition {
 	for _, r := range s.Rules {

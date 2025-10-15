@@ -30,6 +30,7 @@ type Evaluator struct {
 // EvaluationRequest contains all the context needed for rule evaluation
 type EvaluationRequest struct {
 	TenantID         string                    // Tenant ID
+	SchemaVersion    string                    // Schema version (empty = latest)
 	EntityType       string                    // Resource entity type
 	EntityID         string                    // Resource entity ID
 	SubjectType      string                    // Subject type
@@ -240,7 +241,7 @@ func (e *Evaluator) evaluateHierarchical(
 	rule *entities.HierarchicalRule,
 ) (bool, error) {
 	// Get parsed schema to find the relation's target type
-	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID, "")
+	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID, req.SchemaVersion)
 	if err != nil {
 		return false, fmt.Errorf("failed to get schema: %w", err)
 	}
@@ -284,6 +285,7 @@ func (e *Evaluator) evaluateHierarchical(
 			// Create a new request for the parent entity
 			parentReq := &EvaluationRequest{
 				TenantID:         req.TenantID,
+				SchemaVersion:    req.SchemaVersion,
 				EntityType:       tuple.SubjectType,
 				EntityID:         tuple.SubjectID,
 				SubjectType:      req.SubjectType,
@@ -380,7 +382,7 @@ func (e *Evaluator) evaluateRuleCall(
 	rule *entities.RuleCallRule,
 ) (bool, error) {
 	// Get schema to access rule definitions
-	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID, "")
+	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID, req.SchemaVersion)
 	if err != nil {
 		return false, fmt.Errorf("failed to get schema: %w", err)
 	}

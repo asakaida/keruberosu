@@ -22,6 +22,7 @@ type Checker struct {
 // CheckRequest contains the parameters for a permission check
 type CheckRequest struct {
 	TenantID         string                    // Tenant ID
+	SchemaVersion    string                    // Schema version (empty = latest)
 	EntityType       string                    // Resource entity type (e.g., "document")
 	EntityID         string                    // Resource entity ID (e.g., "doc1")
 	Permission       string                    // Permission to check (e.g., "view", "edit")
@@ -52,7 +53,7 @@ func (c *Checker) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 	}
 
 	// Get parsed schema
-	schema, err := c.schemaService.GetSchemaEntity(ctx, req.TenantID, "")
+	schema, err := c.schemaService.GetSchemaEntity(ctx, req.TenantID, req.SchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}
@@ -72,6 +73,7 @@ func (c *Checker) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 	// Create evaluation request
 	evalReq := &EvaluationRequest{
 		TenantID:         req.TenantID,
+		SchemaVersion:    req.SchemaVersion,
 		EntityType:       req.EntityType,
 		EntityID:         req.EntityID,
 		SubjectType:      req.SubjectType,
@@ -122,6 +124,7 @@ func (c *Checker) CheckMultiple(ctx context.Context, req *CheckRequest, permissi
 	for _, permission := range permissions {
 		checkReq := &CheckRequest{
 			TenantID:         req.TenantID,
+			SchemaVersion:    req.SchemaVersion,
 			EntityType:       req.EntityType,
 			EntityID:         req.EntityID,
 			Permission:       permission,

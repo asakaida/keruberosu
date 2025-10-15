@@ -24,6 +24,7 @@ type Lookup struct {
 // LookupEntityRequest contains the parameters for looking up entities
 type LookupEntityRequest struct {
 	TenantID         string                    // Tenant ID
+	SchemaVersion    string                    // Schema version (empty = latest)
 	EntityType       string                    // Entity type to search for (e.g., "document")
 	Permission       string                    // Permission to check (e.g., "view")
 	SubjectType      string                    // Subject type (e.g., "user")
@@ -42,6 +43,7 @@ type LookupEntityResponse struct {
 // LookupSubjectRequest contains the parameters for looking up subjects
 type LookupSubjectRequest struct {
 	TenantID         string                    // Tenant ID
+	SchemaVersion    string                    // Schema version (empty = latest)
 	EntityType       string                    // Entity type (e.g., "document")
 	EntityID         string                    // Entity ID (e.g., "doc1")
 	Permission       string                    // Permission to check (e.g., "view")
@@ -79,7 +81,7 @@ func (l *Lookup) LookupEntity(ctx context.Context, req *LookupEntityRequest) (*L
 	}
 
 	// Get parsed schema
-	schema, err := l.schemaService.GetSchemaEntity(ctx, req.TenantID, "")
+	schema, err := l.schemaService.GetSchemaEntity(ctx, req.TenantID, req.SchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}
@@ -108,6 +110,7 @@ func (l *Lookup) LookupEntity(ctx context.Context, req *LookupEntityRequest) (*L
 	for _, entityID := range candidateIDs {
 		checkReq := &CheckRequest{
 			TenantID:         req.TenantID,
+			SchemaVersion:    req.SchemaVersion,
 			EntityType:       req.EntityType,
 			EntityID:         entityID,
 			Permission:       req.Permission,
@@ -157,7 +160,7 @@ func (l *Lookup) LookupSubject(ctx context.Context, req *LookupSubjectRequest) (
 	}
 
 	// Get parsed schema
-	schema, err := l.schemaService.GetSchemaEntity(ctx, req.TenantID, "")
+	schema, err := l.schemaService.GetSchemaEntity(ctx, req.TenantID, req.SchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}
@@ -186,6 +189,7 @@ func (l *Lookup) LookupSubject(ctx context.Context, req *LookupSubjectRequest) (
 	for _, subjectID := range candidateIDs {
 		checkReq := &CheckRequest{
 			TenantID:         req.TenantID,
+			SchemaVersion:    req.SchemaVersion,
 			EntityType:       req.EntityType,
 			EntityID:         req.EntityID,
 			Permission:       req.Permission,
