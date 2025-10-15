@@ -39,16 +39,16 @@ func main() {
 entity user {}
 
 entity department {
-  relation member: user
+  relation member @user
 
   permission view = member
 }
 
 entity document {
-  relation owner: user
-  relation editor: user
-  relation viewer: user
-  relation department: department
+  relation owner @user
+  relation editor @user
+  relation viewer @user
+  relation department @department
 
   attribute confidential: bool
   attribute security_level: int

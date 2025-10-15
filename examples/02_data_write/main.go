@@ -33,9 +33,9 @@ func main() {
 entity user {}
 
 entity document {
-  relation owner: user
-  relation editor: user
-  relation viewer: user
+  relation owner @user
+  relation editor @user
+  relation viewer @user
 
   attribute public: bool
   attribute owner_id: string

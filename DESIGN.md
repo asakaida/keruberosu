@@ -170,7 +170,7 @@ entities 層は 1 ファイル 1 構造体の原則に従い、責務を明確�
 
 - `schema.go`: Schema - スキーマ全体を表現
 - `entity.go`: Entity - エンティティ定義（例: "document", "user"）
-- `relation.go`: Relation - リレーション定義（例: "owner: user"）
+- `relation.go`: Relation - リレーション定義（例: "owner @user"）
 - `attribute_schema.go`: AttributeSchema - 属性型定義（例: "public: boolean"）
 - `permission.go`: Permission - 権限定義（例: "edit = owner or editor"）
 - `rule.go`: PermissionRule インターフェース + 各ルール実装（RelationRule, LogicalRule, HierarchicalRule, ABACRule）

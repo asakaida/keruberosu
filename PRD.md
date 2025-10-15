@@ -128,7 +128,7 @@ schema_dsl: """
 entity user {}
 
 entity role {
-  relation member: user
+  relation member @user
 
   permission admin = member
   permission edit = member
@@ -232,9 +232,9 @@ entity user {}
 
 entity document {
   // 関係性の定義
-  relation owner: user
-  relation editor: user
-  relation viewer: user
+  relation owner @user
+  relation editor @user
+  relation viewer @user
 
   // 権限の定義
   permission delete = owner
@@ -428,9 +428,9 @@ schema_dsl: """
 entity user {}
 
 entity folder {
-  relation owner: user
-  relation editor: user
-  relation viewer: user
+  relation owner @user
+  relation editor @user
+  relation viewer @user
 
   permission delete = owner
   permission edit = owner or editor
@@ -438,10 +438,10 @@ entity folder {
 }
 
 entity document {
-  relation owner: user
-  relation editor: user
-  relation viewer: user
-  relation parent: folder  // 親フォルダ
+  relation owner @user
+  relation editor @user
+  relation viewer @user
+  relation parent @folder  // 親フォルダ
 
   permission delete = owner
   permission edit = owner or editor or parent.edit  // 親フォルダのedit権限を継承
@@ -513,7 +513,7 @@ schema_dsl: """
 entity user {}
 
 entity document {
-  relation owner: user
+  relation owner @user
 
   // 属性の定義
   attribute is_public boolean
@@ -609,8 +609,8 @@ schema_dsl: """
 entity user {}
 
 entity organization {
-  relation owner: user
-  relation member: user
+  relation owner @user
+  relation member @user
 
   permission admin = owner
   permission create_repo = owner or member
@@ -618,10 +618,10 @@ entity organization {
 }
 
 entity repository {
-  relation owner: user
-  relation maintainer: user
-  relation contributor: user
-  relation parent_org: organization
+  relation owner @user
+  relation maintainer @user
+  relation contributor @user
+  relation parent_org @organization
 
   permission delete = owner
   permission admin = owner or parent_org.admin
@@ -728,7 +728,7 @@ schema_dsl: """
 entity user {}
 
 entity document {
-  relation owner: user
+  relation owner @user
 
   attribute business_hours_only boolean
 
@@ -880,7 +880,7 @@ DSL 文字列を直接書かせるのではなく、以下のステップで段�
 entity user {}
 
 entity role {
-  relation member: user
+  relation member @user
 
   permission admin = member
 }
@@ -1214,10 +1214,10 @@ function PermissionForm({ relations, onAdd, onCancel }) {
 
 ```text
 entity document {
-  relation owner: user
-  relation editor: user
-  relation viewer: user
-  relation parent: folder
+  relation owner @user
+  relation editor @user
+  relation viewer @user
+  relation parent @folder
 
   permission delete = owner
   permission edit = owner or editor or parent.edit
@@ -1321,7 +1321,7 @@ UI で保存ボタンを押したあと、内部で何が起きるか？
          │
          ▼
 ┌─────────────────┐
-│  DSL文字列生成  │ "entity document { relation owner: user ... }"
+│  DSL文字列生成  │ "entity document { relation owner @user ... }"
 └────────┬────────┘
          │
          ▼ writeSchema API呼び出し
@@ -1647,9 +1647,9 @@ entity user {
 }
 
 entity document {
-  relation owner: user
-  relation editor: user
-  relation viewer: user
+  relation owner @user
+  relation editor @user
+  relation viewer @user
 
   permission delete = owner
   permission edit = owner or editor
@@ -1705,7 +1705,7 @@ entity user {
 }
 
 entity document {
-  relation owner: user
+  relation owner @user
   attribute is_public boolean
   attribute department string
 
@@ -3764,7 +3764,7 @@ AST（Abstract Syntax Tree：抽象構文木）とは、プログラムや DSL �
 
 ```text
 entity document {
-  relation owner: user
+  relation owner @user
   permission edit = owner
 }
 ```

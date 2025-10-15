@@ -56,7 +56,7 @@ func TestSchemaService_WriteSchema_Create(t *testing.T) {
 	schemaDSL := `entity user {
 }
 entity document {
-  relation owner: user
+  relation owner @user
   permission view = owner
 }`
 
@@ -96,7 +96,7 @@ func TestSchemaService_WriteSchema_Update(t *testing.T) {
 	updatedDSL := `entity user {
 }
 entity document {
-  relation owner: user
+  relation owner @user
 }`
 	err = service.WriteSchema(context.Background(), "test-tenant", updatedDSL)
 	if err != nil {
@@ -214,7 +214,7 @@ func TestSchemaService_ValidateSchema_Valid(t *testing.T) {
 	validDSL := `entity user {
 }
 entity document {
-  relation owner: user
+  relation owner @user
   permission view = owner
 }`
 
@@ -295,7 +295,7 @@ func TestSchemaService_GetSchemaEntity(t *testing.T) {
 	schemaDSL := `entity user {
 }
 entity document {
-  relation owner: user
+  relation owner @user
   permission view = owner
 }`
 

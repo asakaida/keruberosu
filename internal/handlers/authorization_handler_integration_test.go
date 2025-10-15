@@ -115,9 +115,9 @@ func TestHandlers_Integration_FullScenario(t *testing.T) {
 entity user {}
 
 entity document {
-  relation owner: user
-  relation editor: user
-  relation viewer: user
+  relation owner @user
+  relation editor @user
+  relation viewer @user
 
   permission edit = owner or editor
   permission view = owner or editor or viewer
@@ -352,7 +352,7 @@ entity user {}
 entity document {
   attribute public: bool
 
-  relation owner: user
+  relation owner @user
 
   permission view = owner or rule(resource.public == true)
 }

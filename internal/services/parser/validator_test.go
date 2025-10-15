@@ -9,9 +9,9 @@ func TestValidator_ValidSchema(t *testing.T) {
 	input := `entity user {}
 
 entity document {
-  relation owner: user
-  relation editor: user
-  relation viewer: user
+  relation owner @user
+  relation editor @user
+  relation viewer @user
 
   attribute public: bool
   attribute title: string
@@ -61,8 +61,8 @@ func TestValidator_DuplicateRelationNames(t *testing.T) {
 	input := `entity user {}
 
 entity document {
-  relation owner: user
-  relation owner: user
+  relation owner @user
+  relation owner @user
 }`
 
 	lexer := NewLexer(input)
@@ -111,7 +111,7 @@ func TestValidator_DuplicatePermissionNames(t *testing.T) {
 	input := `entity user {}
 
 entity document {
-  relation owner: user
+  relation owner @user
   permission edit = owner
   permission edit = owner
 }`
@@ -138,7 +138,7 @@ func TestValidator_NameConflicts(t *testing.T) {
 	input := `entity user {}
 
 entity document {
-  relation owner: user
+  relation owner @user
   attribute owner: string
 }`
 
@@ -185,7 +185,7 @@ func TestValidator_InvalidAttributeType(t *testing.T) {
 
 func TestValidator_UndefinedEntityInRelation(t *testing.T) {
 	input := `entity document {
-  relation owner: user
+  relation owner @user
 }`
 
 	lexer := NewLexer(input)
@@ -233,12 +233,12 @@ func TestValidator_HierarchicalPermission(t *testing.T) {
 	input := `entity user {}
 
 entity folder {
-  relation owner: user
+  relation owner @user
   permission view = owner
 }
 
 entity document {
-  relation parent: folder
+  relation parent @folder
   permission view = parent.view
 }`
 
@@ -260,7 +260,7 @@ func TestValidator_UndefinedHierarchicalRelation(t *testing.T) {
 	input := `entity user {}
 
 entity folder {
-  relation owner: user
+  relation owner @user
   permission view = owner
 }
 
@@ -290,11 +290,11 @@ func TestValidator_UndefinedHierarchicalPermission(t *testing.T) {
 	input := `entity user {}
 
 entity folder {
-  relation owner: user
+  relation owner @user
 }
 
 entity document {
-  relation parent: folder
+  relation parent @folder
   permission view = parent.edit
 }`
 
@@ -320,7 +320,7 @@ func TestValidator_CircularPermissionReference(t *testing.T) {
 	input := `entity user {}
 
 entity document {
-  relation owner: user
+  relation owner @user
   permission view = edit
   permission edit = view
 }`
@@ -347,7 +347,7 @@ func TestValidator_CircularPermissionWithinEntity(t *testing.T) {
 	input := `entity user {}
 
 entity document {
-  relation owner: user
+  relation owner @user
   permission delete = edit
   permission edit = view
   permission view = delete
@@ -427,16 +427,16 @@ func TestValidator_ComplexValidSchema(t *testing.T) {
 	input := `entity user {}
 
 entity organization {
-  relation admin: user
-  relation member: user
+  relation admin @user
+  relation member @user
   permission edit = admin
   permission view = admin or member
 }
 
 entity folder {
-  relation owner: user
-  relation parent: folder
-  relation org: organization
+  relation owner @user
+  relation parent @folder
+  relation org @organization
 
   attribute public: bool
 
@@ -445,8 +445,8 @@ entity folder {
 }
 
 entity document {
-  relation owner: user
-  relation parent: folder
+  relation owner @user
+  relation parent @folder
 
   attribute public: bool
   attribute title: string
@@ -474,9 +474,9 @@ func TestValidator_MultipleErrors(t *testing.T) {
 	input := `entity user {}
 
 entity document {
-  relation owner: undefined_entity
-  relation duplicate: user
-  relation duplicate: user
+  relation owner @undefined_entity
+  relation duplicate @user
+  relation duplicate @user
 
   attribute invalid: unknown_type
 

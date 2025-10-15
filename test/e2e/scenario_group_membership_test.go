@@ -37,13 +37,13 @@ func TestGroupMembershipWithSubjectRelation(t *testing.T) {
 entity user {}
 
 entity group {
-  relation member: user
+  relation member @user
 
   permission view = member
 }
 
 entity drive {
-  relation member: user | group#member
+  relation member @user | group#member
 
   permission view = member
 }

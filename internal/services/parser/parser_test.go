@@ -26,8 +26,8 @@ func TestParser_SimpleEntity(t *testing.T) {
 
 func TestParser_EntityWithRelation(t *testing.T) {
 	input := `entity document {
-  relation owner: user
-  relation editor: user
+  relation owner @user
+  relation editor @user
 }`
 
 	lexer := NewLexer(input)
@@ -106,7 +106,7 @@ func TestParser_EntityWithAttribute(t *testing.T) {
 
 func TestParser_SimplePermission(t *testing.T) {
 	input := `entity document {
-  relation owner: user
+  relation owner @user
   permission edit = owner
 }`
 
@@ -140,8 +140,8 @@ func TestParser_SimplePermission(t *testing.T) {
 
 func TestParser_PermissionWithOr(t *testing.T) {
 	input := `entity document {
-  relation owner: user
-  relation editor: user
+  relation owner @user
+  relation editor @user
   permission edit = owner or editor
 }`
 
@@ -184,8 +184,8 @@ func TestParser_PermissionWithOr(t *testing.T) {
 
 func TestParser_PermissionWithAnd(t *testing.T) {
 	input := `entity document {
-  relation member: user
-  relation approved: user
+  relation member @user
+  relation approved @user
   permission edit = member and approved
 }`
 
@@ -212,7 +212,7 @@ func TestParser_PermissionWithAnd(t *testing.T) {
 
 func TestParser_PermissionWithNot(t *testing.T) {
 	input := `entity document {
-  relation banned: user
+  relation banned @user
   permission view = not banned
 }`
 
@@ -243,9 +243,9 @@ func TestParser_PermissionWithNot(t *testing.T) {
 
 func TestParser_PermissionWithComplexExpression(t *testing.T) {
 	input := `entity document {
-  relation owner: user
-  relation editor: user
-  relation banned: user
+  relation owner @user
+  relation editor @user
+  relation banned @user
   permission edit = (owner or editor) and not banned
 }`
 
@@ -291,7 +291,7 @@ func TestParser_PermissionWithComplexExpression(t *testing.T) {
 
 func TestParser_HierarchicalPermission(t *testing.T) {
 	input := `entity document {
-  relation parent: folder
+  relation parent @folder
   permission view = parent.view
 }`
 
@@ -352,11 +352,11 @@ func TestParser_MultipleEntities(t *testing.T) {
 	input := `entity user {}
 
 entity organization {
-  relation member: user
+  relation member @user
 }
 
 entity document {
-  relation owner: user
+  relation owner @user
   permission edit = owner
 }`
 
@@ -384,9 +384,9 @@ func TestParser_CompleteSchema(t *testing.T) {
 	input := `entity user {}
 
 entity document {
-  relation owner: user
-  relation editor: user
-  relation viewer: user
+  relation owner @user
+  relation editor @user
+  relation viewer @user
 
   attribute public: bool
   attribute title: string
@@ -433,7 +433,7 @@ entity user {}
 // Document entity
 entity document {
   // Owner relation
-  relation owner: user
+  relation owner @user
 
   // Edit permission
   permission edit = owner // only owner can edit

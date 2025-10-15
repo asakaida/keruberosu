@@ -96,8 +96,8 @@ func main() {
 entity user {}
 
 entity organization {
-  relation admin: user
-  relation member: user
+  relation admin @user
+  relation member @user
 
   permission delete = admin
   permission manage = admin
@@ -105,10 +105,10 @@ entity organization {
 }
 
 entity repository {
-  relation owner: user
-  relation maintainer: user
-  relation contributor: user
-  relation parent: organization
+  relation owner @user
+  relation maintainer @user
+  relation contributor @user
+  relation parent @organization
 
   attribute private: bool
 
@@ -120,9 +120,9 @@ entity repository {
 }
 
 entity issue {
-  relation assignee: user
-  relation reporter: user
-  relation parent: repository
+  relation assignee @user
+  relation reporter @user
+  relation parent @repository
 
   attribute confidential: bool
 

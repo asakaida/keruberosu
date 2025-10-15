@@ -35,18 +35,18 @@ func main() {
 entity user {}
 
 entity folder {
-  relation owner: user
-  relation editor: user
+  relation owner @user
+  relation editor @user
 
   permission edit = owner or editor
   permission view = owner or editor
 }
 
 entity document {
-  relation owner: user
-  relation editor: user
-  relation viewer: user
-  relation parent: folder
+  relation owner @user
+  relation editor @user
+  relation viewer @user
+  relation parent @folder
 
   permission delete = owner
   permission edit = owner or editor

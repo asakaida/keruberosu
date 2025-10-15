@@ -105,7 +105,7 @@ func TestLexer_SimpleSchema(t *testing.T) {
 	input := `entity user {}
 
 entity document {
-  relation owner: user
+  relation owner @user
   permission edit = owner
 }`
 
@@ -123,7 +123,7 @@ entity document {
 		{TOKEN_LBRACE, "{"},
 		{TOKEN_RELATION, "relation"},
 		{TOKEN_IDENTIFIER, "owner"},
-		{TOKEN_COLON, ":"},
+		{TOKEN_AT, "@"},
 		{TOKEN_IDENTIFIER, "user"},
 		{TOKEN_PERMISSION, "permission"},
 		{TOKEN_IDENTIFIER, "edit"},
@@ -382,7 +382,7 @@ func TestLexer_IllegalCharacter(t *testing.T) {
 
 func TestLexer_LineAndColumn(t *testing.T) {
 	input := `entity user {
-  relation owner: user
+  relation owner @user
 }`
 
 	expected := []struct {
@@ -395,7 +395,7 @@ func TestLexer_LineAndColumn(t *testing.T) {
 		{TOKEN_LBRACE, 1, 13},
 		{TOKEN_RELATION, 2, 3},
 		{TOKEN_IDENTIFIER, 2, 12},
-		{TOKEN_COLON, 2, 17},
+		{TOKEN_AT, 2, 18},
 		{TOKEN_IDENTIFIER, 2, 19},
 		{TOKEN_RBRACE, 3, 1},
 	}

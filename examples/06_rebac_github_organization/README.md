@@ -30,8 +30,8 @@ Organization (組織)
 
 ```text
 entity organization {
-  relation admin: user       # 組織管理者
-  relation member: user      # 組織メンバー
+  relation admin @user       # 組織管理者
+  relation member @user      # 組織メンバー
 
   permission manage = admin             # 組織を管理できる
   permission view = admin or member     # 組織を閲覧できる
@@ -42,9 +42,9 @@ entity organization {
 
 ```text
 entity repository {
-  relation org: organization      # 所属する組織
-  relation maintainer: user       # リポジトリ管理者
-  relation contributor: user      # コントリビューター
+  relation org @organization      # 所属する組織
+  relation maintainer @user       # リポジトリ管理者
+  relation contributor @user      # コントリビューター
 
   permission delete = org.admin                                # 組織管理者のみ削除可能
   permission manage = org.admin or maintainer                  # 管理権限
@@ -57,8 +57,8 @@ entity repository {
 
 ```text
 entity issue {
-  relation repo: repository    # 所属するリポジトリ
-  relation assignee: user      # 担当者
+  relation repo @repository    # 所属するリポジトリ
+  relation assignee @user      # 担当者
 
   permission close = repo.manage       # リポジトリ管理者がクローズ可能
   permission edit = repo.manage or assignee   # 管理者または担当者が編集可能

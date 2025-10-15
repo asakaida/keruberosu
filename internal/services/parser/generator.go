@@ -65,7 +65,7 @@ func (g *Generator) generateEntity(entity *EntityAST) string {
 
 // generateRelation generates DSL for a relation
 func (g *Generator) generateRelation(relation *RelationAST) string {
-	return fmt.Sprintf("relation %s: %s", relation.Name, relation.TargetType)
+	return fmt.Sprintf("relation %s @%s", relation.Name, relation.TargetType)
 }
 
 // generateAttribute generates DSL for an attribute

@@ -486,9 +486,9 @@ docker compose down postgres-test -v
 entity user {}
 
 entity document {
-  relation owner: user
-  relation editor: user
-  relation viewer: user
+  relation owner @user
+  relation editor @user
+  relation viewer @user
 
   permission edit = owner or editor
   permission view = owner or editor or viewer
@@ -525,7 +525,7 @@ if resp.Can == pb.CheckResult_CHECK_RESULT_ALLOWED {
 
 ### グループメンバーシップ（Permify 完全互換）
 
-Keruberosu は、Permify と完全に互換性のあるsubject relation機能をサポートしています。これにより、`drive:eng_drive#member@group:engineering#member`のような、グループ全体を一つのタプルで関係付けることができます。
+Keruberosu は、Permify と完全に互換性のある subject relation 機能をサポートしています。これにより、`drive:eng_drive#member@group:engineering#member`のような、グループ全体を一つのタプルで関係付けることができます。
 
 ```go
 // グループに所属するユーザーを定義

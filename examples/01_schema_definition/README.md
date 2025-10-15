@@ -12,9 +12,9 @@ Keruberosu は Permify 互換のスキーマ DSL をサポートしています�
 entity user {}
 
 entity document {
-  relation owner: user
-  relation editor: user
-  relation viewer: user
+  relation owner @user
+  relation editor @user
+  relation viewer @user
 
   permission edit = owner or editor
   permission view = owner or editor or viewer

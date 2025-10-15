@@ -27,19 +27,19 @@ func TestScenario_ReBAC_GoogleDocs(t *testing.T) {
 entity user {}
 
 entity folder {
-  relation owner: user
-  relation editor: user
-  relation viewer: user
+  relation owner @user
+  relation editor @user
+  relation viewer @user
 
   permission edit = owner or editor
   permission view = owner or editor or viewer
 }
 
 entity document {
-  relation owner: user
-  relation editor: user
-  relation viewer: user
-  relation parent: folder
+  relation owner @user
+  relation editor @user
+  relation viewer @user
+  relation parent @folder
 
   permission delete = owner
   permission edit = owner or editor

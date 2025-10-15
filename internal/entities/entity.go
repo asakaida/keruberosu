@@ -1,7 +1,7 @@
 package entities
 
 // Entity represents an entity definition in the schema
-// Example: "entity document { relation owner: user; permission edit = owner }"
+// Example: "entity document { relation owner @user; permission edit = owner }"
 type Entity struct {
 	Name             string             // Entity name (e.g., "document", "user", "organization")
 	Relations        []*Relation        // Relation definitions

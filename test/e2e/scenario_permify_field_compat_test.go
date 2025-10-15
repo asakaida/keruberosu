@@ -26,8 +26,8 @@ func TestScenario_PermifyFieldCompat(t *testing.T) {
 entity user {}
 
 entity document {
-  relation owner: user
-  relation viewer: user
+  relation owner @user
+  relation viewer @user
 
   permission view = owner or viewer
   permission edit = owner

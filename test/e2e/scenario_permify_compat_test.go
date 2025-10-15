@@ -28,18 +28,18 @@ func TestScenario_PermifyCompat(t *testing.T) {
 entity user {}
 
 entity organization {
-  relation admin: user
-  relation member: user
+  relation admin @user
+  relation member @user
 
   permission create_repository = admin or member
   permission delete = admin
 }
 
 entity repository {
-  relation owner: user
-  relation maintainer: user
-  relation reader: user
-  relation parent: organization
+  relation owner @user
+  relation maintainer @user
+  relation reader @user
+  relation parent @organization
 
   permission push = owner or maintainer
   permission read = owner or maintainer or reader or parent.member

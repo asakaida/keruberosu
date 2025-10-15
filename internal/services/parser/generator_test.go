@@ -41,7 +41,7 @@ func TestGenerator_Generate_WithRelation(t *testing.T) {
 	result := gen.Generate(ast)
 
 	expected := `entity document {
-  relation owner: user
+  relation owner @user
 }`
 
 	if result != expected {
@@ -97,7 +97,7 @@ func TestGenerator_Generate_WithPermission(t *testing.T) {
 	result := gen.Generate(ast)
 
 	expected := `entity document {
-  relation owner: user
+  relation owner @user
   permission view = owner
 }`
 
@@ -310,7 +310,7 @@ func TestGenerator_Generate_ComplexSchema(t *testing.T) {
 	}
 
 	// Check that all elements are present
-	if !strings.Contains(result, "relation owner: user") {
+	if !strings.Contains(result, "relation owner @user") {
 		t.Errorf("missing relation owner, got:\n%s", result)
 	}
 	if !strings.Contains(result, "attribute public: boolean") {
@@ -325,8 +325,8 @@ func TestGenerator_RoundTrip_ParseAndGenerate(t *testing.T) {
 	originalDSL := `entity user {
 }
 entity document {
-  relation owner: user
-  relation editor: user
+  relation owner @user
+  relation editor @user
   attribute public: boolean
   permission view = owner
   permission edit = owner or editor

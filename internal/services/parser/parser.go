@@ -157,7 +157,7 @@ func (p *Parser) parseEntity() *EntityAST {
 }
 
 // parseRelation parses a relation definition
-// Supports both syntaxes: "relation owner: user" and "relation owner @user"
+// Permify syntax only: "relation owner @user"
 func (p *Parser) parseRelation() *RelationAST {
 	relation := &RelationAST{}
 
@@ -167,14 +167,8 @@ func (p *Parser) parseRelation() *RelationAST {
 	}
 	relation.Name = p.current.Value
 
-	// Expect : or @ (Permify互換)
-	if p.peekTokenIs(TOKEN_COLON) {
-		p.nextToken() // consume :
-	} else if p.peekTokenIs(TOKEN_AT) {
-		p.nextToken() // consume @
-	} else {
-		p.errors = append(p.errors, fmt.Sprintf("expected ':' or '@' after relation name at %d:%d",
-			p.peek.Line, p.peek.Column))
+	// Expect @ (Permify syntax)
+	if !p.expectPeek(TOKEN_AT) {
 		return nil
 	}
 

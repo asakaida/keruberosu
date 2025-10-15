@@ -36,23 +36,23 @@ func main() {
 entity user {}
 
 entity team {
-  relation member: user
+  relation member @user
 
   permission view = member
 }
 
 entity organization {
-  relation admin: user
-  relation member: user
+  relation admin @user
+  relation member @user
 
   permission manage = admin
   permission view = admin or member
 }
 
 entity repository {
-  relation org: organization
-  relation maintainer: user
-  relation contributor: user | team#member
+  relation org @organization
+  relation maintainer @user
+  relation contributor @user | team#member
 
   permission delete = org.admin
   permission manage = org.admin or maintainer
@@ -61,8 +61,8 @@ entity repository {
 }
 
 entity issue {
-  relation repo: repository
-  relation assignee: user
+  relation repo @repository
+  relation assignee @user
 
   permission close = repo.manage
   permission edit = repo.manage or assignee

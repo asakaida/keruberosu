@@ -214,7 +214,7 @@ graph TB
 ```text
 DSL:
   entity document {
-    relation owner: user
+    relation owner @user
     permission edit = owner or editor
   }
 
