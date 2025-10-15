@@ -36,6 +36,10 @@ func main() {
 	// Step 1: スキーマを定義
 	fmt.Println("Step 1: スキーマ定義")
 	schema := `
+rule can_view_confidential(subject, resource) {
+  !resource.confidential || subject.security_level >= 3
+}
+
 entity user {}
 
 entity department {
@@ -50,8 +54,8 @@ entity document {
   relation viewer @user
   relation department @department
 
-  attribute confidential: bool
-  attribute security_level: int
+  attribute confidential boolean
+  attribute security_level integer
 
   // 所有者は全権限
   permission delete = owner
@@ -60,7 +64,7 @@ entity document {
   // 閲覧権限: 直接の閲覧者、編集者、所有者、または部署メンバー
   // ただし機密文書の場合はセキュリティレベルが3以上必要
   permission view = owner or editor or viewer or
-    (department.member and rule(!resource.confidential or subject.security_level >= 3))
+    (department.member and can_view_confidential(subject, resource))
 }
 `
 

@@ -69,11 +69,21 @@ func (p *Parser) peekError(t TokenType) {
 // Parse parses the entire schema
 func (p *Parser) Parse() (*SchemaAST, error) {
 	schema := &SchemaAST{
+		Rules:    []*RuleDefinitionAST{},
 		Entities: []*EntityAST{},
 	}
 
 	for !p.currentTokenIs(TOKEN_EOF) {
-		if p.currentTokenIs(TOKEN_ENTITY) {
+		if p.currentTokenIs(TOKEN_RULE) {
+			// Parse top-level rule definition (Permify compatible)
+			rule := p.parseRuleDefinition()
+			if rule != nil {
+				schema.Rules = append(schema.Rules, rule)
+			} else {
+				// If parseRuleDefinition failed, skip to next token to avoid infinite loop
+				p.nextToken()
+			}
+		} else if p.currentTokenIs(TOKEN_ENTITY) {
 			entity := p.parseEntity()
 			if entity != nil {
 				schema.Entities = append(schema.Entities, entity)
@@ -82,7 +92,7 @@ func (p *Parser) Parse() (*SchemaAST, error) {
 				p.nextToken()
 			}
 		} else {
-			p.errors = append(p.errors, fmt.Sprintf("unexpected token %s at %d:%d, expected 'entity'",
+			p.errors = append(p.errors, fmt.Sprintf("unexpected token %s at %d:%d, expected 'rule' or 'entity'",
 				tokenNames[p.current.Type], p.current.Line, p.current.Column))
 			p.nextToken()
 		}
@@ -93,6 +103,104 @@ func (p *Parser) Parse() (*SchemaAST, error) {
 	}
 
 	return schema, nil
+}
+
+// parseRuleDefinition parses a top-level rule definition (Permify syntax)
+// Syntax: rule rule_name(param1, param2) { expression }
+func (p *Parser) parseRuleDefinition() *RuleDefinitionAST {
+	rule := &RuleDefinitionAST{
+		Parameters: []string{},
+	}
+
+	// Expect identifier (rule name)
+	if !p.expectPeek(TOKEN_IDENTIFIER) {
+		return nil
+	}
+	rule.Name = p.current.Value
+
+	// Expect (
+	if !p.expectPeek(TOKEN_LPAREN) {
+		return nil
+	}
+
+	// Parse parameter list
+	p.nextToken()
+	if !p.currentTokenIs(TOKEN_RPAREN) {
+		// First parameter
+		if !p.currentTokenIs(TOKEN_IDENTIFIER) {
+			p.errors = append(p.errors, fmt.Sprintf("expected parameter name, got %s at %d:%d",
+				tokenNames[p.current.Type], p.current.Line, p.current.Column))
+			return nil
+		}
+		rule.Parameters = append(rule.Parameters, p.current.Value)
+
+		// Additional parameters (comma-separated)
+		for p.peekTokenIs(TOKEN_COMMA) {
+			p.nextToken() // consume comma
+			if !p.expectPeek(TOKEN_IDENTIFIER) {
+				return nil
+			}
+			rule.Parameters = append(rule.Parameters, p.current.Value)
+		}
+
+		p.nextToken()
+	}
+
+	// Expect )
+	if !p.currentTokenIs(TOKEN_RPAREN) {
+		p.errors = append(p.errors, fmt.Sprintf("expected ')' after parameters, got %s at %d:%d",
+			tokenNames[p.current.Type], p.current.Line, p.current.Column))
+		return nil
+	}
+
+	// Expect {
+	if !p.expectPeek(TOKEN_LBRACE) {
+		return nil
+	}
+
+	// Read the rule body (CEL expression until closing })
+	p.nextToken()
+	var bodyParts []string
+	braceCount := 1
+	prevToken := &Token{Type: TOKEN_LBRACE}
+
+	for braceCount > 0 && !p.currentTokenIs(TOKEN_EOF) {
+		if p.currentTokenIs(TOKEN_LBRACE) {
+			braceCount++
+		} else if p.currentTokenIs(TOKEN_RBRACE) {
+			braceCount--
+			if braceCount == 0 {
+				break
+			}
+		}
+
+		// Add token value with proper spacing
+		tokenValue := p.current.Value
+
+		// Add quotes back for string literals
+		if p.current.Type == TOKEN_STRING {
+			tokenValue = `"` + tokenValue + `"`
+		}
+
+		// Add space before token if needed
+		if len(bodyParts) > 0 && needsSpaceBefore(prevToken, p.current) {
+			bodyParts = append(bodyParts, " ")
+		}
+
+		bodyParts = append(bodyParts, tokenValue)
+		prevToken = p.current
+		p.nextToken()
+	}
+
+	if !p.currentTokenIs(TOKEN_RBRACE) {
+		p.errors = append(p.errors, "expected '}' at end of rule body")
+		return nil
+	}
+
+	rule.Body = strings.Join(bodyParts, "")
+
+	p.nextToken()
+	return rule
 }
 
 // parseEntity parses an entity definition
@@ -214,6 +322,7 @@ func (p *Parser) parseRelation() *RelationAST {
 }
 
 // parseAttribute parses an attribute definition
+// Permify format only: attribute name type
 func (p *Parser) parseAttribute() *AttributeAST {
 	attribute := &AttributeAST{}
 
@@ -223,16 +332,11 @@ func (p *Parser) parseAttribute() *AttributeAST {
 	}
 	attribute.Name = p.current.Value
 
-	// Expect :
-	if !p.expectPeek(TOKEN_COLON) {
-		return nil
-	}
-
-	// Expect identifier (type)
+	// Expect identifier (type) - Permify format has no colon
 	if !p.expectPeek(TOKEN_IDENTIFIER) {
 		return nil
 	}
-	attributeType := p.current.Value
+	attribute.Type = p.current.Value
 
 	// Check for array type (e.g., string[])
 	if p.peekTokenIs(TOKEN_LBRACKET) {
@@ -240,10 +344,8 @@ func (p *Parser) parseAttribute() *AttributeAST {
 		if !p.expectPeek(TOKEN_RBRACKET) {
 			return nil
 		}
-		attributeType += "[]"
+		attribute.Type += "[]"
 	}
-
-	attribute.Type = attributeType
 
 	p.nextToken()
 	return attribute
@@ -361,13 +463,52 @@ func (p *Parser) parsePrimaryExpression() PermissionRuleAST {
 		p.nextToken()
 		return expr
 
-	case p.currentTokenIs(TOKEN_RULE):
-		// ABAC rule
-		return p.parseRuleExpression()
-
 	case p.currentTokenIs(TOKEN_IDENTIFIER):
-		// Could be relation or hierarchical permission
+		// Could be: relation, hierarchical permission, or rule call
 		name := p.current.Value
+
+		// Check for rule call (Permify syntax): rule_name(arg1, arg2)
+		if p.peekTokenIs(TOKEN_LPAREN) {
+			p.nextToken() // consume (
+
+			// Parse arguments
+			var arguments []string
+			p.nextToken()
+
+			if !p.currentTokenIs(TOKEN_RPAREN) {
+				// First argument
+				if !p.currentTokenIs(TOKEN_IDENTIFIER) {
+					p.errors = append(p.errors, fmt.Sprintf("expected argument name, got %s at %d:%d",
+						tokenNames[p.current.Type], p.current.Line, p.current.Column))
+					return nil
+				}
+				arguments = append(arguments, p.current.Value)
+
+				// Additional arguments (comma-separated)
+				for p.peekTokenIs(TOKEN_COMMA) {
+					p.nextToken() // consume comma
+					if !p.expectPeek(TOKEN_IDENTIFIER) {
+						return nil
+					}
+					arguments = append(arguments, p.current.Value)
+				}
+
+				p.nextToken()
+			}
+
+			// Expect )
+			if !p.currentTokenIs(TOKEN_RPAREN) {
+				p.errors = append(p.errors, fmt.Sprintf("expected ')' after arguments, got %s at %d:%d",
+					tokenNames[p.current.Type], p.current.Line, p.current.Column))
+				return nil
+			}
+
+			p.nextToken()
+			return &RuleCallPermissionAST{
+				RuleName:  name,
+				Arguments: arguments,
+			}
+		}
 
 		// Check for hierarchical permission (relation.permission)
 		if p.peekTokenIs(TOKEN_DOT) {
@@ -393,60 +534,6 @@ func (p *Parser) parsePrimaryExpression() PermissionRuleAST {
 		p.errors = append(p.errors, fmt.Sprintf("unexpected token %s in permission rule at %d:%d",
 			tokenNames[p.current.Type], p.current.Line, p.current.Column))
 		return nil
-	}
-}
-
-// parseRuleExpression parses a rule() expression
-func (p *Parser) parseRuleExpression() PermissionRuleAST {
-	// Expect (
-	if !p.expectPeek(TOKEN_LPAREN) {
-		return nil
-	}
-
-	// Read the CEL expression until closing )
-	p.nextToken()
-	var expressionParts []string
-	parenCount := 1
-	prevToken := &Token{Type: TOKEN_LPAREN}
-
-	for parenCount > 0 && !p.currentTokenIs(TOKEN_EOF) {
-		if p.currentTokenIs(TOKEN_LPAREN) {
-			parenCount++
-		} else if p.currentTokenIs(TOKEN_RPAREN) {
-			parenCount--
-			if parenCount == 0 {
-				break
-			}
-		}
-
-		// Add token value with proper spacing and quoting
-		tokenValue := p.current.Value
-
-		// Add quotes back for string literals
-		if p.current.Type == TOKEN_STRING {
-			tokenValue = `"` + tokenValue + `"`
-		}
-
-		// Add space before token if needed
-		if len(expressionParts) > 0 && needsSpaceBefore(prevToken, p.current) {
-			expressionParts = append(expressionParts, " ")
-		}
-
-		expressionParts = append(expressionParts, tokenValue)
-		prevToken = p.current
-		p.nextToken()
-	}
-
-	if !p.currentTokenIs(TOKEN_RPAREN) {
-		p.errors = append(p.errors, "expected ')' at end of rule expression")
-		return nil
-	}
-
-	expression := strings.Join(expressionParts, "")
-
-	p.nextToken()
-	return &RulePermissionAST{
-		Expression: expression,
 	}
 }
 

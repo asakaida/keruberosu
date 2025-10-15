@@ -93,6 +93,14 @@ func main() {
 	fmt.Println()
 
 	schema := `
+rule is_not_private(resource) {
+  !resource.private
+}
+
+rule is_not_confidential(resource) {
+  !resource.confidential
+}
+
 entity user {}
 
 entity organization {
@@ -110,13 +118,13 @@ entity repository {
   relation contributor @user
   relation parent @organization
 
-  attribute private: bool
+  attribute private boolean
 
   // private repositories: only direct roles can view
   // public repositories: direct roles OR org members can view
   permission delete = owner
   permission push = owner or maintainer
-  permission view = owner or maintainer or contributor or (parent.view and rule(!resource.private))
+  permission view = owner or maintainer or contributor or (parent.view and is_not_private(resource))
 }
 
 entity issue {
@@ -124,12 +132,12 @@ entity issue {
   relation reporter @user
   relation parent @repository
 
-  attribute confidential: bool
+  attribute confidential boolean
 
   // confidential issues: only assignee or reporter
   // non-confidential: anyone who can view the repository
   permission edit = assignee or reporter
-  permission view = (assignee or reporter) or (parent.view and rule(!resource.confidential))
+  permission view = (assignee or reporter) or (parent.view and is_not_confidential(resource))
 }
 `
 

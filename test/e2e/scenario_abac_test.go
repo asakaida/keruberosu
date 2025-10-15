@@ -25,42 +25,72 @@ func TestScenario_ABAC_AllOperators(t *testing.T) {
 	// Step 1: Define schema with ABAC rules
 	t.Log("Step 1: Defining schema with ABAC rules")
 	schema := `
+rule is_public(resource) {
+  resource.public == true
+}
+
+rule is_owner(resource, subject) {
+  resource.owner_id == subject.id
+}
+
+rule same_department(resource, subject) {
+  resource.department == subject.department
+}
+
+rule has_sufficient_clearance(subject, resource) {
+  subject.security_level >= resource.security_level
+}
+
+rule has_required_role(subject, resource) {
+  subject.role in resource.tags
+}
+
+rule complex_access(resource, subject) {
+  (resource.public == true || resource.owner_id == subject.id || resource.department == subject.department) &&
+  subject.security_level >= resource.security_level
+}
+
+rule is_premium_content(subject, resource) {
+  subject.subscription_tier == "premium" && resource.price > 100
+}
+
+rule is_not_restricted(resource) {
+  !(resource.department == "restricted")
+}
+
 entity user {}
 
 entity document {
-  attribute public: bool
-  attribute owner_id: string
-  attribute department: string
-  attribute security_level: int
-  attribute tags: string[]
-  attribute price: int
+  attribute public boolean
+  attribute owner_id string
+  attribute department string
+  attribute security_level integer
+  attribute tags string[]
+  attribute price integer
 
   // Public documents
-  permission view_public = rule(resource.public == true)
+  permission view_public = is_public(resource)
 
   // Owner-only access
-  permission view_owner = rule(resource.owner_id == subject.id)
+  permission view_owner = is_owner(resource, subject)
 
   // Same department access
-  permission view_department = rule(resource.department == subject.department)
+  permission view_department = same_department(resource, subject)
 
   // Security level check (subject level must be >= resource level)
-  permission view_classified = rule(subject.security_level >= resource.security_level)
+  permission view_classified = has_sufficient_clearance(subject, resource)
 
   // Tag-based access (subject must have at least one matching tag)
-  permission view_tagged = rule(subject.role in resource.tags)
+  permission view_tagged = has_required_role(subject, resource)
 
   // Complex rule: (public OR owner OR same department) AND security level
-  permission view_complex = rule(
-    (resource.public == true || resource.owner_id == subject.id || resource.department == subject.department) &&
-    subject.security_level >= resource.security_level
-  )
+  permission view_complex = complex_access(resource, subject)
 
   // Price-based access
-  permission view_premium = rule(subject.subscription_tier == "premium" && resource.price > 100)
+  permission view_premium = is_premium_content(subject, resource)
 
   // Negation
-  permission view_not_restricted = rule(!(resource.department == "restricted"))
+  permission view_not_restricted = is_not_restricted(resource)
 }
 `
 

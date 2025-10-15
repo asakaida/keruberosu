@@ -222,8 +222,8 @@ func TestLexer_HierarchicalPermission(t *testing.T) {
 	}
 }
 
-func TestLexer_RuleExpression(t *testing.T) {
-	input := `permission view = rule(resource.public == true)`
+func TestLexer_RuleCall(t *testing.T) {
+	input := `permission view = is_public(resource)`
 
 	expected := []struct {
 		tokenType TokenType
@@ -232,13 +232,9 @@ func TestLexer_RuleExpression(t *testing.T) {
 		{TOKEN_PERMISSION, "permission"},
 		{TOKEN_IDENTIFIER, "view"},
 		{TOKEN_EQUALS, "="},
-		{TOKEN_RULE, "rule"},
+		{TOKEN_IDENTIFIER, "is_public"},
 		{TOKEN_LPAREN, "("},
 		{TOKEN_IDENTIFIER, "resource"},
-		{TOKEN_DOT, "."},
-		{TOKEN_IDENTIFIER, "public"},
-		{TOKEN_EQ, "=="},
-		{TOKEN_IDENTIFIER, "true"},
 		{TOKEN_RPAREN, ")"},
 		{TOKEN_EOF, ""},
 	}

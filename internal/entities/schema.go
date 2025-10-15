@@ -4,11 +4,22 @@ import "time"
 
 // Schema represents the complete authorization schema for a tenant
 type Schema struct {
-	TenantID  string    // Tenant identifier
-	DSL       string    // Original DSL text
-	Entities  []*Entity // Entity definitions
+	TenantID  string            // Tenant identifier
+	DSL       string            // Original DSL text
+	Rules     []*RuleDefinition // Top-level rule definitions (Permify compatible)
+	Entities  []*Entity         // Entity definitions
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// GetRule returns the rule definition by name
+func (s *Schema) GetRule(name string) *RuleDefinition {
+	for _, r := range s.Rules {
+		if r.Name == name {
+			return r
+		}
+	}
+	return nil
 }
 
 // GetEntity returns the entity definition by name

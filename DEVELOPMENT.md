@@ -620,11 +620,11 @@ Milestone 4: 認可エンジン実装完了（Week 4）
     - 行・列番号追跡
     - 11 テストケース完了
   - Parser 実装（ast.go, parser.go）
-    - AST 構造体定義（SchemaAST, EntityAST, RelationAST, AttributeAST, PermissionAST）
-    - PermissionRuleAST インターフェース（RelationPermissionAST, LogicalPermissionAST, HierarchicalPermissionAST, RulePermissionAST）
+    - AST 構造体定義（SchemaAST, EntityAST, RelationAST, AttributeAST, PermissionAST, RuleDefinitionAST）
+    - PermissionRuleAST インターフェース（RelationPermissionAST, LogicalPermissionAST, HierarchicalPermissionAST, RuleCallPermissionAST）
     - 演算子優先順位パース（or < and < not）
     - 再帰下降パーサー実装
-    - CEL 式パース（rule() 内の式）
+    - トップレベルルール定義パース（rule is_public(resource) { ... }）
     - エラーハンドリング（無限ループ対策）
     - 17 テストケース完了
   - Validator 実装（validator.go）
@@ -677,7 +677,7 @@ Milestone 4: 認可エンジン実装完了（Week 4）
     - ABACRule テスト: 2 テスト
     - ContextualTuples テスト: 1 テスト
     - MaxDepth エラーテスト: 1 テスト
-    - 複雑なルールテスト（(owner or editor) and rule(...)）: 2 テスト
+    - 複雑なルールテスト（(owner or editor) and is_public(resource)）: 2 テスト
   - 合計 16 テストケース全て成功
 - Checker 実装完了
   - Checker 実装（checker.go）

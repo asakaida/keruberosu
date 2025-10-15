@@ -33,18 +33,34 @@ func main() {
 
 	// Step 1: スキーマを定義
 	schema := `
+rule is_public(resource) {
+  resource.public == true
+}
+
+rule has_sufficient_clearance(subject, resource) {
+  subject.security_level >= resource.security_level
+}
+
+rule same_department(subject, resource) {
+  resource.department == subject.department
+}
+
+rule is_premium_content(subject, resource) {
+  subject.subscription_tier == "premium" && resource.price > 100
+}
+
 entity user {}
 
 entity document {
-  attribute public: bool
-  attribute security_level: int
-  attribute department: string
-  attribute price: int
+  attribute public boolean
+  attribute security_level integer
+  attribute department string
+  attribute price integer
 
-  permission view_public = rule(resource.public == true)
-  permission view_classified = rule(subject.security_level >= resource.security_level)
-  permission view_department = rule(resource.department == subject.department)
-  permission view_premium = rule(subject.subscription_tier == "premium" && resource.price > 100)
+  permission view_public = is_public(resource)
+  permission view_classified = has_sufficient_clearance(subject, resource)
+  permission view_department = same_department(subject, resource)
+  permission view_premium = is_premium_content(subject, resource)
 }
 `
 

@@ -2,7 +2,16 @@ package parser
 
 // SchemaAST represents the parsed schema AST
 type SchemaAST struct {
+	Rules    []*RuleDefinitionAST // Top-level rule definitions (Permify compatible)
 	Entities []*EntityAST
+}
+
+// RuleDefinitionAST represents a top-level rule definition
+// Permify syntax: rule rule_name(param1, param2) { expression }
+type RuleDefinitionAST struct {
+	Name       string   // Rule name
+	Parameters []string // Parameter names (e.g., ["resource", "subject"])
+	Body       string   // CEL expression
 }
 
 // EntityAST represents an entity definition in the AST
@@ -63,10 +72,11 @@ type HierarchicalPermissionAST struct {
 
 func (r *HierarchicalPermissionAST) isPermissionRule() {}
 
-// RulePermissionAST represents an ABAC rule using CEL
-// Example: "permission view = rule(resource.public == true)"
-type RulePermissionAST struct {
-	Expression string // CEL expression
+// RuleCallPermissionAST represents a call to a top-level rule (Permify syntax)
+// Example: "permission view = is_public(resource)"
+type RuleCallPermissionAST struct {
+	RuleName  string   // Name of the rule to call
+	Arguments []string // Argument list (e.g., ["resource", "subject"])
 }
 
-func (r *RulePermissionAST) isPermissionRule() {}
+func (r *RuleCallPermissionAST) isPermissionRule() {}

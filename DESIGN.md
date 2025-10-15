@@ -367,13 +367,20 @@ Generator（AST → DSL文字列） → DSL文字列
 // internal/services/parser/ast.go
 
 type SchemaAST struct {
+    Rules    []*RuleDefinitionAST // トップレベルルール定義
     Entities []*EntityAST
 }
 
+type RuleDefinitionAST struct {
+    Name       string   // ルール名 (例: "is_public")
+    Parameters []string // パラメータリスト (例: ["resource", "subject"])
+    Body       string   // CEL式本体
+}
+
 type EntityAST struct {
-    Name       string
-    Relations  []*RelationAST
-    Attributes []*AttributeAST
+    Name        string
+    Relations   []*RelationAST
+    Attributes  []*AttributeAST
     Permissions []*PermissionAST
 }
 
@@ -414,9 +421,10 @@ type HierarchicalPermissionAST struct {
     Permission string
 }
 
-// ABACルール
-type RulePermissionAST struct {
-    Expression string // CEL式
+// ルール呼び出し (Permify 互換)
+type RuleCallPermissionAST struct {
+    RuleName  string   // 呼び出すルール名
+    Arguments []string // 引数リスト (例: ["resource", "subject"])
 }
 ```
 

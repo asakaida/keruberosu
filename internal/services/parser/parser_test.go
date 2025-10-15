@@ -65,10 +65,10 @@ func TestParser_EntityWithRelation(t *testing.T) {
 
 func TestParser_EntityWithAttribute(t *testing.T) {
 	input := `entity document {
-  attribute title: string
-  attribute public: bool
-  attribute version: int
-  attribute tags: string[]
+  attribute title string
+  attribute public boolean
+  attribute version integer
+  attribute tags string[]
 }`
 
 	lexer := NewLexer(input)
@@ -89,8 +89,8 @@ func TestParser_EntityWithAttribute(t *testing.T) {
 		attrType string
 	}{
 		{"title", "string"},
-		{"public", "bool"},
-		{"version", "int"},
+		{"public", "boolean"},
+		{"version", "integer"},
 		{"tags", "string[]"},
 	}
 
@@ -320,34 +320,6 @@ func TestParser_HierarchicalPermission(t *testing.T) {
 	}
 }
 
-func TestParser_RulePermission(t *testing.T) {
-	input := `entity document {
-  attribute public: bool
-  permission view = rule(resource.public == true)
-}`
-
-	lexer := NewLexer(input)
-	parser := NewParser(lexer)
-
-	schema, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-
-	entity := schema.Entities[0]
-	perm := entity.Permissions[0]
-
-	rule, ok := perm.Rule.(*RulePermissionAST)
-	if !ok {
-		t.Fatalf("expected RulePermissionAST, got %T", perm.Rule)
-	}
-
-	expected := "resource.public == true"
-	if rule.Expression != expected {
-		t.Errorf("expected expression %q, got %q", expected, rule.Expression)
-	}
-}
-
 func TestParser_MultipleEntities(t *testing.T) {
 	input := `entity user {}
 
@@ -381,18 +353,22 @@ entity document {
 }
 
 func TestParser_CompleteSchema(t *testing.T) {
-	input := `entity user {}
+	input := `rule is_public(resource) {
+  resource.public == true
+}
+
+entity user {}
 
 entity document {
   relation owner @user
   relation editor @user
   relation viewer @user
 
-  attribute public: bool
-  attribute title: string
+  attribute public boolean
+  attribute title string
 
   permission edit = owner or editor
-  permission view = owner or editor or viewer or rule(resource.public == true)
+  permission view = owner or editor or viewer or is_public(resource)
   permission delete = owner
 }`
 
@@ -402,6 +378,10 @@ entity document {
 	schema, err := parser.Parse()
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(schema.Rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(schema.Rules))
 	}
 
 	if len(schema.Entities) != 2 {
@@ -501,5 +481,144 @@ func TestParser_ErrorInvalidPermission(t *testing.T) {
 	_, err := parser.Parse()
 	if err == nil {
 		t.Fatal("expected parse error, got nil")
+	}
+}
+
+func TestParser_TopLevelRuleDefinition(t *testing.T) {
+	input := `rule is_public(resource) {
+  resource.public == true
+}
+
+entity document {
+  attribute public boolean
+  permission view = is_public(resource)
+}`
+
+	lexer := NewLexer(input)
+	parser := NewParser(lexer)
+
+	schema, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	// Check rule definition
+	if len(schema.Rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(schema.Rules))
+	}
+
+	rule := schema.Rules[0]
+	if rule.Name != "is_public" {
+		t.Errorf("expected rule name 'is_public', got %s", rule.Name)
+	}
+	if len(rule.Parameters) != 1 || rule.Parameters[0] != "resource" {
+		t.Errorf("expected parameters [resource], got %v", rule.Parameters)
+	}
+	if rule.Body != "resource.public == true" {
+		t.Errorf("expected body 'resource.public == true', got %s", rule.Body)
+	}
+
+	// Check rule call in permission
+	if len(schema.Entities) != 1 {
+		t.Fatalf("expected 1 entity, got %d", len(schema.Entities))
+	}
+
+	entity := schema.Entities[0]
+	if len(entity.Permissions) != 1 {
+		t.Fatalf("expected 1 permission, got %d", len(entity.Permissions))
+	}
+
+	perm := entity.Permissions[0]
+	ruleCall, ok := perm.Rule.(*RuleCallPermissionAST)
+	if !ok {
+		t.Fatalf("expected RuleCallPermissionAST, got %T", perm.Rule)
+	}
+
+	if ruleCall.RuleName != "is_public" {
+		t.Errorf("expected rule name 'is_public', got %s", ruleCall.RuleName)
+	}
+	if len(ruleCall.Arguments) != 1 || ruleCall.Arguments[0] != "resource" {
+		t.Errorf("expected arguments [resource], got %v", ruleCall.Arguments)
+	}
+}
+
+func TestParser_RuleWithMultipleParameters(t *testing.T) {
+	input := `rule can_edit(subject, resource) {
+  subject.id == resource.owner_id
+}
+
+entity document {
+  attribute owner_id string
+  permission edit = can_edit(subject, resource)
+}`
+
+	lexer := NewLexer(input)
+	parser := NewParser(lexer)
+
+	schema, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	rule := schema.Rules[0]
+	if len(rule.Parameters) != 2 {
+		t.Fatalf("expected 2 parameters, got %d", len(rule.Parameters))
+	}
+	if rule.Parameters[0] != "subject" || rule.Parameters[1] != "resource" {
+		t.Errorf("expected parameters [subject, resource], got %v", rule.Parameters)
+	}
+
+	entity := schema.Entities[0]
+	perm := entity.Permissions[0]
+	ruleCall := perm.Rule.(*RuleCallPermissionAST)
+	if len(ruleCall.Arguments) != 2 {
+		t.Fatalf("expected 2 arguments, got %d", len(ruleCall.Arguments))
+	}
+	if ruleCall.Arguments[0] != "subject" || ruleCall.Arguments[1] != "resource" {
+		t.Errorf("expected arguments [subject, resource], got %v", ruleCall.Arguments)
+	}
+}
+
+func TestParser_AllAttributeTypes(t *testing.T) {
+	// Test all Permify attribute types
+	input := `entity document {
+  attribute title string
+  attribute active boolean
+  attribute count integer
+  attribute price double
+  attribute tags string[]
+}`
+
+	lexer := NewLexer(input)
+	parser := NewParser(lexer)
+
+	schema, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	entity := schema.Entities[0]
+	if len(entity.Attributes) != 5 {
+		t.Fatalf("expected 5 attributes, got %d", len(entity.Attributes))
+	}
+
+	tests := []struct {
+		name     string
+		attrType string
+	}{
+		{"title", "string"},
+		{"active", "boolean"},
+		{"count", "integer"},
+		{"price", "double"},
+		{"tags", "string[]"},
+	}
+
+	for i, test := range tests {
+		if entity.Attributes[i].Name != test.name {
+			t.Errorf("expected attribute name %s, got %s", test.name, entity.Attributes[i].Name)
+		}
+		if entity.Attributes[i].Type != test.attrType {
+			t.Errorf("expected attribute type %s, got %s", test.attrType, entity.Attributes[i].Type)
+		}
 	}
 }

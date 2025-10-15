@@ -73,6 +73,8 @@ func (e *Evaluator) EvaluateRule(
 		return e.evaluateHierarchical(ctx, req, r)
 	case *entities.ABACRule:
 		return e.evaluateABAC(ctx, req, r)
+	case *entities.RuleCallRule:
+		return e.evaluateRuleCall(ctx, req, r)
 	default:
 		return false, fmt.Errorf("unknown rule type: %T", rule)
 	}
@@ -366,6 +368,69 @@ func (e *Evaluator) evaluateABAC(
 	result, err := e.celEngine.Evaluate(rule.Expression, evalContext)
 	if err != nil {
 		return false, fmt.Errorf("failed to evaluate ABAC rule: %w", err)
+	}
+
+	return result, nil
+}
+
+// evaluateRuleCall evaluates a rule call by looking up the rule definition and evaluating it
+func (e *Evaluator) evaluateRuleCall(
+	ctx context.Context,
+	req *EvaluationRequest,
+	rule *entities.RuleCallRule,
+) (bool, error) {
+	// Get schema to access rule definitions
+	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get schema: %w", err)
+	}
+
+	// Find the rule definition
+	ruleDef := schema.GetRule(rule.RuleName)
+	if ruleDef == nil {
+		return false, fmt.Errorf("rule %s not found", rule.RuleName)
+	}
+
+	// Validate argument count
+	if len(rule.Arguments) != len(ruleDef.Parameters) {
+		return false, fmt.Errorf("rule %s expects %d arguments, got %d",
+			rule.RuleName, len(ruleDef.Parameters), len(rule.Arguments))
+	}
+
+	// The rule body is a CEL expression that uses parameter names
+	// The arguments specify which context variables to use (e.g., "resource", "subject")
+	// We evaluate the rule body using the same context as ABAC rules
+
+	// Get resource attributes
+	resourceAttrs, err := e.attributeRepo.Read(ctx, req.TenantID, req.EntityType, req.EntityID)
+	if err != nil {
+		return false, fmt.Errorf("failed to read resource attributes: %w", err)
+	}
+
+	// Get subject attributes
+	subjectAttrs, err := e.attributeRepo.Read(ctx, req.TenantID, req.SubjectType, req.SubjectID)
+	if err != nil {
+		return false, fmt.Errorf("failed to read subject attributes: %w", err)
+	}
+
+	// Prepare CEL evaluation context
+	// The rule body uses parameter names (e.g., "resource.public")
+	// The arguments tell us which variables to map those parameters to
+	evalContext := &EvaluationContext{
+		Resource: resourceAttrs,
+		Subject:  subjectAttrs,
+		Request:  map[string]interface{}{}, // Can be extended with request metadata
+	}
+
+	// Note: For now, we assume the standard mapping where:
+	// - "resource" parameter maps to resource attributes
+	// - "subject" parameter maps to subject attributes
+	// In the future, we could support more flexible parameter-to-context mapping
+
+	// Evaluate the CEL expression from the rule body
+	result, err := e.celEngine.Evaluate(ruleDef.Body, evalContext)
+	if err != nil {
+		return false, fmt.Errorf("failed to evaluate rule %s: %w", rule.RuleName, err)
 	}
 
 	return result, nil

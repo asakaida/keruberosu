@@ -7,9 +7,10 @@ import (
 
 // Validator validates the parsed schema AST
 type Validator struct {
-	schema  *SchemaAST
-	errors  []string
+	schema   *SchemaAST
+	errors   []string
 	entities map[string]*EntityAST
+	rules    map[string]*RuleDefinitionAST
 }
 
 // NewValidator creates a new Validator
@@ -18,15 +19,21 @@ func NewValidator(schema *SchemaAST) *Validator {
 	for _, entity := range schema.Entities {
 		entities[entity.Name] = entity
 	}
+	rules := make(map[string]*RuleDefinitionAST)
+	for _, rule := range schema.Rules {
+		rules[rule.Name] = rule
+	}
 	return &Validator{
 		schema:   schema,
 		errors:   []string{},
 		entities: entities,
+		rules:    rules,
 	}
 }
 
 // Validate validates the schema and returns error if invalid
 func (v *Validator) Validate() error {
+	v.validateUniqueRuleNames()
 	v.validateUniqueEntityNames()
 	v.validateEntityDefinitions()
 	v.validateRelationTargets()
@@ -37,6 +44,17 @@ func (v *Validator) Validate() error {
 		return fmt.Errorf("validation errors:\n%s", strings.Join(v.errors, "\n"))
 	}
 	return nil
+}
+
+// validateUniqueRuleNames checks for duplicate rule names
+func (v *Validator) validateUniqueRuleNames() {
+	seen := make(map[string]bool)
+	for _, rule := range v.schema.Rules {
+		if seen[rule.Name] {
+			v.errors = append(v.errors, fmt.Sprintf("duplicate rule name: %s", rule.Name))
+		}
+		seen[rule.Name] = true
+	}
 }
 
 // validateUniqueEntityNames checks for duplicate entity names
@@ -104,16 +122,17 @@ func (v *Validator) validateEntityUniqueness(entity *EntityAST) {
 }
 
 // validateAttributeTypes validates attribute type declarations
+// Only Permify standard types are supported
 func (v *Validator) validateAttributeTypes(entity *EntityAST) {
 	validTypes := map[string]bool{
-		"string":   true,
-		"int":      true,
-		"bool":     true,
-		"float":    true,
-		"string[]": true,
-		"int[]":    true,
-		"bool[]":   true,
-		"float[]":  true,
+		"string":    true,
+		"integer":   true,
+		"boolean":   true,
+		"double":    true,
+		"string[]":  true,
+		"integer[]": true,
+		"boolean[]": true,
+		"double[]":  true,
 	}
 
 	for _, attribute := range entity.Attributes {
@@ -254,10 +273,31 @@ func (v *Validator) validatePermissionRule(entity *EntityAST, permissionName str
 			v.errors = append(v.errors, fmt.Sprintf("entity %s: permission %s references undefined permission or relation %s in entity %s", entity.Name, permissionName, r.Permission, targetEntity.Name))
 		}
 
-	case *RulePermissionAST:
-		// Basic validation of rule expression (could be enhanced with CEL validation)
-		if r.Expression == "" {
-			v.errors = append(v.errors, fmt.Sprintf("entity %s: permission %s has empty rule expression", entity.Name, permissionName))
+	case *RuleCallPermissionAST:
+		// Check if the rule exists
+		ruleDef, exists := v.rules[r.RuleName]
+		if !exists {
+			v.errors = append(v.errors, fmt.Sprintf("entity %s: permission %s calls undefined rule: %s", entity.Name, permissionName, r.RuleName))
+			return
+		}
+
+		// Check if argument count matches parameter count
+		if len(r.Arguments) != len(ruleDef.Parameters) {
+			v.errors = append(v.errors, fmt.Sprintf("entity %s: permission %s calls rule %s with %d arguments, expected %d",
+				entity.Name, permissionName, r.RuleName, len(r.Arguments), len(ruleDef.Parameters)))
+		}
+
+		// Validate that arguments are valid identifiers (resource, subject, etc.)
+		validArguments := map[string]bool{
+			"resource": true,
+			"subject":  true,
+			"request":  true,
+		}
+		for _, arg := range r.Arguments {
+			if !validArguments[arg] {
+				v.errors = append(v.errors, fmt.Sprintf("entity %s: permission %s calls rule %s with invalid argument: %s (must be 'resource', 'subject', or 'request')",
+					entity.Name, permissionName, r.RuleName, arg))
+			}
 		}
 	}
 }

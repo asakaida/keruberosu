@@ -30,7 +30,7 @@ const (
 	TOKEN_NOT
 	TOKEN_EQUALS
 
-	// Comparison operators (for CEL expressions in rule())
+	// Comparison operators (for CEL expressions in top-level rule definitions)
 	TOKEN_EQ          // ==
 	TOKEN_NEQ         // !=
 	TOKEN_LT          // <

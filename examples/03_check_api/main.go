@@ -90,6 +90,10 @@ func main() {
 func setupSchemaAndData(ctx context.Context, schemaClient pb.SchemaClient, dataClient pb.DataClient) {
 	// スキーマを書き込み
 	schema := `
+rule is_public(resource) {
+  resource.public == true
+}
+
 entity user {}
 
 entity document {
@@ -97,11 +101,11 @@ entity document {
   relation editor @user
   relation viewer @user
 
-  attribute public: bool
-  attribute owner_id: string
+  attribute public boolean
+  attribute owner_id string
 
   permission edit = owner or editor
-  permission view = owner or editor or viewer or rule(resource.public == true)
+  permission view = owner or editor or viewer or is_public(resource)
 }
 `
 

@@ -1,5 +1,13 @@
 package entities
 
+// RuleDefinition represents a top-level rule definition (Permify syntax)
+// Example: "rule is_public(resource) { resource.public == true }"
+type RuleDefinition struct {
+	Name       string   // Rule name (e.g., "is_public")
+	Parameters []string // Parameter names (e.g., ["resource", "subject"])
+	Body       string   // CEL expression
+}
+
 // PermissionRule represents a rule for permission evaluation
 type PermissionRule interface {
 	isPermissionRule()
@@ -39,3 +47,12 @@ type ABACRule struct {
 }
 
 func (r *ABACRule) isPermissionRule() {}
+
+// RuleCallRule represents a call to a top-level rule definition (Permify syntax)
+// Example: "is_public(resource)" calls the rule defined as "rule is_public(resource) { ... }"
+type RuleCallRule struct {
+	RuleName  string   // Name of the rule to call (e.g., "is_public")
+	Arguments []string // Argument names (e.g., ["resource", "subject"])
+}
+
+func (r *RuleCallRule) isPermissionRule() {}

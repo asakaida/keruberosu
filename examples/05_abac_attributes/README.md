@@ -16,23 +16,39 @@ ABAC (Attribute-Based Access Control) は、エンティティやユーザーの
 ## スキーマ（CEL 式を使用）
 
 ```text
+rule is_public(resource) {
+  resource.public == true
+}
+
+rule has_sufficient_clearance(subject, resource) {
+  subject.security_level >= resource.security_level
+}
+
+rule same_department(subject, resource) {
+  resource.department == subject.department
+}
+
+rule is_premium_content(subject, resource) {
+  subject.subscription_tier == "premium" && resource.price > 100
+}
+
 entity document {
-  attribute public: bool
-  attribute security_level: int
-  attribute department: string
-  attribute price: int
+  attribute public boolean
+  attribute security_level integer
+  attribute department string
+  attribute price integer
 
   // 誰でも公開ドキュメントを閲覧可能
-  permission view_public = rule(resource.public == true)
+  permission view_public = is_public(resource)
 
   // セキュリティレベルチェック
-  permission view_classified = rule(subject.security_level >= resource.security_level)
+  permission view_classified = has_sufficient_clearance(subject, resource)
 
   // 同じ部署のみ
-  permission view_department = rule(resource.department == subject.department)
+  permission view_department = same_department(subject, resource)
 
   // プレミアムユーザー向け高額コンテンツ
-  permission view_premium = rule(subject.subscription_tier == "premium" && resource.price > 100)
+  permission view_premium = is_premium_content(subject, resource)
 }
 ```
 

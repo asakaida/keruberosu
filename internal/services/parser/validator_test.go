@@ -6,18 +6,22 @@ import (
 )
 
 func TestValidator_ValidSchema(t *testing.T) {
-	input := `entity user {}
+	input := `rule is_public(resource) {
+  resource.public == true
+}
+
+entity user {}
 
 entity document {
   relation owner @user
   relation editor @user
   relation viewer @user
 
-  attribute public: bool
-  attribute title: string
+  attribute public boolean
+  attribute title string
 
   permission edit = owner or editor
-  permission view = owner or editor or viewer or rule(resource.public == true)
+  permission view = owner or editor or viewer or is_public(resource)
   permission delete = owner
 }`
 
@@ -85,8 +89,8 @@ entity document {
 
 func TestValidator_DuplicateAttributeNames(t *testing.T) {
 	input := `entity document {
-  attribute title: string
-  attribute title: string
+  attribute title string
+  attribute title string
 }`
 
 	lexer := NewLexer(input)
@@ -139,7 +143,7 @@ func TestValidator_NameConflicts(t *testing.T) {
 
 entity document {
   relation owner @user
-  attribute owner: string
+  attribute owner string
 }`
 
 	lexer := NewLexer(input)
@@ -162,7 +166,7 @@ entity document {
 
 func TestValidator_InvalidAttributeType(t *testing.T) {
 	input := `entity document {
-  attribute invalid: unknown_type
+  attribute invalid unknown_type
 }`
 
 	lexer := NewLexer(input)
@@ -371,42 +375,16 @@ entity document {
 	}
 }
 
-func TestValidator_EmptyRuleExpression(t *testing.T) {
-	schema := &SchemaAST{
-		Entities: []*EntityAST{
-			{
-				Name: "document",
-				Permissions: []*PermissionAST{
-					{
-						Name: "view",
-						Rule: &RulePermissionAST{Expression: ""},
-					},
-				},
-			},
-		},
-	}
-
-	validator := NewValidator(schema)
-	err := validator.Validate()
-	if err == nil {
-		t.Fatal("expected validation error for empty rule expression")
-	}
-
-	if !strings.Contains(err.Error(), "empty rule expression") {
-		t.Errorf("expected empty rule expression error, got: %v", err)
-	}
-}
-
 func TestValidator_ValidAttributeTypes(t *testing.T) {
 	input := `entity document {
-  attribute title: string
-  attribute count: int
-  attribute active: bool
-  attribute score: float
-  attribute tags: string[]
-  attribute numbers: int[]
-  attribute flags: bool[]
-  attribute scores: float[]
+  attribute title string
+  attribute count integer
+  attribute active boolean
+  attribute score double
+  attribute tags string[]
+  attribute numbers integer[]
+  attribute flags boolean[]
+  attribute scores double[]
 }`
 
 	lexer := NewLexer(input)
@@ -424,7 +402,11 @@ func TestValidator_ValidAttributeTypes(t *testing.T) {
 }
 
 func TestValidator_ComplexValidSchema(t *testing.T) {
-	input := `entity user {}
+	input := `rule is_public(resource) {
+  resource.public == true
+}
+
+entity user {}
 
 entity organization {
   relation admin @user
@@ -438,21 +420,21 @@ entity folder {
   relation parent @folder
   relation org @organization
 
-  attribute public: bool
+  attribute public boolean
 
   permission edit = owner or org.edit
-  permission view = edit or parent.view or rule(resource.public == true)
+  permission view = edit or parent.view or is_public(resource)
 }
 
 entity document {
   relation owner @user
   relation parent @folder
 
-  attribute public: bool
-  attribute title: string
+  attribute public boolean
+  attribute title string
 
   permission edit = owner or parent.edit
-  permission view = edit or parent.view or rule(resource.public == true)
+  permission view = edit or parent.view or is_public(resource)
   permission delete = owner
 }`
 
@@ -478,7 +460,7 @@ entity document {
   relation duplicate @user
   relation duplicate @user
 
-  attribute invalid: unknown_type
+  attribute invalid unknown_type
 
   permission edit = undefined_relation
 }`
@@ -501,5 +483,169 @@ entity document {
 	errorCount := strings.Count(errorMsg, "\n")
 	if errorCount < 3 {
 		t.Errorf("expected at least 4 errors, got: %s", errorMsg)
+	}
+}
+
+func TestValidator_ValidRuleCall(t *testing.T) {
+	input := `rule is_public(resource) {
+  resource.public == true
+}
+
+entity document {
+  attribute public boolean
+  permission view = is_public(resource)
+}`
+
+	lexer := NewLexer(input)
+	parser := NewParser(lexer)
+	schema, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	validator := NewValidator(schema)
+	err = validator.Validate()
+	if err != nil {
+		t.Errorf("expected valid rule call schema, got error: %v", err)
+	}
+}
+
+func TestValidator_DuplicateRuleNames(t *testing.T) {
+	input := `rule is_public(resource) {
+  resource.public == true
+}
+
+rule is_public(resource) {
+  resource.public == true
+}
+
+entity document {}`
+
+	lexer := NewLexer(input)
+	parser := NewParser(lexer)
+	schema, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	validator := NewValidator(schema)
+	err = validator.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for duplicate rule names")
+	}
+
+	if !strings.Contains(err.Error(), "duplicate rule name: is_public") {
+		t.Errorf("expected duplicate rule name error, got: %v", err)
+	}
+}
+
+func TestValidator_UndefinedRuleCall(t *testing.T) {
+	input := `entity document {
+  attribute public boolean
+  permission view = is_public(resource)
+}`
+
+	lexer := NewLexer(input)
+	parser := NewParser(lexer)
+	schema, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	validator := NewValidator(schema)
+	err = validator.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for undefined rule")
+	}
+
+	if !strings.Contains(err.Error(), "calls undefined rule: is_public") {
+		t.Errorf("expected undefined rule error, got: %v", err)
+	}
+}
+
+func TestValidator_RuleCallArgumentCountMismatch(t *testing.T) {
+	input := `rule is_public(resource) {
+  resource.public == true
+}
+
+entity document {
+  attribute public boolean
+  permission view = is_public(resource, subject)
+}`
+
+	lexer := NewLexer(input)
+	parser := NewParser(lexer)
+	schema, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	validator := NewValidator(schema)
+	err = validator.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for argument count mismatch")
+	}
+
+	if !strings.Contains(err.Error(), "with 2 arguments, expected 1") {
+		t.Errorf("expected argument count mismatch error, got: %v", err)
+	}
+}
+
+func TestValidator_RuleCallInvalidArgument(t *testing.T) {
+	input := `rule is_public(resource) {
+  resource.public == true
+}
+
+entity document {
+  attribute public boolean
+  permission view = is_public(invalid_arg)
+}`
+
+	lexer := NewLexer(input)
+	parser := NewParser(lexer)
+	schema, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	validator := NewValidator(schema)
+	err = validator.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for invalid argument")
+	}
+
+	if !strings.Contains(err.Error(), "invalid argument: invalid_arg") {
+		t.Errorf("expected invalid argument error, got: %v", err)
+	}
+}
+
+func TestValidator_MultipleRulesAndCalls(t *testing.T) {
+	input := `rule is_public(resource) {
+  resource.public == true
+}
+
+rule can_edit(subject, resource) {
+  subject.id == resource.owner_id
+}
+
+entity document {
+  attribute public boolean
+  attribute owner_id string
+
+  permission view = is_public(resource)
+  permission edit = can_edit(subject, resource)
+}`
+
+	lexer := NewLexer(input)
+	parser := NewParser(lexer)
+	schema, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	validator := NewValidator(schema)
+	err = validator.Validate()
+	if err != nil {
+		t.Errorf("expected valid schema with multiple rules, got error: %v", err)
 	}
 }

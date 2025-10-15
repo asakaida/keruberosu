@@ -21,12 +21,49 @@ func NewGenerator() *Generator {
 func (g *Generator) Generate(schema *SchemaAST) string {
 	var sb strings.Builder
 
+	// Generate top-level rules first (Permify compatible)
+	for i, rule := range schema.Rules {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(g.generateRuleDefinition(rule))
+		sb.WriteString("\n")
+	}
+
+	// Add blank line between rules and entities if both exist
+	if len(schema.Rules) > 0 && len(schema.Entities) > 0 {
+		sb.WriteString("\n")
+	}
+
+	// Generate entities
 	for i, entity := range schema.Entities {
 		if i > 0 {
 			sb.WriteString("\n")
 		}
 		sb.WriteString(g.generateEntity(entity))
 	}
+
+	return sb.String()
+}
+
+// generateRuleDefinition generates DSL for a top-level rule definition
+// Permify syntax: rule rule_name(param1, param2) { expression }
+func (g *Generator) generateRuleDefinition(rule *RuleDefinitionAST) string {
+	var sb strings.Builder
+
+	sb.WriteString("rule ")
+	sb.WriteString(rule.Name)
+	sb.WriteString("(")
+	for i, param := range rule.Parameters {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(param)
+	}
+	sb.WriteString(") {\n")
+	sb.WriteString(g.indent)
+	sb.WriteString(rule.Body)
+	sb.WriteString("\n}")
 
 	return sb.String()
 }
@@ -77,9 +114,9 @@ func (g *Generator) generateRelation(relation *RelationAST) string {
 	return fmt.Sprintf("relation %s %s", relation.Name, strings.Join(prefixedTypes, " "))
 }
 
-// generateAttribute generates DSL for an attribute
+// generateAttribute generates DSL for an attribute (Permify format: no colon)
 func (g *Generator) generateAttribute(attr *AttributeAST) string {
-	return fmt.Sprintf("attribute %s: %s", attr.Name, attr.Type)
+	return fmt.Sprintf("attribute %s %s", attr.Name, attr.Type)
 }
 
 // generatePermission generates DSL for a permission
@@ -129,8 +166,9 @@ func (g *Generator) generatePermissionRule(rule PermissionRuleAST) string {
 	case *HierarchicalPermissionAST:
 		return fmt.Sprintf("%s.%s", r.Relation, r.Permission)
 
-	case *RulePermissionAST:
-		return fmt.Sprintf("rule(%s)", r.Expression)
+	case *RuleCallPermissionAST:
+		// Permify syntax: rule_name(arg1, arg2)
+		return fmt.Sprintf("%s(%s)", r.RuleName, strings.Join(r.Arguments, ", "))
 
 	default:
 		return ""

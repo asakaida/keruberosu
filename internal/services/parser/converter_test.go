@@ -187,39 +187,6 @@ func TestASTToSchema_HierarchicalRule(t *testing.T) {
 	}
 }
 
-func TestASTToSchema_ABACRule(t *testing.T) {
-	ast := &SchemaAST{
-		Entities: []*EntityAST{
-			{
-				Name: "document",
-				Permissions: []*PermissionAST{
-					{
-						Name: "view",
-						Rule: &RulePermissionAST{
-							Expression: "resource.public == true",
-						},
-					},
-				},
-			},
-		},
-	}
-
-	schema, err := ASTToSchema("test-tenant", ast)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	permission := schema.Entities[0].Permissions[0]
-	abacRule, ok := permission.Rule.(*entities.ABACRule)
-	if !ok {
-		t.Fatalf("expected ABACRule, got %T", permission.Rule)
-	}
-
-	if abacRule.Expression != "resource.public == true" {
-		t.Errorf("expected expression 'resource.public == true', got %s", abacRule.Expression)
-	}
-}
-
 func TestSchemaToAST_Basic(t *testing.T) {
 	schema := &entities.Schema{
 		TenantID: "test-tenant",
@@ -357,17 +324,89 @@ func TestSchemaToAST_HierarchicalRule(t *testing.T) {
 	}
 }
 
-func TestSchemaToAST_ABACRule(t *testing.T) {
+func TestASTToSchema_RuleCall(t *testing.T) {
+	ast := &SchemaAST{
+		Rules: []*RuleDefinitionAST{
+			{
+				Name:       "is_public",
+				Parameters: []string{"resource"},
+				Body:       "resource.public == true",
+			},
+		},
+		Entities: []*EntityAST{
+			{
+				Name: "document",
+				Attributes: []*AttributeAST{
+					{Name: "public", Type: "boolean"},
+				},
+				Permissions: []*PermissionAST{
+					{
+						Name: "view",
+						Rule: &RuleCallPermissionAST{
+							RuleName:  "is_public",
+							Arguments: []string{"resource"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	schema, err := ASTToSchema("test-tenant", ast)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check rule definition
+	if len(schema.Rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(schema.Rules))
+	}
+
+	rule := schema.Rules[0]
+	if rule.Name != "is_public" {
+		t.Errorf("expected rule name 'is_public', got %s", rule.Name)
+	}
+	if len(rule.Parameters) != 1 || rule.Parameters[0] != "resource" {
+		t.Errorf("expected parameters [resource], got %v", rule.Parameters)
+	}
+	if rule.Body != "resource.public == true" {
+		t.Errorf("expected body 'resource.public == true', got %s", rule.Body)
+	}
+
+	// Check permission with rule call
+	permission := schema.Entities[0].Permissions[0]
+	ruleCall, ok := permission.Rule.(*entities.RuleCallRule)
+	if !ok {
+		t.Fatalf("expected RuleCallRule, got %T", permission.Rule)
+	}
+
+	if ruleCall.RuleName != "is_public" {
+		t.Errorf("expected rule name 'is_public', got %s", ruleCall.RuleName)
+	}
+	if len(ruleCall.Arguments) != 1 || ruleCall.Arguments[0] != "resource" {
+		t.Errorf("expected arguments [resource], got %v", ruleCall.Arguments)
+	}
+}
+
+func TestSchemaToAST_RuleCall(t *testing.T) {
 	schema := &entities.Schema{
 		TenantID: "test-tenant",
+		Rules: []*entities.RuleDefinition{
+			{
+				Name:       "is_public",
+				Parameters: []string{"resource"},
+				Body:       "resource.public == true",
+			},
+		},
 		Entities: []*entities.Entity{
 			{
 				Name: "document",
 				Permissions: []*entities.Permission{
 					{
 						Name: "view",
-						Rule: &entities.ABACRule{
-							Expression: "resource.public == true",
+						Rule: &entities.RuleCallRule{
+							RuleName:  "is_public",
+							Arguments: []string{"resource"},
 						},
 					},
 				},
@@ -380,20 +419,38 @@ func TestSchemaToAST_ABACRule(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	permission := ast.Entities[0].Permissions[0]
-	abacRule, ok := permission.Rule.(*RulePermissionAST)
-	if !ok {
-		t.Fatalf("expected RulePermissionAST, got %T", permission.Rule)
+	// Check rule definition
+	if len(ast.Rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(ast.Rules))
 	}
 
-	if abacRule.Expression != "resource.public == true" {
-		t.Errorf("expected expression 'resource.public == true', got %s", abacRule.Expression)
+	rule := ast.Rules[0]
+	if rule.Name != "is_public" {
+		t.Errorf("expected rule name 'is_public', got %s", rule.Name)
+	}
+
+	// Check permission with rule call
+	permission := ast.Entities[0].Permissions[0]
+	ruleCall, ok := permission.Rule.(*RuleCallPermissionAST)
+	if !ok {
+		t.Fatalf("expected RuleCallPermissionAST, got %T", permission.Rule)
+	}
+
+	if ruleCall.RuleName != "is_public" {
+		t.Errorf("expected rule name 'is_public', got %s", ruleCall.RuleName)
 	}
 }
 
 func TestRoundTrip_ASTToSchemaToAST(t *testing.T) {
 	// Original AST
 	originalAST := &SchemaAST{
+		Rules: []*RuleDefinitionAST{
+			{
+				Name:       "is_public",
+				Parameters: []string{"resource"},
+				Body:       "resource.public == true",
+			},
+		},
 		Entities: []*EntityAST{
 			{
 				Name: "document",
@@ -410,7 +467,7 @@ func TestRoundTrip_ASTToSchemaToAST(t *testing.T) {
 						Rule: &LogicalPermissionAST{
 							Operator: "or",
 							Left:     &RelationPermissionAST{Relation: "owner"},
-							Right:    &RulePermissionAST{Expression: "resource.public == true"},
+							Right:    &RuleCallPermissionAST{RuleName: "is_public", Arguments: []string{"resource"}},
 						},
 					},
 				},

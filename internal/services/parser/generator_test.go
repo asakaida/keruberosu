@@ -66,8 +66,8 @@ func TestGenerator_Generate_WithAttribute(t *testing.T) {
 	result := gen.Generate(ast)
 
 	expected := `entity document {
-  attribute public: boolean
-  attribute title: string
+  attribute public boolean
+  attribute title string
 }`
 
 	if result != expected {
@@ -245,31 +245,6 @@ func TestGenerator_Generate_HierarchicalPermission(t *testing.T) {
 	}
 }
 
-func TestGenerator_Generate_ABACRule(t *testing.T) {
-	ast := &SchemaAST{
-		Entities: []*EntityAST{
-			{
-				Name: "document",
-				Permissions: []*PermissionAST{
-					{
-						Name: "view",
-						Rule: &RulePermissionAST{
-							Expression: "resource.public == true",
-						},
-					},
-				},
-			},
-		},
-	}
-
-	gen := NewGenerator()
-	result := gen.Generate(ast)
-
-	if !strings.Contains(result, "permission view = rule(resource.public == true)") {
-		t.Errorf("generated DSL should contain 'permission view = rule(resource.public == true)', got:\n%s", result)
-	}
-}
-
 func TestGenerator_Generate_ComplexSchema(t *testing.T) {
 	ast := &SchemaAST{
 		Entities: []*EntityAST{
@@ -313,7 +288,7 @@ func TestGenerator_Generate_ComplexSchema(t *testing.T) {
 	if !strings.Contains(result, "relation owner @user") {
 		t.Errorf("missing relation owner, got:\n%s", result)
 	}
-	if !strings.Contains(result, "attribute public: boolean") {
+	if !strings.Contains(result, "attribute public boolean") {
 		t.Errorf("missing attribute public, got:\n%s", result)
 	}
 	if !strings.Contains(result, "permission view = owner") {
@@ -327,7 +302,7 @@ func TestGenerator_RoundTrip_ParseAndGenerate(t *testing.T) {
 entity document {
   relation owner @user
   relation editor @user
-  attribute public: boolean
+  attribute public boolean
   permission view = owner
   permission edit = owner or editor
 }`

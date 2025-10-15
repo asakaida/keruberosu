@@ -52,8 +52,12 @@ GitHub 風の`organization → repository → issue`の 3 階層構造を使用�
 #### Repository
 
 ```
+rule is_not_private(resource) {
+  !resource.private
+}
+
 permission view = owner or maintainer or contributor or
-  (parent.view and rule(!resource.private))
+  (parent.view and is_not_private(resource))
 ```
 
 - プライベートリポジトリ: 直接的な役割のみ
@@ -62,8 +66,12 @@ permission view = owner or maintainer or contributor or
 #### Issue
 
 ```
+rule is_not_confidential(resource) {
+  !resource.confidential
+}
+
 permission view = (assignee or reporter) or
-  (parent.view and rule(!resource.confidential))
+  (parent.view and is_not_confidential(resource))
 ```
 
 - 機密 Issue: assignee と reporter のみ
@@ -284,7 +292,7 @@ issue#view
 3. 複雑なルールの可視化:
 
    - `parent.view`の再帰的継承
-   - ABAC 条件（`rule(...)`）の評価結果
+   - ABAC 条件（トップレベルルール）の評価結果
    - OR/AND の組み合わせ
 
 4. パフォーマンス考慮:

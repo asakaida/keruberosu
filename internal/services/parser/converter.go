@@ -10,9 +10,20 @@ import (
 func ASTToSchema(tenantID string, ast *SchemaAST) (*entities.Schema, error) {
 	schema := &entities.Schema{
 		TenantID: tenantID,
+		Rules:    make([]*entities.RuleDefinition, 0, len(ast.Rules)),
 		Entities: make([]*entities.Entity, 0, len(ast.Entities)),
 	}
 
+	// Convert rules
+	for _, ruleAST := range ast.Rules {
+		schema.Rules = append(schema.Rules, &entities.RuleDefinition{
+			Name:       ruleAST.Name,
+			Parameters: ruleAST.Parameters,
+			Body:       ruleAST.Body,
+		})
+	}
+
+	// Convert entities
 	for _, entityAST := range ast.Entities {
 		entity, err := convertEntity(entityAST)
 		if err != nil {
@@ -27,9 +38,20 @@ func ASTToSchema(tenantID string, ast *SchemaAST) (*entities.Schema, error) {
 // SchemaToAST converts entities.Schema to SchemaAST
 func SchemaToAST(schema *entities.Schema) (*SchemaAST, error) {
 	ast := &SchemaAST{
+		Rules:    make([]*RuleDefinitionAST, 0, len(schema.Rules)),
 		Entities: make([]*EntityAST, 0, len(schema.Entities)),
 	}
 
+	// Convert rules
+	for _, rule := range schema.Rules {
+		ast.Rules = append(ast.Rules, &RuleDefinitionAST{
+			Name:       rule.Name,
+			Parameters: rule.Parameters,
+			Body:       rule.Body,
+		})
+	}
+
+	// Convert entities
 	for _, entity := range schema.Entities {
 		entityAST, err := convertEntityToAST(entity)
 		if err != nil {
@@ -116,9 +138,10 @@ func convertPermissionRule(ast PermissionRuleAST) (entities.PermissionRule, erro
 			Permission: r.Permission,
 		}, nil
 
-	case *RulePermissionAST:
-		return &entities.ABACRule{
-			Expression: r.Expression,
+	case *RuleCallPermissionAST:
+		return &entities.RuleCallRule{
+			RuleName:  r.RuleName,
+			Arguments: r.Arguments,
 		}, nil
 
 	default:
@@ -201,9 +224,10 @@ func convertPermissionRuleToAST(rule entities.PermissionRule) (PermissionRuleAST
 			Permission: r.Permission,
 		}, nil
 
-	case *entities.ABACRule:
-		return &RulePermissionAST{
-			Expression: r.Expression,
+	case *entities.RuleCallRule:
+		return &RuleCallPermissionAST{
+			RuleName:  r.RuleName,
+			Arguments: r.Arguments,
 		}, nil
 
 	default:

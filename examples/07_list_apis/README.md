@@ -39,8 +39,12 @@
 ### 権限ルール
 
 ```
+rule can_view_confidential(subject, resource) {
+  !resource.confidential || subject.security_level >= 3
+}
+
 permission view = owner or editor or viewer or
-  (department.member and rule(!resource.confidential or subject.security_level >= 3))
+  (department.member and can_view_confidential(subject, resource))
 ```
 
 この複雑なルールは、以下を実現します：

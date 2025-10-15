@@ -4188,7 +4188,15 @@ type Node interface {
 
 // スキーマ全体
 type SchemaAST struct {
+    Rules    []*RuleDefinitionAST  // トップレベルルール定義（Permify互換）
     Entities []*EntityAST
+}
+
+// トップレベルルール定義（Permify互換）
+type RuleDefinitionAST struct {
+    Name       string    // ルール名
+    Parameters []string  // パラメータ名のリスト (e.g., "resource", "subject")
+    Body       string    // CEL式
 }
 
 // Entity定義
@@ -4196,7 +4204,6 @@ type EntityAST struct {
     Name        string
     Relations   []*RelationAST
     Attributes  []*AttributeAST
-    Rules       []*RuleAST
     Permissions []*PermissionAST
 }
 
@@ -4270,18 +4277,20 @@ type RelationPermissionAST struct {
     Relation string  // "owner"
 }
 
-type NestedPermissionAST struct {
-    Path string  // "parent.member"
+type HierarchicalPermissionAST struct {
+    Relation   string  // "parent"
+    Permission string  // "view"
 }
 
-type RulePermissionAST struct {
-    RuleName string
-    Args     []string
+type RuleCallPermissionAST struct {
+    RuleName  string    // トップレベルルール名
+    Arguments []string  // 引数リスト (e.g., ["resource", "subject"])
 }
 
 type LogicalPermissionAST struct {
-    Operator string  // "or", "and", "not"
-    Operands []PermissionRuleAST
+    Operator string              // "or", "and", "not"
+    Left     PermissionRuleAST
+    Right    PermissionRuleAST   // nilの場合あり（NOT演算子）
 }
 ```
 
@@ -4732,7 +4741,7 @@ func (p *Parser) parsePermissionPrimary() (PermissionRuleAST, error) {
                 return nil, p.error("expected ')'")
             }
             p.nextToken()
-            return &RulePermissionAST{RuleName: name, Args: args}, nil
+            return &RuleCallPermissionAST{RuleName: name, Arguments: args}, nil
         }
 
         // Check for nested relation (parent.member)
@@ -4866,9 +4875,9 @@ func (v *Validator) validatePermissionRule(entity *EntityAST, rule PermissionRul
             v.addError(fmt.Sprintf("unknown relation in nested path %s.%s: %s",
                 entity.Name, r.Path, parts[0]))
         }
-    case *RulePermissionAST:
-        // Ruleの存在チェック
-        if !v.ruleExists(entity, r.RuleName) {
+    case *RuleCallPermissionAST:
+        // トップレベルルールの存在チェック
+        if !v.topLevelRuleExists(schema, r.RuleName) {
             v.addError(fmt.Sprintf("unknown rule in %s: %s", entity.Name, r.RuleName))
         }
     case *LogicalPermissionAST:
@@ -4996,11 +5005,11 @@ func convertPermissionRule(ruleAST PermissionRuleAST) *PermissionRule {
             Type:     "nested",
             Relation: r.Path,
         }
-    case *RulePermissionAST:
+    case *RuleCallPermissionAST:
         return &PermissionRule{
-            Type:     "rule",
-            RuleName: r.RuleName,
-            RuleArgs: r.Args,
+            Type:      "rule_call",
+            RuleName:  r.RuleName,
+            Arguments: r.Arguments,
         }
     case *LogicalPermissionAST:
         children := make([]*PermissionRule, len(r.Operands))

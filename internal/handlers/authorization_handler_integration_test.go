@@ -347,14 +347,18 @@ func TestHandlers_Integration_ABAC(t *testing.T) {
 	t.Run("WriteSchema_ABAC", func(t *testing.T) {
 		req := &pb.SchemaWriteRequest{
 			Schema: `
+rule is_public(resource) {
+  resource.public == true
+}
+
 entity user {}
 
 entity document {
-  attribute public: bool
+  attribute public boolean
 
   relation owner @user
 
-  permission view = owner or rule(resource.public == true)
+  permission view = owner or is_public(resource)
 }
 `,
 		}
