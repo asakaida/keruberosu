@@ -85,18 +85,19 @@ func (e *Evaluator) evaluateRelation(
 	req *EvaluationRequest,
 	rule *entities.RelationRule,
 ) (bool, error) {
-	// Check in contextual tuples first
+	// Check in contextual tuples first for direct match
 	for _, tuple := range req.ContextualTuples {
 		if tuple.EntityType == req.EntityType &&
 			tuple.EntityID == req.EntityID &&
 			tuple.Relation == rule.Relation &&
 			tuple.SubjectType == req.SubjectType &&
-			tuple.SubjectID == req.SubjectID {
+			tuple.SubjectID == req.SubjectID &&
+			tuple.SubjectRelation == "" {
 			return true, nil
 		}
 	}
 
-	// Check in database
+	// Check in database for direct match
 	filter := &repositories.RelationFilter{
 		EntityType:  req.EntityType,
 		EntityID:    req.EntityID,
@@ -110,7 +111,70 @@ func (e *Evaluator) evaluateRelation(
 		return false, fmt.Errorf("failed to read relations: %w", err)
 	}
 
-	return len(tuples) > 0, nil
+	if len(tuples) > 0 {
+		return true, nil
+	}
+
+	// Check for subject relations (e.g., team:backend-team#member)
+	// Get all tuples for this entity and relation, regardless of subject
+	allTuplesFilter := &repositories.RelationFilter{
+		EntityType: req.EntityType,
+		EntityID:   req.EntityID,
+		Relation:   rule.Relation,
+	}
+
+	allTuples, err := e.relationRepo.Read(ctx, req.TenantID, allTuplesFilter)
+	if err != nil {
+		return false, fmt.Errorf("failed to read all relations: %w", err)
+	}
+
+	// Add contextual tuples
+	allTuples = append(allTuples, req.ContextualTuples...)
+
+	// Check each tuple for subject relations
+	for _, tuple := range allTuples {
+		// Skip if not matching entity/relation
+		if tuple.EntityType != req.EntityType || tuple.EntityID != req.EntityID || tuple.Relation != rule.Relation {
+			continue
+		}
+
+		// If this tuple has a subject relation, expand it
+		if tuple.SubjectRelation != "" {
+			// Check if the current subject has the subject relation
+			// Example: tuple is "repository:backend-api#contributor@team:backend-team#member"
+			// We need to check if "user:frank" has relation "member" with "team:backend-team"
+			subjectRelationFilter := &repositories.RelationFilter{
+				EntityType:  tuple.SubjectType,
+				EntityID:    tuple.SubjectID,
+				Relation:    tuple.SubjectRelation,
+				SubjectType: req.SubjectType,
+				SubjectID:   req.SubjectID,
+			}
+
+			subjectTuples, err := e.relationRepo.Read(ctx, req.TenantID, subjectRelationFilter)
+			if err != nil {
+				return false, fmt.Errorf("failed to read subject relations: %w", err)
+			}
+
+			// Check contextual tuples as well
+			for _, ctxTuple := range req.ContextualTuples {
+				if ctxTuple.EntityType == tuple.SubjectType &&
+					ctxTuple.EntityID == tuple.SubjectID &&
+					ctxTuple.Relation == tuple.SubjectRelation &&
+					ctxTuple.SubjectType == req.SubjectType &&
+					ctxTuple.SubjectID == req.SubjectID &&
+					ctxTuple.SubjectRelation == "" {
+					subjectTuples = append(subjectTuples, ctxTuple)
+				}
+			}
+
+			if len(subjectTuples) > 0 {
+				return true, nil // Subject has the relation via subject relation
+			}
+		}
+	}
+
+	return false, nil
 }
 
 // evaluateLogical evaluates a logical operation (OR/AND/NOT)

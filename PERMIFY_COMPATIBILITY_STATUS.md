@@ -294,24 +294,19 @@
 
 ---
 
-### 4. Schema DSL の完全 Permify 互換 【低優先度】
+### 4. Schema DSL の完全 Permify 互換 【完了】
 
 **現状:**
 
-- `action`キーワードと`@user`記法はサポート済み
-- 複数型指定（`@user @team#member`）の完全対応は未完了
+- ✅ `action`キーワードと`@user`記法はサポート済み
+- ✅ 複数型指定（`@user @team#member`）の完全対応完了
 
-**考慮事項:**
+**実装内容:**
 
-- Permify は`@user @team#member`形式（スペース区切り）
-- keruberos は`user | team#member`形式（パイプ区切り）
-- 両方をサポートするか、どちらかに統一するか
-
-**必要な実装:**
-
-1. 複数型指定の完全パース対応
-2. バリデーション強化
-3. ドキュメント更新
+- ✅ Permify互換の`@user @team#member`形式（スペース区切り）に統一
+- ✅ パイプ区切り（`|`）記法を削除（後方互換性なし）
+- ✅ パーサー、ジェネレーター、バリデーターを全て更新
+- ✅ 全テスト、Example、ドキュメント（README, PRD, DESIGN）を更新
 
 ---
 

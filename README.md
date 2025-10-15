@@ -495,6 +495,28 @@ entity document {
 }
 ```
 
+#### Subject Relation（グループメンバーシップ）をサポート
+
+Permify互換のsubject relation機能により、複数の型や`team#member`のような記法を使用できます：
+
+```text
+entity user {}
+
+entity team {
+  relation member @user
+}
+
+entity repository {
+  relation owner @user
+  relation contributor @user @team#member
+
+  permission manage = owner
+  permission write = owner or contributor
+}
+```
+
+この定義により、`repository:backend-api#contributor@team:backend-team#member` のような1つのタプルで、チーム全員に権限を付与できます。
+
 ### クライアントからの認可チェック
 
 ```go

@@ -170,15 +170,17 @@ entities 層は 1 ファイル 1 構造体の原則に従い、責務を明確�
 
 - `schema.go`: Schema - スキーマ全体を表現
 - `entity.go`: Entity - エンティティ定義（例: "document", "user"）
-- `relation.go`: Relation - リレーション定義（例: "owner @user"）
+- `relation.go`: Relation - リレーション定義（例: "owner @user" or "contributor @user @team#member"）
 - `attribute_schema.go`: AttributeSchema - 属性型定義（例: "public: boolean"）
 - `permission.go`: Permission - 権限定義（例: "edit = owner or editor"）
 - `rule.go`: PermissionRule インターフェース + 各ルール実装（RelationRule, LogicalRule, HierarchicalRule, ABACRule）
 
 **データ系**（実際に保存されるデータ）：
 
-- `relation_tuple.go`: RelationTuple - 関係データ（例: document:1#owner@user:alice）
+- `relation_tuple.go`: RelationTuple - 関係データ（例: document:1#owner@user:alice、repository:1#contributor@team:backend-team#member）
 - `attribute.go`: Attribute - 属性データ（例: document:1.public = true）
+
+**Subject Relation機能**: Permify互換のsubject relation機能により、`team#member`のような記法でグループメンバーシップを1つのタプルで表現できます。例：`relation contributor @user @team#member` というスキーマ定義で、`repository:backend-api#contributor@team:backend-team#member` というタプルにより、チームメンバー全員に権限を付与できます。
 
 この設計により、スキーマの「定義」と実際の「データ」が明確に分離され、可読性と保守性が向上します。
 

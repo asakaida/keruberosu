@@ -43,7 +43,7 @@ entity group {
 }
 
 entity drive {
-  relation member @user | group#member
+  relation member @user @group#member
 
   permission view = member
 }

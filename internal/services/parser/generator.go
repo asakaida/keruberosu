@@ -65,7 +65,16 @@ func (g *Generator) generateEntity(entity *EntityAST) string {
 
 // generateRelation generates DSL for a relation
 func (g *Generator) generateRelation(relation *RelationAST) string {
-	return fmt.Sprintf("relation %s @%s", relation.Name, relation.TargetType)
+	// TargetType is stored as "user team#member" (space-separated, no @)
+	// We need to output "@user @team#member" (each type prefixed with @)
+	types := strings.Split(relation.TargetType, " ")
+	var prefixedTypes []string
+	for _, t := range types {
+		if t != "" {
+			prefixedTypes = append(prefixedTypes, "@"+t)
+		}
+	}
+	return fmt.Sprintf("relation %s %s", relation.Name, strings.Join(prefixedTypes, " "))
 }
 
 // generateAttribute generates DSL for an attribute

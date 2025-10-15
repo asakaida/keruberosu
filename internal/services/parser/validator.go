@@ -127,8 +127,45 @@ func (v *Validator) validateAttributeTypes(entity *EntityAST) {
 func (v *Validator) validateRelationTargets() {
 	for _, entity := range v.schema.Entities {
 		for _, relation := range entity.Relations {
-			if _, exists := v.entities[relation.TargetType]; !exists {
-				v.errors = append(v.errors, fmt.Sprintf("entity %s: relation %s references undefined entity: %s", entity.Name, relation.Name, relation.TargetType))
+			// Split by space to handle multiple types (e.g., "user team#member")
+			types := strings.Fields(relation.TargetType)
+			for _, typeStr := range types {
+
+				// Check if it's a subject relation (e.g., "team#member")
+				if strings.Contains(typeStr, "#") {
+					parts := strings.Split(typeStr, "#")
+					if len(parts) != 2 {
+						v.errors = append(v.errors, fmt.Sprintf("entity %s: relation %s has invalid subject relation format: %s", entity.Name, relation.Name, typeStr))
+						continue
+					}
+
+					entityName := parts[0]
+					relationName := parts[1]
+
+					// Check if the referenced entity exists
+					targetEntity, exists := v.entities[entityName]
+					if !exists {
+						v.errors = append(v.errors, fmt.Sprintf("entity %s: relation %s references undefined entity: %s (in %s)", entity.Name, relation.Name, entityName, typeStr))
+						continue
+					}
+
+					// Check if the referenced relation exists in the target entity
+					foundRelation := false
+					for _, rel := range targetEntity.Relations {
+						if rel.Name == relationName {
+							foundRelation = true
+							break
+						}
+					}
+					if !foundRelation {
+						v.errors = append(v.errors, fmt.Sprintf("entity %s: relation %s references undefined relation %s in entity %s", entity.Name, relation.Name, relationName, entityName))
+					}
+				} else {
+					// Simple entity type reference
+					if _, exists := v.entities[typeStr]; !exists {
+						v.errors = append(v.errors, fmt.Sprintf("entity %s: relation %s references undefined entity: %s", entity.Name, relation.Name, typeStr))
+					}
+				}
 			}
 		}
 	}

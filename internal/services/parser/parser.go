@@ -178,21 +178,35 @@ func (p *Parser) parseRelation() *RelationAST {
 	}
 	relation.TargetType = p.current.Value
 
-	// Check for additional types (e.g., "user | team#member" or "@user @team#member")
-	// This handles multi-type relations
-	for p.peekTokenIs(TOKEN_PIPE) || p.peekTokenIs(TOKEN_AT) {
-		p.nextToken() // consume | or @
+	// Check for subject relation (e.g., team#member)
+	if p.peekTokenIs(TOKEN_HASH) {
+		p.nextToken() // consume #
 		if !p.expectPeek(TOKEN_IDENTIFIER) {
 			return nil
 		}
-		// Append additional type with pipe separator (normalize to | syntax internally)
-		relation.TargetType += " | " + p.current.Value
+		relation.TargetType += "#" + p.current.Value
+	}
 
-		// Handle subject relation (e.g., team#member)
-		if p.peekTokenIs(TOKEN_DOT) || p.peekTokenIs(TOKEN_COMMA) {
-			// Skip for now - complex multi-type with relations
-			// This would be handled by the authorization engine
+	// Check for additional types (e.g., "@user @team#member")
+	// Permify supports multiple types with space-separated @ notation
+	for p.peekTokenIs(TOKEN_AT) {
+		p.nextToken() // consume @
+		if !p.expectPeek(TOKEN_IDENTIFIER) {
+			return nil
 		}
+		// Append additional type with space separator (Permify format)
+		additionalType := p.current.Value
+
+		// Check for subject relation on additional type (e.g., team#member)
+		if p.peekTokenIs(TOKEN_HASH) {
+			p.nextToken() // consume #
+			if !p.expectPeek(TOKEN_IDENTIFIER) {
+				return nil
+			}
+			additionalType += "#" + p.current.Value
+		}
+
+		relation.TargetType += " " + additionalType
 	}
 
 	p.nextToken()

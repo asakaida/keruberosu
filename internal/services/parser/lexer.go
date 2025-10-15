@@ -46,6 +46,7 @@ const (
 	// Delimiters
 	TOKEN_COLON
 	TOKEN_AT     // @ (Permify互換: @user記法用)
+	TOKEN_HASH   // # (Permify互換: team#member記法用)
 	TOKEN_LBRACE
 	TOKEN_RBRACE
 	TOKEN_LPAREN
@@ -84,6 +85,7 @@ var tokenNames = map[TokenType]string{
 	TOKEN_EXCLAMATION: "!",
 	TOKEN_COLON:       ":",
 	TOKEN_AT:          "@",
+	TOKEN_HASH:        "#",
 	TOKEN_LBRACE:      "{",
 	TOKEN_RBRACE:      "}",
 	TOKEN_LPAREN:      "(",
@@ -299,6 +301,9 @@ func (l *Lexer) NextToken() (*Token, error) {
 		l.readChar()
 	case '@':
 		tok = &Token{Type: TOKEN_AT, Value: "@", Line: line, Column: column}
+		l.readChar()
+	case '#':
+		tok = &Token{Type: TOKEN_HASH, Value: "#", Line: line, Column: column}
 		l.readChar()
 	case '{':
 		tok = &Token{Type: TOKEN_LBRACE, Value: "{", Line: line, Column: column}

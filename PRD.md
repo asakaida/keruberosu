@@ -598,15 +598,19 @@ console.log(result2.can); // CHECK_RESULT_ALLOWED（営業部のドキュメン�
 
 ---
 
-### ユースケース 5: 複合 - GitHub ライクな Organization/Repository 管理
+### ユースケース 5: 複合 - GitHub ライクな Organization/Repository 管理（Subject Relation対応）
 
-シナリオ: Organization → Repository の階層構造、複数のロール。
+シナリオ: Organization → Repository の階層構造、複数のロール。**Subject Relation（`team#member`）により、チーム全体への権限付与を1つのタプルで実現**。
 
 #### スキーマ定義
 
 ```text
 schema_dsl: """
 entity user {}
+
+entity team {
+  relation member @user
+}
 
 entity organization {
   relation owner @user
@@ -620,7 +624,7 @@ entity organization {
 entity repository {
   relation owner @user
   relation maintainer @user
-  relation contributor @user
+  relation contributor @user @team#member
   relation parent_org @organization
 
   permission delete = owner
@@ -630,6 +634,8 @@ entity repository {
 }
 """
 ```
+
+**重要**: `relation contributor @user @team#member` により、個別ユーザーだけでなく、チームのメンバー全員をcontributorとして扱えます。
 
 #### データ設定
 
@@ -650,6 +656,22 @@ await client.writeRelations({
   ],
 });
 
+// "backend-team"を作成し、メンバーを追加
+await client.writeRelations({
+  tuples: [
+    {
+      entity: { type: "team", id: "backend-team" },
+      relation: "member",
+      subject: { type: "user", id: "frank" },
+    },
+    {
+      entity: { type: "team", id: "backend-team" },
+      relation: "member",
+      subject: { type: "user", id: "grace" },
+    },
+  ],
+});
+
 // "backend-api" repositoryを作成し、acme-corpに所属
 await client.writeRelations({
   tuples: [
@@ -663,9 +685,21 @@ await client.writeRelations({
       relation: "maintainer",
       subject: { type: "user", id: "charlie" },
     },
+    // ✨ Subject Relation: チーム全体をcontributorとして登録（1つのタプル）
+    {
+      entity: { type: "repository", id: "backend-api" },
+      relation: "contributor",
+      subject: {
+        type: "team",
+        id: "backend-team",
+        relation: "member", // ← subject relationを指定
+      },
+    },
   ],
 });
 ```
+
+**ポイント**: 最後のタプルで `subject.relation = "member"` を指定することで、`backend-team` の `member` 全員（frank と grace）が自動的に `backend-api` の `contributor` になります。
 
 #### 認可チェック
 
@@ -687,7 +721,28 @@ const result2 = await client.check({
   subject: { type: "user", id: "alice" },
 });
 console.log(result2.can); // CHECK_RESULT_DENIED
+
+// ✨ Subject Relation経由の権限チェック
+// 「frankはbackend-apiに書き込める？」
+// → backend-teamのmemberで、チーム全体がcontributorなので書き込み可能
+const result3 = await client.check({
+  entity: { type: "repository", id: "backend-api" },
+  permission: "write",
+  subject: { type: "user", id: "frank" },
+});
+console.log(result3.can); // CHECK_RESULT_ALLOWED（team#member経由）
+
+// 「graceはbackend-apiに書き込める？」
+// → 同じくbackend-teamのmemberなので書き込み可能
+const result4 = await client.check({
+  entity: { type: "repository", id: "backend-api" },
+  permission: "write",
+  subject: { type: "user", id: "grace" },
+});
+console.log(result4.can); // CHECK_RESULT_ALLOWED（team#member経由）
 ```
+
+**Subject Relationの効果**: `team:backend-team#member` という1つのタプルで、frank と grace の両方に権限が付与されます。チームメンバーを追加するだけで、自動的に権限が継承されます。
 
 ---
 

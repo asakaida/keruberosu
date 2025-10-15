@@ -52,7 +52,7 @@ entity organization {
 entity repository {
   relation org @organization
   relation maintainer @user
-  relation contributor @user | team#member
+  relation contributor @user @team#member
 
   permission delete = org.admin
   permission manage = org.admin or maintainer
