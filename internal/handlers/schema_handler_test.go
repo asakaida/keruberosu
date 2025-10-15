@@ -16,11 +16,11 @@ import (
 
 func TestSchemaHandler_Write_Success(t *testing.T) {
 	mockService := &mockSchemaService{
-		writeSchemaFunc: func(ctx context.Context, tenantID string, schemaDSL string) error {
+		writeSchemaFunc: func(ctx context.Context, tenantID string, schemaDSL string) (string, error) {
 			if tenantID != "default" {
 				t.Errorf("expected tenant ID 'default', got %s", tenantID)
 			}
-			return nil
+			return "01ARZ3NDEKTSV4RRFFQ69G5FAV", nil
 		},
 	}
 
@@ -37,10 +37,13 @@ func TestSchemaHandler_Write_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// SchemaWriteResponse now only contains SchemaVersion (Permify compatible)
-	// Success is indicated by absence of error
-	// SchemaVersion is empty for now (TODO: will be implemented later)
-	_ = resp.SchemaVersion
+	if resp.SchemaVersion == "" {
+		t.Error("expected non-empty schema version")
+	}
+
+	if resp.SchemaVersion != "01ARZ3NDEKTSV4RRFFQ69G5FAV" {
+		t.Errorf("expected version '01ARZ3NDEKTSV4RRFFQ69G5FAV', got %s", resp.SchemaVersion)
+	}
 }
 
 func TestSchemaHandler_Write_EmptySchema(t *testing.T) {
@@ -63,8 +66,8 @@ func TestSchemaHandler_Write_EmptySchema(t *testing.T) {
 
 func TestSchemaHandler_Write_ParseError(t *testing.T) {
 	mockService := &mockSchemaService{
-		writeSchemaFunc: func(ctx context.Context, tenantID string, schemaDSL string) error {
-			return fmt.Errorf("failed to parse DSL: syntax error at line 1")
+		writeSchemaFunc: func(ctx context.Context, tenantID string, schemaDSL string) (string, error) {
+			return "", fmt.Errorf("failed to parse DSL: syntax error at line 1")
 		},
 	}
 
@@ -86,8 +89,8 @@ func TestSchemaHandler_Write_ParseError(t *testing.T) {
 
 func TestSchemaHandler_Write_ValidationError(t *testing.T) {
 	mockService := &mockSchemaService{
-		writeSchemaFunc: func(ctx context.Context, tenantID string, schemaDSL string) error {
-			return fmt.Errorf("schema validation failed: undefined relation reference")
+		writeSchemaFunc: func(ctx context.Context, tenantID string, schemaDSL string) (string, error) {
+			return "", fmt.Errorf("schema validation failed: undefined relation reference")
 		},
 	}
 
@@ -110,13 +113,10 @@ func TestSchemaHandler_Write_ValidationError(t *testing.T) {
 func TestSchemaHandler_Read_Success(t *testing.T) {
 	updatedAt := time.Now()
 	mockService := &mockSchemaService{
-		readSchemaFunc: func(ctx context.Context, tenantID string) (string, error) {
+		readSchemaFunc: func(ctx context.Context, tenantID string) (*entities.Schema, error) {
 			if tenantID != "default" {
 				t.Errorf("expected tenant ID 'default', got %s", tenantID)
 			}
-			return `entity user {}`, nil
-		},
-		getSchemaEntityFunc: func(ctx context.Context, tenantID string) (*entities.Schema, error) {
 			return &entities.Schema{
 				TenantID:  tenantID,
 				DSL:       `entity user {}`,
@@ -147,8 +147,8 @@ func TestSchemaHandler_Read_Success(t *testing.T) {
 
 func TestSchemaHandler_Read_NotFound(t *testing.T) {
 	mockService := &mockSchemaService{
-		readSchemaFunc: func(ctx context.Context, tenantID string) (string, error) {
-			return "", fmt.Errorf("schema not found for tenant: %s", tenantID)
+		readSchemaFunc: func(ctx context.Context, tenantID string) (*entities.Schema, error) {
+			return nil, fmt.Errorf("schema not found for tenant: %s", tenantID)
 		},
 	}
 
@@ -175,10 +175,7 @@ func TestSchemaHandler_Read_NotFound(t *testing.T) {
 
 func TestSchemaHandler_Read_NoUpdatedAt(t *testing.T) {
 	mockService := &mockSchemaService{
-		readSchemaFunc: func(ctx context.Context, tenantID string) (string, error) {
-			return `entity user {}`, nil
-		},
-		getSchemaEntityFunc: func(ctx context.Context, tenantID string) (*entities.Schema, error) {
+		readSchemaFunc: func(ctx context.Context, tenantID string) (*entities.Schema, error) {
 			return &entities.Schema{
 				TenantID:  tenantID,
 				DSL:       `entity user {}`,

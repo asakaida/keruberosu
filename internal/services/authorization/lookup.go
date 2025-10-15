@@ -79,7 +79,7 @@ func (l *Lookup) LookupEntity(ctx context.Context, req *LookupEntityRequest) (*L
 	}
 
 	// Get parsed schema
-	schema, err := l.schemaService.GetSchemaEntity(ctx, req.TenantID)
+	schema, err := l.schemaService.GetSchemaEntity(ctx, req.TenantID, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}
@@ -157,7 +157,7 @@ func (l *Lookup) LookupSubject(ctx context.Context, req *LookupSubjectRequest) (
 	}
 
 	// Get parsed schema
-	schema, err := l.schemaService.GetSchemaEntity(ctx, req.TenantID)
+	schema, err := l.schemaService.GetSchemaEntity(ctx, req.TenantID, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}

@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/asakaida/keruberosu/internal/entities"
@@ -12,11 +11,11 @@ import (
 
 // SchemaServiceInterface defines the interface for schema management operations
 type SchemaServiceInterface interface {
-	WriteSchema(ctx context.Context, tenantID string, schemaDSL string) error
-	ReadSchema(ctx context.Context, tenantID string) (string, error)
+	WriteSchema(ctx context.Context, tenantID string, schemaDSL string) (string, error)
+	ReadSchema(ctx context.Context, tenantID string) (*entities.Schema, error)
 	ValidateSchema(ctx context.Context, schemaDSL string) error
 	DeleteSchema(ctx context.Context, tenantID string) error
-	GetSchemaEntity(ctx context.Context, tenantID string) (*entities.Schema, error)
+	GetSchemaEntity(ctx context.Context, tenantID string, version string) (*entities.Schema, error)
 }
 
 // SchemaService handles schema management operations
@@ -31,14 +30,14 @@ func NewSchemaService(schemaRepo repositories.SchemaRepository) *SchemaService {
 	}
 }
 
-// WriteSchema parses DSL, validates it, and saves to the database
-func (s *SchemaService) WriteSchema(ctx context.Context, tenantID string, schemaDSL string) error {
+// WriteSchema parses DSL, validates it, and creates a new schema version
+func (s *SchemaService) WriteSchema(ctx context.Context, tenantID string, schemaDSL string) (string, error) {
 	// Validate input
 	if tenantID == "" {
-		return fmt.Errorf("tenant ID is required")
+		return "", fmt.Errorf("tenant ID is required")
 	}
 	if schemaDSL == "" {
-		return fmt.Errorf("schema DSL is required")
+		return "", fmt.Errorf("schema DSL is required")
 	}
 
 	// Parse DSL
@@ -46,70 +45,48 @@ func (s *SchemaService) WriteSchema(ctx context.Context, tenantID string, schema
 	p := parser.NewParser(lexer)
 	ast, err := p.Parse()
 	if err != nil {
-		return fmt.Errorf("failed to parse DSL: %w", err)
+		return "", fmt.Errorf("failed to parse DSL: %w", err)
 	}
 
 	// Validate schema
 	validator := parser.NewValidator(ast)
 	if err := validator.Validate(); err != nil {
-		return fmt.Errorf("schema validation failed: %w", err)
+		return "", fmt.Errorf("schema validation failed: %w", err)
 	}
 
-	// Convert AST to entities.Schema for potential future use
-	// (currently we just store the DSL string, but this validates the conversion works)
+	// Convert AST to entities.Schema for validation
 	_, err = parser.ASTToSchema(tenantID, ast)
 	if err != nil {
-		return fmt.Errorf("failed to convert schema: %w", err)
+		return "", fmt.Errorf("failed to convert schema: %w", err)
 	}
 
-	// Check if schema already exists
-	_, err = s.schemaRepo.GetByTenant(ctx, tenantID)
-	if err != nil && !errors.Is(err, repositories.ErrNotFound) {
-		return fmt.Errorf("failed to check existing schema: %w", err)
+	// Always create a new version (Permify-compatible behavior)
+	version, err := s.schemaRepo.Create(ctx, tenantID, schemaDSL)
+	if err != nil {
+		return "", fmt.Errorf("failed to create schema version: %w", err)
 	}
 
-	// Create or update schema
-	if errors.Is(err, repositories.ErrNotFound) {
-		// Create new schema
-		if err := s.schemaRepo.Create(ctx, tenantID, schemaDSL); err != nil {
-			return fmt.Errorf("failed to create schema: %w", err)
-		}
-	} else {
-		// Update existing schema
-		if err := s.schemaRepo.Update(ctx, tenantID, schemaDSL); err != nil {
-			return fmt.Errorf("failed to update schema: %w", err)
-		}
-	}
-
-	return nil
+	return version, nil
 }
 
-// ReadSchema retrieves the schema for a tenant
-func (s *SchemaService) ReadSchema(ctx context.Context, tenantID string) (string, error) {
+// ReadSchema retrieves the latest schema for a tenant
+func (s *SchemaService) ReadSchema(ctx context.Context, tenantID string) (*entities.Schema, error) {
 	// Validate input
 	if tenantID == "" {
-		return "", fmt.Errorf("tenant ID is required")
+		return nil, fmt.Errorf("tenant ID is required")
 	}
 
-	// Get schema from database
-	schema, err := s.schemaRepo.GetByTenant(ctx, tenantID)
+	// Get latest schema from database
+	schema, err := s.schemaRepo.GetLatestVersion(ctx, tenantID)
 	if err != nil {
-		return "", fmt.Errorf("failed to get schema: %w", err)
+		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}
 
 	if schema == nil {
-		return "", fmt.Errorf("schema not found for tenant: %s", tenantID)
+		return nil, fmt.Errorf("schema not found for tenant: %s", tenantID)
 	}
 
-	// For Phase 1, we return the stored DSL directly
-	// In the future, we could parse and regenerate it for normalization:
-	// lexer := parser.NewLexer(schema.DSL)
-	// p := parser.NewParser(lexer)
-	// ast, _ := p.Parse()
-	// gen := parser.NewGenerator()
-	// return gen.Generate(ast), nil
-
-	return schema.DSL, nil
+	return schema, nil
 }
 
 // ValidateSchema validates a DSL string without saving it
@@ -152,15 +129,25 @@ func (s *SchemaService) DeleteSchema(ctx context.Context, tenantID string) error
 }
 
 // GetSchemaEntity retrieves the parsed schema entity for internal use
-// This method parses the DSL and populates the Entities field
-func (s *SchemaService) GetSchemaEntity(ctx context.Context, tenantID string) (*entities.Schema, error) {
+// version="" means use the latest version
+func (s *SchemaService) GetSchemaEntity(ctx context.Context, tenantID string, version string) (*entities.Schema, error) {
 	// Validate input
 	if tenantID == "" {
 		return nil, fmt.Errorf("tenant ID is required")
 	}
 
-	// Get schema DSL from database (Entities field will be empty)
-	dbSchema, err := s.schemaRepo.GetByTenant(ctx, tenantID)
+	// Get schema from database
+	var dbSchema *entities.Schema
+	var err error
+
+	if version == "" {
+		// Get latest version
+		dbSchema, err = s.schemaRepo.GetLatestVersion(ctx, tenantID)
+	} else {
+		// Get specific version
+		dbSchema, err = s.schemaRepo.GetByVersion(ctx, tenantID, version)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}
@@ -179,7 +166,8 @@ func (s *SchemaService) GetSchemaEntity(ctx context.Context, tenantID string) (*
 		return nil, fmt.Errorf("failed to convert AST to schema: %w", err)
 	}
 
-	// Preserve timestamps from database
+	// Preserve metadata from database
+	parsedSchema.Version = dbSchema.Version
 	parsedSchema.CreatedAt = dbSchema.CreatedAt
 	parsedSchema.UpdatedAt = dbSchema.UpdatedAt
 

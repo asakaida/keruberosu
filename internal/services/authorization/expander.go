@@ -61,7 +61,7 @@ func (e *Expander) Expand(ctx context.Context, req *ExpandRequest) (*ExpandRespo
 	}
 
 	// Get parsed schema
-	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID)
+	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}

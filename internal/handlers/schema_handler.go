@@ -33,13 +33,13 @@ func (h *SchemaHandler) Write(ctx context.Context, req *pb.SchemaWriteRequest) (
 
 	tenantID := "default"
 
-	err := h.schemaService.WriteSchema(ctx, tenantID, req.Schema)
+	version, err := h.schemaService.WriteSchema(ctx, tenantID, req.Schema)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "failed to write schema: %v", err)
 	}
 
 	return &pb.SchemaWriteResponse{
-		SchemaVersion: "", // TODO: implement schema versioning later
+		SchemaVersion: version,
 	}, nil
 }
 
@@ -47,12 +47,7 @@ func (h *SchemaHandler) Write(ctx context.Context, req *pb.SchemaWriteRequest) (
 func (h *SchemaHandler) Read(ctx context.Context, req *pb.SchemaReadRequest) (*pb.SchemaReadResponse, error) {
 	tenantID := "default"
 
-	schemaDSL, err := h.schemaService.ReadSchema(ctx, tenantID)
-	if err != nil {
-		return nil, handleReadSchemaError(err)
-	}
-
-	schema, err := h.schemaService.GetSchemaEntity(ctx, tenantID)
+	schema, err := h.schemaService.ReadSchema(ctx, tenantID)
 	if err != nil {
 		return nil, handleReadSchemaError(err)
 	}
@@ -63,7 +58,7 @@ func (h *SchemaHandler) Read(ctx context.Context, req *pb.SchemaReadRequest) (*p
 	}
 
 	return &pb.SchemaReadResponse{
-		Schema:    schemaDSL,
+		Schema:    schema.DSL,
 		UpdatedAt: updatedAt,
 	}, nil
 }

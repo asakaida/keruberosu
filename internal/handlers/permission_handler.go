@@ -226,7 +226,7 @@ func (h *PermissionHandler) SubjectPermission(ctx context.Context, req *pb.Permi
 		tenantID = "default"
 	}
 
-	schema, err := h.schemaService.GetSchemaEntity(ctx, tenantID)
+	schema, err := h.schemaService.GetSchemaEntity(ctx, tenantID, "")
 	if err != nil {
 		if errors.Is(err, repositories.ErrNotFound) {
 			return nil, status.Errorf(codes.NotFound, "schema not found for tenant: %s", tenantID)

@@ -99,16 +99,18 @@ bob → editor → 編集のみ可能
 
 Keruberosu は以下の API を提供します：
 
-| API               | 用途                   | 質問形式                                    |
-| ----------------- | ---------------------- | ------------------------------------------- |
-| Check             | 認可チェック           | 「alice は doc1 を編集できる？」            |
-| Expand            | 権限ツリー展開         | 「doc1 を編集できるのは誰？（ツリー構造）」 |
-| LookupEntity      | データフィルタリング   | 「alice が編集できるドキュメント一覧は？」  |
-| LookupSubject     | ユーザーフィルタリング | 「doc1 を編集できるユーザー一覧は？」       |
-| SubjectPermission | 権限一覧               | 「alice が doc1 に対して持つ権限は？」      |
-| WriteSchema       | スキーマ定義           | 認可ルールの定義・更新                      |
-| WriteRelations    | 関係性の書き込み       | 「alice を doc1 の owner にする」           |
-| WriteAttributes   | 属性の書き込み         | 「doc1 の is_public を true にする」        |
+| API               | 用途                   | 質問形式                                     |
+| ----------------- | ---------------------- | -------------------------------------------- |
+| Check             | 認可チェック           | 「alice は doc1 を編集できる？」             |
+| Expand            | 権限ツリー展開         | 「doc1 を編集できるのは誰？（ツリー構造）」  |
+| LookupEntity      | データフィルタリング   | 「alice が編集できるドキュメント一覧は？」   |
+| LookupSubject     | ユーザーフィルタリング | 「doc1 を編集できるユーザー一覧は？」        |
+| SubjectPermission | 権限一覧               | 「alice が doc1 に対して持つ権限は？」       |
+| WriteSchema       | スキーマ定義           | 認可ルールの定義・更新（バージョン自動生成） |
+| WriteRelations    | 関係性の書き込み       | 「alice を doc1 の owner にする」            |
+| WriteAttributes   | 属性の書き込み         | 「doc1 の is_public を true にする」         |
+
+注: WriteSchema は、呼び出しごとに新しいバージョン ID を自動生成します（ULID 形式）。これによりスキーマの履歴管理とロールバックが可能になります。
 
 ### 3. ユースケース別実例
 
@@ -598,9 +600,9 @@ console.log(result2.can); // CHECK_RESULT_ALLOWED（営業部のドキュメン�
 
 ---
 
-### ユースケース 5: 複合 - GitHub ライクな Organization/Repository 管理（Subject Relation対応）
+### ユースケース 5: 複合 - GitHub ライクな Organization/Repository 管理（Subject Relation 対応）
 
-シナリオ: Organization → Repository の階層構造、複数のロール。**Subject Relation（`team#member`）により、チーム全体への権限付与を1つのタプルで実現**。
+シナリオ: Organization → Repository の階層構造、複数のロール。**Subject Relation（`team#member`）により、チーム全体への権限付与を 1 つのタプルで実現**。
 
 #### スキーマ定義
 
@@ -635,7 +637,7 @@ entity repository {
 """
 ```
 
-**重要**: `relation contributor @user @team#member` により、個別ユーザーだけでなく、チームのメンバー全員をcontributorとして扱えます。
+**重要**: `relation contributor @user @team#member` により、個別ユーザーだけでなく、チームのメンバー全員を contributor として扱えます。
 
 #### データ設定
 
@@ -742,7 +744,7 @@ const result4 = await client.check({
 console.log(result4.can); // CHECK_RESULT_ALLOWED（team#member経由）
 ```
 
-**Subject Relationの効果**: `team:backend-team#member` という1つのタプルで、frank と grace の両方に権限が付与されます。チームメンバーを追加するだけで、自動的に権限が継承されます。
+**Subject Relation の効果**: `team:backend-team#member` という 1 つのタプルで、frank と grace の両方に権限が付与されます。チームメンバーを追加するだけで、自動的に権限が継承されます。
 
 ---
 
@@ -2245,19 +2247,19 @@ Protocol Buffers 定義は以下の3ファイルに分割されています：
 
 各 API の説明:
 
-| API カテゴリ   | メソッド           | 用途                        | 例                                    |
-| -------------- | ------------------ | --------------------------- | ------------------------------------- |
-| スキーマ管理   | WriteSchema        | スキーマ定義の登録・更新    | DSL を送信してスキーマ作成            |
-|                | ReadSchema         | スキーマ定義の取得          | 現在のスキーマを取得                  |
-| データ書き込み | WriteRelations     | 関係性タプルの書き込み      | alice を doc1 の owner に             |
-|                | DeleteRelations    | 関係性タプルの削除          | alice の owner 権限を削除             |
-|                | WriteAttributes    | 属性データの書き込み        | doc1 を confidential に               |
-| 認可チェック   | Check              | 認可判定                    | alice は doc1 を edit できる？        |
-|                | Expand             | パーミッションツリー展開    | doc1 の edit 権限を持つユーザーツリー |
-|                | LookupEntity       | 許可された Entity 一覧      | alice が edit できる document は？    |
-|                | LookupSubject      | 許可された Subject 一覧     | doc1 を edit できる user は？         |
-|                | LookupEntityStream | LookupEntity のストリーム版 | 大量結果をストリームで取得            |
-|                | SubjectPermission  | Subject の権限一覧          | alice が doc1 に対して持つ権限一覧    |
+| API カテゴリ   | メソッド           | 用途                        | 例                                                 |
+| -------------- | ------------------ | --------------------------- | -------------------------------------------------- |
+| スキーマ管理   | WriteSchema        | スキーマ定義の登録・更新    | DSL を送信してスキーマ作成（バージョン ID を返却） |
+|                | ReadSchema         | スキーマ定義の取得          | 最新のスキーマを取得                               |
+| データ書き込み | WriteRelations     | 関係性タプルの書き込み      | alice を doc1 の owner に                          |
+|                | DeleteRelations    | 関係性タプルの削除          | alice の owner 権限を削除                          |
+|                | WriteAttributes    | 属性データの書き込み        | doc1 を confidential に                            |
+| 認可チェック   | Check              | 認可判定                    | alice は doc1 を edit できる？                     |
+|                | Expand             | パーミッションツリー展開    | doc1 の edit 権限を持つユーザーツリー              |
+|                | LookupEntity       | 許可された Entity 一覧      | alice が edit できる document は？                 |
+|                | LookupSubject      | 許可された Subject 一覧     | doc1 を edit できる user は？                      |
+|                | LookupEntityStream | LookupEntity のストリーム版 | 大量結果をストリームで取得                         |
+|                | SubjectPermission  | Subject の権限一覧          | alice が doc1 に対して持つ権限一覧                 |
 
 クライアント使用例:
 
@@ -5569,13 +5571,12 @@ message WriteSchemaRequest {
 }
 
 message WriteSchemaResponse {
-  bool success = 1;
-  string message = 2;
-  repeated string errors = 3;  // パースエラー詳細
+  string schema_version = 1;  // ULID形式のバージョンID（Permify互換）
+  // エラーはgRPC statusで返却
 }
 
 message ReadSchemaRequest {
-  // パラメータなし（常に現在のスキーマを返す）
+  // パラメータなし（常に最新のスキーマを返す）
 }
 
 message ReadSchemaResponse {
@@ -5887,7 +5888,7 @@ gRPC ステータスコードの使い分け：
 | タイムアウト           | DeadlineExceeded   | 深いグラフ探索でタイムアウト |
 
 ```go
-// エラーハンドリングの例
+// エラーハンドリングの例（Permify互換）
 func (s *Server) WriteSchema(ctx context.Context, req *pb.WriteSchemaRequest) (*pb.WriteSchemaResponse, error) {
     if req.SchemaDsl == "" {
         return nil, status.Error(codes.InvalidArgument, "schema_dsl is required")
@@ -5896,25 +5897,24 @@ func (s *Server) WriteSchema(ctx context.Context, req *pb.WriteSchemaRequest) (*
     // DSLパース
     schema, err := ParsePermifyDSL(req.SchemaDsl)
     if err != nil {
-        return &pb.WriteSchemaResponse{
-            Success: false,
-            Message: "Parse error",
-            Errors:  []string{err.Error()},
-        }, nil  // ビジネスエラーなのでnilを返す
+        // Permify互換：パースエラーはgRPC statusで返却
+        return nil, status.Errorf(codes.InvalidArgument, "parse error: %v", err)
     }
 
-    // DB保存
-    if err := s.dataManager.SaveSchema(ctx, req.SchemaDsl, schema); err != nil {
+    // スキーマ検証
+    if err := ValidateSchema(schema); err != nil {
+        return nil, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
+    }
+
+    // DB保存（新しいバージョンを作成）
+    version, err := s.schemaService.WriteSchema(ctx, "default", req.SchemaDsl)
+    if err != nil {
         return nil, status.Errorf(codes.Internal, "failed to save schema: %v", err)
     }
 
-    // キャッシュ更新
-    s.schemaCache.Set(schema)
-    s.authCache.Purge()
-
+    // Permify互換：schema_versionを返却
     return &pb.WriteSchemaResponse{
-        Success: true,
-        Message: "Schema updated successfully",
+        SchemaVersion: version,  // ULID形式
     }, nil
 }
 ```

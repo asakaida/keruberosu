@@ -13,6 +13,7 @@ Keruberosu は、関係性ベース (ReBAC) と属性ベース (ABAC) の両方�
 - ReBAC (Relationship-Based Access Control): Google Docs や GitHub のようなリソース共有システムの認可
 - ABAC (Attribute-Based Access Control): 属性に基づく柔軟なルール定義
 - Permify 互換 API: Check, Expand, LookupEntity, LookupSubject, SubjectPermission
+- スキーマバージョン管理: ULID ベースの自動バージョニング
 - gRPC API: 高性能な認可判定
 - PostgreSQL バックエンド: 信頼性の高いデータストレージ
 
@@ -24,7 +25,7 @@ Keruberosu は、Permify 互換 API として以下の 3 つの独立したサ�
 
 - Permission Service: 権限チェック (Check)、権限ツリー展開 (Expand)、エンティティ検索 (LookupEntity)、サブジェクト検索 (LookupSubject)、サブジェクトの権限一覧 (SubjectPermission) を提供
 - Data Service: 関係性（Relations）と属性（Attributes）の書き込み (Write)、削除 (Delete)、読み取り (Read) を管理
-- Schema Service: スキーマ定義の作成・更新 (Write)、取得 (Read) を管理
+- Schema Service: スキーマ定義の作成・更新 (Write)、取得 (Read)、バージョン管理 (ULID ベース) を管理
 
 この設計は、Permify の API 構造に準拠し、Google Zanzibar、Auth0 FGA などの業界標準に従っています。
 
@@ -497,7 +498,7 @@ entity document {
 
 #### Subject Relation（グループメンバーシップ）をサポート
 
-Permify互換のsubject relation機能により、複数の型や`team#member`のような記法を使用できます：
+Permify 互換の subject relation 機能により、複数の型や`team#member`のような記法を使用できます：
 
 ```text
 entity user {}
@@ -515,7 +516,7 @@ entity repository {
 }
 ```
 
-この定義により、`repository:backend-api#contributor@team:backend-team#member` のような1つのタプルで、チーム全員に権限を付与できます。
+この定義により、`repository:backend-api#contributor@team:backend-team#member` のような 1 つのタプルで、チーム全員に権限を付与できます。
 
 ### クライアントからの認可チェック
 

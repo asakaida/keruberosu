@@ -5,6 +5,7 @@ import "time"
 // Schema represents the complete authorization schema for a tenant
 type Schema struct {
 	TenantID  string            // Tenant identifier
+	Version   string            // Schema version (ULID)
 	DSL       string            // Original DSL text
 	Rules     []*RuleDefinition // Top-level rule definitions (Permify compatible)
 	Entities  []*Entity         // Entity definitions

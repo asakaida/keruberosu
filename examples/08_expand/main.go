@@ -141,13 +141,13 @@ entity issue {
 }
 `
 
-	_, err = schemaClient.Write(ctx, &pb.SchemaWriteRequest{
+	schemaResp, err := schemaClient.Write(ctx, &pb.SchemaWriteRequest{
 		Schema: schema,
 	})
 	if err != nil {
 		log.Fatalf("スキーマ書き込みに失敗: %v", err)
 	}
-	fmt.Println("✓ スキーマ定義完了")
+	fmt.Printf("✓ スキーマ定義完了 (version: %s)\n", schemaResp.SchemaVersion)
 	fmt.Println()
 
 	// ステップ2: 関係とアトリビュートの登録

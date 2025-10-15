@@ -64,12 +64,13 @@ entity document {
 }
 `
 
-	_, err = schemaClient.Write(ctx, &pb.SchemaWriteRequest{
+	schemaResp, err := schemaClient.Write(ctx, &pb.SchemaWriteRequest{
 		Schema: schema,
 	})
 	if err != nil {
 		log.Fatalf("スキーマ書き込み失敗: %v", err)
 	}
+	fmt.Printf("✅ スキーマが書き込まれました (version: %s)\n\n", schemaResp.SchemaVersion)
 
 	// Step 2: ドキュメントの属性を書き込み（Permify互換: 単一属性形式）
 	_, err = dataClient.Write(ctx, &pb.DataWriteRequest{

@@ -71,13 +71,13 @@ entity issue {
 `
 
 	fmt.Println("📋 スキーマを定義中...")
-	_, err = schemaClient.Write(ctx, &pb.SchemaWriteRequest{
+	schemaResp, err := schemaClient.Write(ctx, &pb.SchemaWriteRequest{
 		Schema: schema,
 	})
 	if err != nil {
 		log.Fatalf("スキーマ書き込み失敗: %v", err)
 	}
-	fmt.Println("✅ スキーマ定義完了")
+	fmt.Printf("✅ スキーマ定義完了 (version: %s)\n", schemaResp.SchemaVersion)
 
 	// Step 2: データ構造の説明
 	fmt.Println("📁 組織構造:")

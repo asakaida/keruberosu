@@ -1,8 +1,8 @@
 # Permify 互換性ステータス
 
-## 📅 最終更新日: 2025-10-14
+## 📅 最終更新日: 2025-10-15
 
-## 🎉 最新の大規模アップデート（2025-10-14）
+## 🎉 最新の大規模アップデート（2025-10-15）
 
 **Permify 互換 API 構造への完全移行が完了しました！**
 
@@ -199,11 +199,86 @@
 - 全テストケース（自動的に対応、tenant_id が空でも動作）
 - 全 example コード（tenant_id が空でも動作）
 
+### 13. Schema Version 機能 【完了】（2025-10-15 追加）
+
+**実装内容:**
+
+**データベース層:**
+
+- ✅ マイグレーションファイル作成（`000004_add_schema_version.up/down.sql`）
+- ✅ `schemas` テーブルに `version VARCHAR(26)` カラム追加
+- ✅ UNIQUE 制約を `(tenant_id)` から `(tenant_id, version)` に変更（複数バージョン対応）
+- ✅ インデックス追加: `idx_schemas_version`, `idx_schemas_tenant_created`
+- ✅ ULID (Universally Unique Lexicographically Sortable Identifier) を採用
+
+**リポジトリ層:**
+
+- ✅ `SchemaRepository.Create()` の戻り値を `(string, error)` に変更（バージョン ID 返却）
+- ✅ `GetLatestVersion()` メソッド追加（最新バージョン取得）
+- ✅ `GetByVersion()` メソッド追加（特定バージョン取得）
+- ✅ `GetByTenant()` を `GetLatestVersion()` のエイリアスとして維持（後方互換性）
+- ✅ ULID 生成ロジック実装（`github.com/oklog/ulid/v2`）
+
+**サービス層:**
+
+- ✅ `SchemaService.WriteSchema()` の戻り値を `(string, error)` に変更
+- ✅ `ReadSchema()` の戻り値を `(*entities.Schema, error)` に変更
+- ✅ `GetSchemaEntity()` に version パラメータ追加（空文字列で最新版）
+- ✅ 各 Write 時に新バージョン自動生成（Permify 互換動作）
+
+**ハンドラ層:**
+
+- ✅ `SchemaHandler.Write()` で生成されたバージョンを返却
+- ✅ `SchemaWriteResponse.schema_version` に実際のバージョン ID 設定
+- ✅ 全 authorization 関連コードで version パラメータ対応
+
+**Entity 層:**
+
+- ✅ `entities.Schema` に `Version string` フィールド追加
+- ✅ バージョン情報の保持とメタデータ管理
+
+**テスト:**
+
+- ✅ Repository 単体テスト更新（バージョン作成・取得・削除）
+- ✅ Service 単体テスト更新（複数バージョン管理）
+- ✅ Handler 単体テスト更新（バージョン返却確認）
+- ✅ Authorization 単体テスト更新（version パラメータ対応）
+- ✅ E2E テスト成功確認
+- ✅ 全テストパス確認（100%成功）
+
+**バージョニング仕様:**
+
+- ✅ ULID 形式: 26 文字の英数字（例: `01ARZ3NDEKTSV4RRFFQ69G5FAV`）
+- ✅ タイムスタンプベース（時系列ソート可能）
+- ✅ 衝突耐性（分散環境でも一意性保証）
+- ✅ 新スキーマ書き込み毎に自動で新バージョン生成
+- ✅ 旧バージョンは削除せず保持（履歴管理）
+
+**Permify 互換性:**
+
+- ✅ `SchemaWriteResponse.schema_version` に実際のバージョン ID 返却
+- ✅ 空文字列指定で最新バージョン取得
+- ✅ 特定バージョン指定で過去バージョン取得可能
+
+**影響範囲:**
+
+- `internal/infrastructure/database/migrations/postgres/000004_add_schema_version.*`
+- `internal/entities/schema.go`
+- `internal/repositories/schema_repository.go`
+- `internal/repositories/postgres/schema_repository.go`
+- `internal/services/schema_service.go`
+- `internal/services/authorization/*.go` (evaluator, checker, expander, lookup)
+- `internal/handlers/schema_handler.go`
+- `internal/handlers/permission_handler.go`
+- `internal/handlers/test_helpers.go`
+- 全単体・統合・E2E テスト
+- `go.mod` (ulid 依存追加)
+
 ---
 
 ## 🔴 先送り事項（今後の実装が必要）
 
-### 1. Schema Version 機能 【高優先度】
+### 1. Snap Token / Cache 機構 【高優先度】
 
 **現状:**
 
@@ -303,7 +378,7 @@
 
 **実装内容:**
 
-- ✅ Permify互換の`@user @team#member`形式（スペース区切り）に統一
+- ✅ Permify 互換の`@user @team#member`形式（スペース区切り）に統一
 - ✅ パイプ区切り（`|`）記法を削除（後方互換性なし）
 - ✅ パーサー、ジェネレーター、バリデーターを全て更新
 - ✅ 全テスト、Example、ドキュメント（README, PRD, DESIGN）を更新

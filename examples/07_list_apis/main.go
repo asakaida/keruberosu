@@ -68,13 +68,13 @@ entity document {
 }
 `
 
-	_, err = schemaClient.Write(ctx, &pb.SchemaWriteRequest{
+	schemaResp, err := schemaClient.Write(ctx, &pb.SchemaWriteRequest{
 		Schema: schema,
 	})
 	if err != nil {
 		log.Fatalf("スキーマ書き込み失敗: %v", err)
 	}
-	fmt.Println("✓ スキーマ定義完了")
+	fmt.Printf("✓ スキーマ定義完了 (version: %s)\n", schemaResp.SchemaVersion)
 	fmt.Println()
 
 	// Step 2: 組織構造とデータを準備

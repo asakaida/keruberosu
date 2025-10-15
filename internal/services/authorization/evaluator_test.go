@@ -14,16 +14,20 @@ type mockSchemaRepository struct {
 	schema *entities.Schema
 }
 
-func (m *mockSchemaRepository) Create(ctx context.Context, tenantID string, schemaDSL string) error {
-	return nil
+func (m *mockSchemaRepository) Create(ctx context.Context, tenantID string, schemaDSL string) (string, error) {
+	return "v1", nil
+}
+
+func (m *mockSchemaRepository) GetLatestVersion(ctx context.Context, tenantID string) (*entities.Schema, error) {
+	return m.schema, nil
+}
+
+func (m *mockSchemaRepository) GetByVersion(ctx context.Context, tenantID string, version string) (*entities.Schema, error) {
+	return m.schema, nil
 }
 
 func (m *mockSchemaRepository) GetByTenant(ctx context.Context, tenantID string) (*entities.Schema, error) {
 	return m.schema, nil
-}
-
-func (m *mockSchemaRepository) Update(ctx context.Context, tenantID string, schemaDSL string) error {
-	return nil
 }
 
 func (m *mockSchemaRepository) Delete(ctx context.Context, tenantID string) error {
@@ -32,7 +36,7 @@ func (m *mockSchemaRepository) Delete(ctx context.Context, tenantID string) erro
 
 // GetSchemaEntity implements SchemaServiceInterface
 // In tests, the schema already has Entities populated, so we just return it
-func (m *mockSchemaRepository) GetSchemaEntity(ctx context.Context, tenantID string) (*entities.Schema, error) {
+func (m *mockSchemaRepository) GetSchemaEntity(ctx context.Context, tenantID string, version string) (*entities.Schema, error) {
 	return m.schema, nil
 }
 

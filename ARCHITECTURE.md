@@ -293,11 +293,12 @@ sequenceDiagram
     Validator-->>SchemaService: Errors or Success
     SchemaService->>SchemaService: Convert AST to Entity
     SchemaService->>SchemaRepo: Create(tenantID, dsl, schemaEntity)
-    SchemaRepo->>DB: INSERT schema
+    SchemaRepo->>SchemaRepo: Generate ULID version
+    SchemaRepo->>DB: INSERT schema with version
     DB-->>SchemaRepo: Success
-    SchemaRepo-->>SchemaService: Success
-    SchemaService-->>Handler: Success
-    Handler-->>Client: WriteSchemaResponse
+    SchemaRepo-->>SchemaService: version ID (ULID)
+    SchemaService-->>Handler: version ID
+    Handler-->>Client: WriteSchemaResponse{schema_version}
 ```
 
 ### 2. リレーション書き込みフロー

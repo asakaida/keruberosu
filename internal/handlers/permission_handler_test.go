@@ -240,7 +240,7 @@ func TestPermissionHandler_SubjectPermission_Success(t *testing.T) {
 	}
 
 	mockSchemaService := &mockSchemaService{
-		getSchemaEntityFunc: func(ctx context.Context, tenantID string) (*entities.Schema, error) {
+		getSchemaEntityFunc: func(ctx context.Context, tenantID string, version string) (*entities.Schema, error) {
 			return &entities.Schema{
 				TenantID: tenantID,
 				Entities: []*entities.Entity{
@@ -292,7 +292,7 @@ func TestPermissionHandler_SubjectPermission_Success(t *testing.T) {
 
 func TestPermissionHandler_SubjectPermission_SchemaNotFound(t *testing.T) {
 	mockSchemaService := &mockSchemaService{
-		getSchemaEntityFunc: func(ctx context.Context, tenantID string) (*entities.Schema, error) {
+		getSchemaEntityFunc: func(ctx context.Context, tenantID string, version string) (*entities.Schema, error) {
 			return nil, fmt.Errorf("schema not found for tenant %s: %w", tenantID, repositories.ErrNotFound)
 		},
 	}
@@ -326,7 +326,7 @@ func TestPermissionHandler_SubjectPermission_SchemaNotFound(t *testing.T) {
 
 func TestPermissionHandler_SubjectPermission_EntityNotFound(t *testing.T) {
 	mockSchemaService := &mockSchemaService{
-		getSchemaEntityFunc: func(ctx context.Context, tenantID string) (*entities.Schema, error) {
+		getSchemaEntityFunc: func(ctx context.Context, tenantID string, version string) (*entities.Schema, error) {
 			return &entities.Schema{
 				TenantID: tenantID,
 				Entities: []*entities.Entity{

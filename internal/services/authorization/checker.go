@@ -52,7 +52,7 @@ func (c *Checker) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 	}
 
 	// Get parsed schema
-	schema, err := c.schemaService.GetSchemaEntity(ctx, req.TenantID)
+	schema, err := c.schemaService.GetSchemaEntity(ctx, req.TenantID, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}

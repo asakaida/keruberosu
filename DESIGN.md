@@ -263,14 +263,24 @@ DB の差し替えを想定し、インターフェースと実装を分離し�
 CREATE TABLE schemas (
     id SERIAL PRIMARY KEY,
     tenant_id VARCHAR(255) NOT NULL,
+    version VARCHAR(26) NOT NULL,              -- ULID形式のバージョンID
     schema_dsl TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(tenant_id)
+    UNIQUE(tenant_id, version)                 -- テナントとバージョンの組み合わせで一意
 );
 
 CREATE INDEX idx_schemas_tenant ON schemas(tenant_id);
+CREATE INDEX idx_schemas_version ON schemas(version);
+CREATE INDEX idx_schemas_tenant_created ON schemas(tenant_id, created_at DESC);
 ```
+
+設計ポイント:
+
+- `version`カラム: ULID（26文字）を使用したバージョン管理
+- 各スキーマ書き込みで新しいバージョンを自動生成
+- 最新バージョンは`created_at DESC`でソート取得
+- Permify互換: `schema_version`フィールドを返却
 
 #### 2.2 relations テーブル
 
@@ -558,18 +568,24 @@ func (g *Generator) generatePermissionRule(rule PermissionRuleAST) string
 // internal/repositories/schema_repository.go
 
 type SchemaRepository interface {
-    // Create creates a new schema for the tenant
-    Create(ctx context.Context, tenantID string, schemaDSL string) error
+    // Create creates a new schema version for the tenant
+    // Returns the generated version ID (ULID format)
+    Create(ctx context.Context, tenantID string, schemaDSL string) (string, error)
 
-    // GetByTenant retrieves schema by tenant ID
+    // GetLatestVersion retrieves the latest schema version by tenant ID
     // Returns ErrNotFound if schema does not exist
     // Note: Entities field will be empty (populated by service layer)
+    GetLatestVersion(ctx context.Context, tenantID string) (*entities.Schema, error)
+
+    // GetByVersion retrieves a specific schema version
+    // Returns ErrNotFound if schema version does not exist
+    GetByVersion(ctx context.Context, tenantID string, version string) (*entities.Schema, error)
+
+    // GetByTenant is deprecated, use GetLatestVersion instead
+    // Kept for backward compatibility
     GetByTenant(ctx context.Context, tenantID string) (*entities.Schema, error)
 
-    // Update updates an existing schema
-    Update(ctx context.Context, tenantID string, schemaDSL string) error
-
-    // Delete deletes a schema
+    // Delete deletes all schema versions for a tenant
     Delete(ctx context.Context, tenantID string) error
 }
 ```
@@ -587,24 +603,33 @@ func NewPostgresSchemaRepository(db *sql.DB) *PostgresSchemaRepository {
     return &PostgresSchemaRepository{db: db}
 }
 
-func (r *PostgresSchemaRepository) Create(ctx context.Context, tenantID string, schemaDSL string) error {
-    query := `INSERT INTO schemas (tenant_id, schema_dsl) VALUES ($1, $2)`
-    _, err := r.db.ExecContext(ctx, query, tenantID, schemaDSL)
-    return err
+func (r *PostgresSchemaRepository) Create(ctx context.Context, tenantID string, schemaDSL string) (string, error) {
+    // Generate ULID version
+    version := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String()
+
+    query := `INSERT INTO schemas (tenant_id, version, schema_dsl, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5)`
+    now := time.Now()
+    _, err := r.db.ExecContext(ctx, query, tenantID, version, schemaDSL, now, now)
+    if err != nil {
+        return "", fmt.Errorf("failed to create schema: %w", err)
+    }
+    return version, nil
 }
 
-func (r *PostgresSchemaRepository) GetByTenant(ctx context.Context, tenantID string) (*entities.Schema, error) {
+func (r *PostgresSchemaRepository) GetLatestVersion(ctx context.Context, tenantID string) (*entities.Schema, error) {
     query := `
-        SELECT schema_dsl, created_at, updated_at
+        SELECT version, schema_dsl, created_at, updated_at
         FROM schemas
         WHERE tenant_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1
     `
-    var schemaDSL string
+    var version, schemaDSL string
     var createdAt, updatedAt time.Time
 
-    err := r.db.QueryRowContext(ctx, query, tenantID).Scan(&schemaDSL, &createdAt, &updatedAt)
+    err := r.db.QueryRowContext(ctx, query, tenantID).Scan(&version, &schemaDSL, &createdAt, &updatedAt)
     if err == sql.ErrNoRows {
-        // Return ErrNotFound wrapped with context
         return nil, fmt.Errorf("schema not found for tenant %s: %w", tenantID, repositories.ErrNotFound)
     }
     if err != nil {
@@ -613,10 +638,39 @@ func (r *PostgresSchemaRepository) GetByTenant(ctx context.Context, tenantID str
 
     schema := &entities.Schema{
         TenantID:  tenantID,
+        Version:   version,
         DSL:       schemaDSL,
         CreatedAt: createdAt,
         UpdatedAt: updatedAt,
         // Note: Entities will be populated by the parser in the service layer
+    }
+
+    return schema, nil
+}
+
+func (r *PostgresSchemaRepository) GetByVersion(ctx context.Context, tenantID string, version string) (*entities.Schema, error) {
+    query := `
+        SELECT version, schema_dsl, created_at, updated_at
+        FROM schemas
+        WHERE tenant_id = $1 AND version = $2
+    `
+    var versionResult, schemaDSL string
+    var createdAt, updatedAt time.Time
+
+    err := r.db.QueryRowContext(ctx, query, tenantID, version).Scan(&versionResult, &schemaDSL, &createdAt, &updatedAt)
+    if err == sql.ErrNoRows {
+        return nil, fmt.Errorf("schema version %s not found for tenant %s: %w", version, tenantID, repositories.ErrNotFound)
+    }
+    if err != nil {
+        return nil, fmt.Errorf("failed to get schema: %w", err)
+    }
+
+    schema := &entities.Schema{
+        TenantID:  tenantID,
+        Version:   versionResult,
+        DSL:       schemaDSL,
+        CreatedAt: createdAt,
+        UpdatedAt: updatedAt,
     }
 
     return schema, nil
@@ -1138,9 +1192,9 @@ type AuthorizationHandler struct {
 
 func (h *AuthorizationHandler) WriteSchema(ctx context.Context, req *pb.WriteSchemaRequest) (*pb.WriteSchemaResponse, error) {
     // 1. テナント ID を取得（Phase 1: 固定 "default"）
-    // 2. SchemaService.WriteSchema 呼び出し
+    // 2. SchemaService.WriteSchema 呼び出し（バージョンIDを取得）
     // 3. エラー変換（domain → gRPC）
-    // 4. レスポンスを返す
+    // 4. バージョンIDを含むレスポンスを返す（Permify互換）
 }
 
 func (h *AuthorizationHandler) ReadSchema(ctx context.Context, req *pb.ReadSchemaRequest) (*pb.ReadSchemaResponse, error) {

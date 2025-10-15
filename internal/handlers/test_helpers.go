@@ -10,23 +10,23 @@ import (
 
 // Mock SchemaService
 type mockSchemaService struct {
-	writeSchemaFunc     func(ctx context.Context, tenantID string, schemaDSL string) error
-	readSchemaFunc      func(ctx context.Context, tenantID string) (string, error)
-	getSchemaEntityFunc func(ctx context.Context, tenantID string) (*entities.Schema, error)
+	writeSchemaFunc     func(ctx context.Context, tenantID string, schemaDSL string) (string, error)
+	readSchemaFunc      func(ctx context.Context, tenantID string) (*entities.Schema, error)
+	getSchemaEntityFunc func(ctx context.Context, tenantID string, version string) (*entities.Schema, error)
 }
 
-func (m *mockSchemaService) WriteSchema(ctx context.Context, tenantID string, schemaDSL string) error {
+func (m *mockSchemaService) WriteSchema(ctx context.Context, tenantID string, schemaDSL string) (string, error) {
 	if m.writeSchemaFunc != nil {
 		return m.writeSchemaFunc(ctx, tenantID, schemaDSL)
 	}
-	return nil
+	return "v1", nil
 }
 
-func (m *mockSchemaService) ReadSchema(ctx context.Context, tenantID string) (string, error) {
+func (m *mockSchemaService) ReadSchema(ctx context.Context, tenantID string) (*entities.Schema, error) {
 	if m.readSchemaFunc != nil {
 		return m.readSchemaFunc(ctx, tenantID)
 	}
-	return "", nil
+	return &entities.Schema{}, nil
 }
 
 func (m *mockSchemaService) ValidateSchema(ctx context.Context, schemaDSL string) error {
@@ -37,9 +37,9 @@ func (m *mockSchemaService) DeleteSchema(ctx context.Context, tenantID string) e
 	return nil
 }
 
-func (m *mockSchemaService) GetSchemaEntity(ctx context.Context, tenantID string) (*entities.Schema, error) {
+func (m *mockSchemaService) GetSchemaEntity(ctx context.Context, tenantID string, version string) (*entities.Schema, error) {
 	if m.getSchemaEntityFunc != nil {
-		return m.getSchemaEntityFunc(ctx, tenantID)
+		return m.getSchemaEntityFunc(ctx, tenantID, version)
 	}
 	return nil, nil
 }
@@ -162,22 +162,30 @@ func (m *mockLookup) LookupSubject(ctx context.Context, req *authorization.Looku
 
 // Mock SchemaRepository
 type mockSchemaRepository struct {
-	getByTenantFunc func(ctx context.Context, tenantID string) (*entities.Schema, error)
+	getLatestVersionFunc func(ctx context.Context, tenantID string) (*entities.Schema, error)
+	getByVersionFunc     func(ctx context.Context, tenantID string, version string) (*entities.Schema, error)
 }
 
-func (m *mockSchemaRepository) Create(ctx context.Context, tenantID string, schemaDSL string) error {
-	return nil
+func (m *mockSchemaRepository) Create(ctx context.Context, tenantID string, schemaDSL string) (string, error) {
+	return "v1", nil
 }
 
-func (m *mockSchemaRepository) GetByTenant(ctx context.Context, tenantID string) (*entities.Schema, error) {
-	if m.getByTenantFunc != nil {
-		return m.getByTenantFunc(ctx, tenantID)
+func (m *mockSchemaRepository) GetLatestVersion(ctx context.Context, tenantID string) (*entities.Schema, error) {
+	if m.getLatestVersionFunc != nil {
+		return m.getLatestVersionFunc(ctx, tenantID)
 	}
 	return nil, nil
 }
 
-func (m *mockSchemaRepository) Update(ctx context.Context, tenantID string, schemaDSL string) error {
-	return nil
+func (m *mockSchemaRepository) GetByVersion(ctx context.Context, tenantID string, version string) (*entities.Schema, error) {
+	if m.getByVersionFunc != nil {
+		return m.getByVersionFunc(ctx, tenantID, version)
+	}
+	return nil, nil
+}
+
+func (m *mockSchemaRepository) GetByTenant(ctx context.Context, tenantID string) (*entities.Schema, error) {
+	return m.GetLatestVersion(ctx, tenantID)
 }
 
 func (m *mockSchemaRepository) Delete(ctx context.Context, tenantID string) error {

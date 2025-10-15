@@ -16,7 +16,7 @@ const (
 // SchemaServiceInterface defines the interface for schema operations
 // This interface is defined here to avoid circular dependency
 type SchemaServiceInterface interface {
-	GetSchemaEntity(ctx context.Context, tenantID string) (*entities.Schema, error)
+	GetSchemaEntity(ctx context.Context, tenantID string, version string) (*entities.Schema, error)
 }
 
 // Evaluator evaluates permission rules
@@ -240,7 +240,7 @@ func (e *Evaluator) evaluateHierarchical(
 	rule *entities.HierarchicalRule,
 ) (bool, error) {
 	// Get parsed schema to find the relation's target type
-	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID)
+	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID, "")
 	if err != nil {
 		return false, fmt.Errorf("failed to get schema: %w", err)
 	}
@@ -380,7 +380,7 @@ func (e *Evaluator) evaluateRuleCall(
 	rule *entities.RuleCallRule,
 ) (bool, error) {
 	// Get schema to access rule definitions
-	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID)
+	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID, "")
 	if err != nil {
 		return false, fmt.Errorf("failed to get schema: %w", err)
 	}
