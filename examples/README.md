@@ -271,8 +271,8 @@ go run cmd/migrate/main.go up
 
 ## 次のステップ
 
-- [PRD.md](../PRD.md): API の完全な仕様を確認
-- [DESIGN.md](../DESIGN.md): アーキテクチャの詳細を理解
+- [PRD.md](../docs/PRD.md): API の完全な仕様を確認
+- [DESIGN.md](../docs/DESIGN.md): アーキテクチャの詳細を理解
 - [test/e2e/](../test/e2e/): より複雑なシナリオのテストコードを参照
 
 ## トラブルシューティング
@@ -305,5 +305,5 @@ failed to connect to database
 
 問題が解決しない場合は、以下を確認してください：
 
-- [DEVELOPMENT.md](../DEVELOPMENT.md): 開発環境のセットアップ手順
+- [DEVELOPMENT.md](../docs/DEVELOPMENT.md): 開発環境のセットアップ手順
 - GitHub Issues: バグ報告や質問

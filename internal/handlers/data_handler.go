@@ -3,18 +3,25 @@ package handlers
 import (
 	"context"
 
-	pb "github.com/asakaida/keruberosu/proto/keruberosu/v1"
 	"github.com/asakaida/keruberosu/internal/entities"
 	"github.com/asakaida/keruberosu/internal/repositories"
+	pb "github.com/asakaida/keruberosu/proto/keruberosu/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
+// SnapTokenGenerator generates snapshot tokens for write operations.
+// This interface allows dependency injection for different token generation strategies.
+type SnapTokenGenerator interface {
+	GenerateWriteTokenWithDB(ctx context.Context) (string, error)
+}
+
 // DataHandler handles Data service gRPC requests
 type DataHandler struct {
 	pb.UnimplementedDataServer
-	relationRepo  repositories.RelationRepository
-	attributeRepo repositories.AttributeRepository
+	relationRepo   repositories.RelationRepository
+	attributeRepo  repositories.AttributeRepository
+	tokenGenerator SnapTokenGenerator // Optional: generates snapshot tokens for write responses
 }
 
 // NewDataHandler creates a new DataHandler
@@ -25,6 +32,19 @@ func NewDataHandler(
 	return &DataHandler{
 		relationRepo:  relationRepo,
 		attributeRepo: attributeRepo,
+	}
+}
+
+// NewDataHandlerWithTokenGenerator creates a new DataHandler with token generation support
+func NewDataHandlerWithTokenGenerator(
+	relationRepo repositories.RelationRepository,
+	attributeRepo repositories.AttributeRepository,
+	tokenGenerator SnapTokenGenerator,
+) *DataHandler {
+	return &DataHandler{
+		relationRepo:   relationRepo,
+		attributeRepo:  attributeRepo,
+		tokenGenerator: tokenGenerator,
 	}
 }
 
@@ -62,8 +82,18 @@ func (h *DataHandler) Write(ctx context.Context, req *pb.DataWriteRequest) (*pb.
 		}
 	}
 
+	// Generate snapshot token for cache consistency
+	snapToken := ""
+	if h.tokenGenerator != nil {
+		token, err := h.tokenGenerator.GenerateWriteTokenWithDB(ctx)
+		if err == nil {
+			snapToken = token
+		}
+		// Ignore errors - snapshot token is optional for backward compatibility
+	}
+
 	return &pb.DataWriteResponse{
-		SnapToken: "", // TODO: implement snapshot token later
+		SnapToken: snapToken,
 	}, nil
 }
 
@@ -89,8 +119,18 @@ func (h *DataHandler) Delete(ctx context.Context, req *pb.DataDeleteRequest) (*p
 		return nil, status.Errorf(codes.Internal, "failed to delete relations: %v", err)
 	}
 
+	// Generate snapshot token for cache consistency
+	snapToken := ""
+	if h.tokenGenerator != nil {
+		token, err := h.tokenGenerator.GenerateWriteTokenWithDB(ctx)
+		if err == nil {
+			snapToken = token
+		}
+		// Ignore errors - snapshot token is optional for backward compatibility
+	}
+
 	return &pb.DataDeleteResponse{
-		SnapToken: "", // TODO: implement snapshot token later
+		SnapToken: snapToken,
 	}, nil
 }
 

@@ -16,7 +16,7 @@ type LookupInterface interface {
 
 // Lookup provides entity and subject lookup functionality
 type Lookup struct {
-	checker       *Checker
+	checker       CheckerInterface
 	schemaService SchemaServiceInterface
 	relationRepo  repositories.RelationRepository
 }
@@ -61,7 +61,7 @@ type LookupSubjectResponse struct {
 
 // NewLookup creates a new Lookup
 func NewLookup(
-	checker *Checker,
+	checker CheckerInterface,
 	schemaService SchemaServiceInterface,
 	relationRepo repositories.RelationRepository,
 ) *Lookup {

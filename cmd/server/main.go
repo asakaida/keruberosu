@@ -5,18 +5,24 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/asakaida/keruberosu/internal/handlers"
+	"github.com/asakaida/keruberosu/internal/infrastructure/cache"
 	"github.com/asakaida/keruberosu/internal/infrastructure/config"
 	"github.com/asakaida/keruberosu/internal/infrastructure/database"
+	"github.com/asakaida/keruberosu/internal/infrastructure/metrics"
 	"github.com/asakaida/keruberosu/internal/repositories/postgres"
 	"github.com/asakaida/keruberosu/internal/services"
 	"github.com/asakaida/keruberosu/internal/services/authorization"
+	pkgcache "github.com/asakaida/keruberosu/pkg/cache"
+	"github.com/asakaida/keruberosu/pkg/cache/memorycache"
 	pb "github.com/asakaida/keruberosu/proto/keruberosu/v1"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -69,7 +75,6 @@ func runServer(cmd *cobra.Command, args []string) {
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer pg.Close()
 
 	log.Printf("Connected to database: %s@%s:%d/%s",
 		cfg.Database.User,
@@ -89,9 +94,62 @@ func runServer(cmd *cobra.Command, args []string) {
 		log.Fatalf("Failed to create CEL engine: %v", err)
 	}
 	evaluator := authorization.NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
-	checker := authorization.NewChecker(schemaService, evaluator)
+
+	// Initialize cache and snapshot manager if enabled
+	var checkCache pkgcache.Cache
+	var snapshotMgr *cache.SnapshotManager
+
+	if cfg.Cache.Enabled {
+		// Initialize memory cache
+		checkCache, err = memorycache.New(&memorycache.Config{
+			MaxSizeBytes:  cfg.Cache.MaxMemoryBytes,
+			DefaultTTL:    time.Duration(cfg.Cache.TTLMinutes) * time.Minute,
+			EnableMetrics: cfg.Cache.Metrics,
+		})
+		if err != nil {
+			log.Fatalf("Failed to create cache: %v", err)
+		}
+		log.Printf("Cache enabled: maxSize=%dMB, TTL=%dm",
+			cfg.Cache.MaxMemoryBytes/(1024*1024),
+			cfg.Cache.TTLMinutes)
+
+		// Initialize snapshot manager for cache consistency
+		connStr := cfg.Database.ConnectionString()
+		snapshotMgr = cache.NewSnapshotManager(pg.DB, connStr, 5*time.Minute)
+		if err := snapshotMgr.Start(context.Background()); err != nil {
+			log.Printf("Warning: Failed to start snapshot manager: %v (cache will use TTL-only mode)", err)
+			snapshotMgr = nil
+		} else {
+			log.Println("Snapshot manager started (LISTEN/NOTIFY enabled)")
+		}
+	}
+
+	// Initialize checker (with or without cache)
+	var checker authorization.CheckerInterface
+	if cfg.Cache.Enabled && checkCache != nil {
+		checker = authorization.NewCheckerWithCache(
+			schemaService,
+			evaluator,
+			checkCache,
+			snapshotMgr,
+			time.Duration(cfg.Cache.TTLMinutes)*time.Minute,
+		)
+	} else {
+		checker = authorization.NewChecker(schemaService, evaluator)
+	}
+
 	expander := authorization.NewExpander(schemaService, relationRepo)
 	lookup := authorization.NewLookup(checker, schemaService, relationRepo)
+
+	// Initialize metrics collector and Prometheus exporter
+	metricsCollector := metrics.NewCollector()
+	if checkCache != nil {
+		metricsCollector.SetCache(checkCache)
+	}
+	prometheusExporter := metrics.NewPrometheusExporter(metricsCollector)
+
+	// Initialize token generator for Data API snapshot tokens
+	tokenGenerator := postgres.NewSnapshotManager(pg.DB)
 
 	// Initialize service handlers
 	permissionHandler := handlers.NewPermissionHandler(
@@ -100,17 +158,20 @@ func runServer(cmd *cobra.Command, args []string) {
 		lookup,
 		schemaService,
 	)
-	dataHandler := handlers.NewDataHandler(
+	dataHandler := handlers.NewDataHandlerWithTokenGenerator(
 		relationRepo,
 		attributeRepo,
+		tokenGenerator,
 	)
 	schemaHandler := handlers.NewSchemaHandler(
 		schemaService,
 		schemaRepo,
 	)
 
-	// Create gRPC server
-	grpcServer := grpc.NewServer()
+	// Create gRPC server with metrics interceptor
+	grpcServer := grpc.NewServer(
+		grpc.UnaryInterceptor(metrics.UnaryServerInterceptor(metricsCollector, prometheusExporter)),
+	)
 	pb.RegisterPermissionServer(grpcServer, permissionHandler)
 	pb.RegisterDataServer(grpcServer, dataHandler)
 	pb.RegisterSchemaServer(grpcServer, schemaHandler)
@@ -118,7 +179,34 @@ func runServer(cmd *cobra.Command, args []string) {
 	// Register reflection service (for grpcurl, etc.)
 	reflection.Register(grpcServer)
 
-	// Start listening
+	// Start Prometheus metrics HTTP server
+	metricsServer := &http.Server{
+		Addr:    fmt.Sprintf(":%d", cfg.Server.MetricsPort),
+		Handler: promhttp.Handler(),
+	}
+	go func() {
+		log.Printf("Prometheus metrics server listening on :%d", cfg.Server.MetricsPort)
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("Metrics server error: %v", err)
+		}
+	}()
+
+	// Start periodic metrics update goroutine
+	metricsStopCh := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				prometheusExporter.Update()
+			case <-metricsStopCh:
+				return
+			}
+		}
+	}()
+
+	// Start gRPC server listening
 	port := cfg.Server.Port
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
@@ -151,6 +239,14 @@ func runServer(cmd *cobra.Command, args []string) {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
+		// Stop metrics update goroutine
+		close(metricsStopCh)
+
+		// Shutdown metrics server
+		if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Error shutting down metrics server: %v", err)
+		}
+
 		// Channel to notify when graceful stop completes
 		stopped := make(chan struct{})
 		go func() {
@@ -161,10 +257,24 @@ func runServer(cmd *cobra.Command, args []string) {
 		// Wait for graceful stop or timeout
 		select {
 		case <-stopped:
-			log.Println("Server stopped gracefully")
+			log.Println("gRPC server stopped gracefully")
 		case <-shutdownCtx.Done():
 			log.Println("Shutdown timeout exceeded, forcing stop")
 			grpcServer.Stop()
+		}
+
+		// Stop snapshot manager
+		if snapshotMgr != nil {
+			if err := snapshotMgr.Stop(); err != nil {
+				log.Printf("Error stopping snapshot manager: %v", err)
+			}
+		}
+
+		// Close cache
+		if checkCache != nil {
+			if err := checkCache.Close(); err != nil {
+				log.Printf("Error closing cache: %v", err)
+			}
 		}
 
 		// Close database connection
