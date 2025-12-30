@@ -2,9 +2,14 @@ package authorization
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"time"
 
 	"github.com/asakaida/keruberosu/internal/entities"
+	"github.com/asakaida/keruberosu/internal/repositories/postgres"
+	"github.com/asakaida/keruberosu/pkg/cache"
 )
 
 // CheckerInterface defines the interface for permission checking
@@ -15,8 +20,11 @@ type CheckerInterface interface {
 
 // Checker provides permission checking functionality
 type Checker struct {
-	schemaService SchemaServiceInterface
-	evaluator     *Evaluator
+	schemaService   SchemaServiceInterface
+	evaluator       *Evaluator
+	cache           cache.Cache               // Optional cache for check results
+	snapshotManager postgres.SnapshotProvider // Optional snapshot provider for cache consistency
+	cacheTTL        time.Duration             // TTL for cached results
 }
 
 // CheckRequest contains the parameters for a permission check
@@ -29,6 +37,7 @@ type CheckRequest struct {
 	SubjectType      string                    // Subject type (e.g., "user")
 	SubjectID        string                    // Subject ID (e.g., "alice")
 	ContextualTuples []*entities.RelationTuple // Temporary relation tuples for this check
+	SnapshotToken    string                    // Optional snapshot token for cache consistency
 }
 
 // CheckResponse contains the result of a permission check
@@ -36,12 +45,46 @@ type CheckResponse struct {
 	Allowed bool // Whether the subject has the permission
 }
 
-// NewChecker creates a new Checker
+// NewChecker creates a new Checker without caching
 func NewChecker(schemaService SchemaServiceInterface, evaluator *Evaluator) *Checker {
 	return &Checker{
 		schemaService: schemaService,
 		evaluator:     evaluator,
 	}
+}
+
+// NewCheckerWithCache creates a new Checker with caching enabled
+func NewCheckerWithCache(
+	schemaService SchemaServiceInterface,
+	evaluator *Evaluator,
+	c cache.Cache,
+	snapshotManager postgres.SnapshotProvider,
+	cacheTTL time.Duration,
+) *Checker {
+	return &Checker{
+		schemaService:   schemaService,
+		evaluator:       evaluator,
+		cache:           c,
+		snapshotManager: snapshotManager,
+		cacheTTL:        cacheTTL,
+	}
+}
+
+// generateCacheKey generates a cache key for the check request
+func (c *Checker) generateCacheKey(req *CheckRequest, snapshotToken string) string {
+	// Create a key from the request parameters and snapshot token
+	keyData := fmt.Sprintf("%s:%s:%s:%s:%s:%s:%s",
+		req.TenantID,
+		req.EntityType,
+		req.EntityID,
+		req.Permission,
+		req.SubjectType,
+		req.SubjectID,
+		snapshotToken,
+	)
+	// Hash the key to keep it short
+	hash := sha256.Sum256([]byte(keyData))
+	return hex.EncodeToString(hash[:])
 }
 
 // Check performs a permission check
@@ -50,6 +93,40 @@ func (c *Checker) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 	// Validate request
 	if err := c.validateRequest(req); err != nil {
 		return nil, fmt.Errorf("invalid check request: %w", err)
+	}
+
+	// Skip cache if contextual tuples are present (they make the result unique)
+	useCache := c.cache != nil && c.snapshotManager != nil && len(req.ContextualTuples) == 0
+
+	var snapshotToken string
+	var cacheKey string
+
+	if useCache {
+		// Get current snapshot token for cache key
+		var err error
+		if req.SnapshotToken != "" {
+			snapshotToken = req.SnapshotToken
+		} else {
+			snapshot, err := c.snapshotManager.GetCurrentSnapshotForRead(ctx)
+			if err != nil {
+				// Log error but continue without cache
+				useCache = false
+			} else {
+				snapshotToken = snapshot.String()
+			}
+		}
+
+		if useCache {
+			cacheKey = c.generateCacheKey(req, snapshotToken)
+
+			// Try to get from cache
+			if cached, found := c.cache.Get(ctx, cacheKey); found {
+				if result, ok := cached.(bool); ok {
+					return &CheckResponse{Allowed: result}, nil
+				}
+			}
+		}
+		_ = err // suppress unused variable warning
 	}
 
 	// Get parsed schema
@@ -86,6 +163,11 @@ func (c *Checker) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 	allowed, err := c.evaluator.EvaluateRule(ctx, evalReq, permission.Rule)
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate permission: %w", err)
+	}
+
+	// Store result in cache
+	if useCache && cacheKey != "" {
+		_ = c.cache.Set(ctx, cacheKey, allowed, c.cacheTTL)
 	}
 
 	return &CheckResponse{

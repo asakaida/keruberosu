@@ -12,12 +12,24 @@ import (
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
+	Cache    CacheConfig
 }
 
 // ServerConfig represents server configuration
 type ServerConfig struct {
-	Host string
-	Port int
+	Host        string
+	Port        int
+	MetricsPort int // Port for Prometheus metrics HTTP server
+}
+
+// CacheConfig represents cache configuration
+type CacheConfig struct {
+	Enabled        bool
+	NumCounters    int64
+	MaxMemoryBytes int64 // Maximum memory usage in bytes (e.g., 104857600 = 100MB)
+	BufferItems    int64
+	Metrics        bool
+	TTLMinutes     int // Time-to-live for cache entries in minutes
 }
 
 // DatabaseConfig represents database configuration
@@ -80,11 +92,20 @@ func InitConfig(env string) error {
 	// Set default values
 	viper.SetDefault("SERVER_HOST", "0.0.0.0")
 	viper.SetDefault("SERVER_PORT", 50051)
+	viper.SetDefault("METRICS_PORT", 9090)
 	viper.SetDefault("DB_HOST", "localhost")
 	viper.SetDefault("DB_PORT", 15432)
 	viper.SetDefault("DB_USER", "keruberosu")
 	viper.SetDefault("DB_NAME", "keruberosu_dev")
 	viper.SetDefault("DB_SSLMODE", "disable")
+
+	// Cache defaults
+	viper.SetDefault("CACHE_ENABLED", true)
+	viper.SetDefault("CACHE_NUM_COUNTERS", 100000)            // ~10k items expected
+	viper.SetDefault("CACHE_MAX_MEMORY_BYTES", 100*1024*1024) // 100MB
+	viper.SetDefault("CACHE_BUFFER_ITEMS", 64)
+	viper.SetDefault("CACHE_METRICS", true)
+	viper.SetDefault("CACHE_TTL_MINUTES", 5) // 5 minutes TTL
 
 	return nil
 }
@@ -99,8 +120,9 @@ func Load() (*Config, error) {
 
 	config := &Config{
 		Server: ServerConfig{
-			Host: viper.GetString("SERVER_HOST"),
-			Port: viper.GetInt("SERVER_PORT"),
+			Host:        viper.GetString("SERVER_HOST"),
+			Port:        viper.GetInt("SERVER_PORT"),
+			MetricsPort: viper.GetInt("METRICS_PORT"),
 		},
 		Database: DatabaseConfig{
 			Host:     viper.GetString("DB_HOST"),
@@ -109,6 +131,14 @@ func Load() (*Config, error) {
 			Password: dbPassword,
 			Database: viper.GetString("DB_NAME"),
 			SSLMode:  viper.GetString("DB_SSLMODE"),
+		},
+		Cache: CacheConfig{
+			Enabled:        viper.GetBool("CACHE_ENABLED"),
+			NumCounters:    viper.GetInt64("CACHE_NUM_COUNTERS"),
+			MaxMemoryBytes: viper.GetInt64("CACHE_MAX_MEMORY_BYTES"),
+			BufferItems:    viper.GetInt64("CACHE_BUFFER_ITEMS"),
+			Metrics:        viper.GetBool("CACHE_METRICS"),
+			TTLMinutes:     viper.GetInt("CACHE_TTL_MINUTES"),
 		},
 	}
 

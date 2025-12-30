@@ -16,6 +16,9 @@ Keruberosu は、関係性ベース (ReBAC) と属性ベース (ABAC) の両方�
 - スキーマバージョン管理: ULID ベースの自動バージョニング
 - gRPC API: 高性能な認可判定
 - PostgreSQL バックエンド: 信頼性の高いデータストレージ
+- 高性能キャッシュ: LRU+TTL ベースのインメモリキャッシュによる高速化
+- Prometheus メトリクス: gRPC リクエスト、キャッシュ、エラー率の可観測性
+- Closure Table: O(1) 祖先検索による階層関係の高速クエリ
 
 ## アーキテクチャ
 
@@ -29,7 +32,7 @@ Keruberosu は、Permify 互換 API として以下の 3 つの独立したサ�
 
 この設計は、Permify の API 構造に準拠し、Google Zanzibar、Auth0 FGA などの業界標準に従っています。
 
-詳細は [DESIGN.md](DESIGN.md) および [PRD.md](PRD.md) の「アーキテクチャ方針」セクションを参照してください。
+詳細は [DESIGN.md](docs/DESIGN.md) および [PRD.md](docs/PRD.md) の「アーキテクチャ方針」セクションを参照してください。
 
 ## 必要要件
 
@@ -66,6 +69,24 @@ DB_PASSWORD=keruberosu_dev_password
 - `.env.dev` - 開発環境（ポート 15432）
 - `.env.test` - テスト環境（ポート 25432）
 - `.env.prod` - 本番環境
+
+#### 環境変数一覧
+
+| 変数名 | デフォルト | 説明 |
+|--------|-----------|------|
+| `SERVER_HOST` | `0.0.0.0` | サーバーホスト |
+| `SERVER_PORT` | `50051` | gRPC ポート |
+| `METRICS_PORT` | `9090` | Prometheus メトリクスポート |
+| `DB_HOST` | `localhost` | データベースホスト |
+| `DB_PORT` | `15432` | データベースポート |
+| `DB_USER` | `keruberosu` | データベースユーザー |
+| `DB_PASSWORD` | (必須) | データベースパスワード |
+| `DB_NAME` | `keruberosu_dev` | データベース名 |
+| `DB_SSLMODE` | `disable` | SSL モード |
+| `CACHE_ENABLED` | `true` | キャッシュ有効化 |
+| `CACHE_MAX_MEMORY_BYTES` | `104857600` | 最大メモリ（100MB） |
+| `CACHE_TTL_MINUTES` | `5` | キャッシュ TTL（分） |
+| `CACHE_METRICS` | `true` | キャッシュメトリクス有効化 |
 
 ### 3. 必要なツールのインストール
 
@@ -272,6 +293,28 @@ go run cmd/server/main.go --help
 ```
 
 サーバーはデフォルトで `localhost:50051` で起動します。
+
+### 8. メトリクスの確認
+
+サーバー起動後、Prometheus メトリクスエンドポイントにアクセスできます：
+
+```bash
+curl http://localhost:9090/metrics
+```
+
+利用可能なメトリクス：
+
+| メトリクス名 | タイプ | 説明 |
+|-------------|--------|------|
+| `keruberosu_grpc_requests_total` | Counter | gRPC リクエスト総数（メソッド別） |
+| `keruberosu_grpc_request_duration_seconds` | Histogram | gRPC リクエスト処理時間 |
+| `keruberosu_grpc_errors_total` | Counter | gRPC エラー総数（メソッド別） |
+| `keruberosu_check_cache_hits_total` | Counter | キャッシュヒット数 |
+| `keruberosu_check_cache_misses_total` | Counter | キャッシュミス数 |
+| `keruberosu_check_cache_hit_rate` | Gauge | キャッシュヒット率 (0.0-1.0) |
+| `keruberosu_check_cache_keys_current` | Gauge | 現在のキャッシュキー数 |
+| `keruberosu_check_cache_memory_bytes` | Gauge | キャッシュメモリ使用量 |
+| `keruberosu_check_cache_evictions_total` | Counter | キャッシュ削除数 |
 
 ## 開発環境セットアップ
 
@@ -585,7 +628,7 @@ dataClient.Write(ctx, &pb.DataWriteRequest{
 // これでaliceとbobはeng_driveのメンバーとして自動的に権限を持ちます
 ```
 
-詳細な使用例は [PRD.md](PRD.md) の「API 利用ガイド」セクションと [examples/](examples/) ディレクトリを参照してください。
+詳細な使用例は [PRD.md](docs/PRD.md) の「API 利用ガイド」セクションと [examples/](examples/) ディレクトリを参照してください。
 
 ## プロジェクト構造
 
@@ -607,10 +650,11 @@ keruberosu/
 
 ## ドキュメント
 
-- [PRD.md](PRD.md): 要求仕様書、API 利用ガイド
-- [DESIGN.md](DESIGN.md): 設計ドキュメント、アーキテクチャ
-- [ARCHITECTURE.md](ARCHITECTURE.md): アーキテクチャ図（Mermaid）
-- [DEVELOPMENT.md](DEVELOPMENT.md): 開発進捗管理、タスクリスト
+- [docs/PRD.md](docs/PRD.md): 要求仕様書、API 利用ガイド
+- [docs/DESIGN.md](docs/DESIGN.md): 設計ドキュメント、アーキテクチャ
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): アーキテクチャ図（Mermaid）
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): 開発進捗管理、タスクリスト
+- [docs/PERMIFY_COMPATIBILITY_STATUS.md](docs/PERMIFY_COMPATIBILITY_STATUS.md): Permify互換性ステータス
 - [examples/](examples/): API 使用例・サンプルコード
 
 ## 開発状況
@@ -625,7 +669,7 @@ keruberosu/
 - ABAC シナリオ（全演算子）: 19/19 ✓
 - Permify 互換性検証: 12/12 ✓
 
-進捗詳細は [DEVELOPMENT.md](DEVELOPMENT.md) を参照してください。
+進捗詳細は [DEVELOPMENT.md](docs/DEVELOPMENT.md) を参照してください。
 
 ## ライセンス
 

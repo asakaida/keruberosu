@@ -46,3 +46,11 @@ logs/
 # Temporary files
 tmp/
 temp/
+
+# Backup files
+*.bak
+
+# Built binaries in root directory
+/keruberosu
+/main
+/server
