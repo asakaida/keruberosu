@@ -125,6 +125,14 @@ func (e *Expander) expandRule(
 			Subject:  fmt.Sprintf("expression:%s", r.Expression),
 		}, nil
 
+	case *entities.HierarchicalRuleCallRule:
+		return &ExpandNode{
+			Type:     "leaf",
+			Entity:   entityRef,
+			Relation: fmt.Sprintf("%s.%s(%s)", r.Relation, r.RuleName, fmt.Sprintf("%v", r.Arguments)),
+			Subject:  "hierarchical_rule_call",
+		}, nil
+
 	default:
 		return nil, fmt.Errorf("unknown rule type: %T", rule)
 	}

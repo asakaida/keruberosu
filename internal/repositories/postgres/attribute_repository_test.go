@@ -8,10 +8,10 @@ import (
 )
 
 func TestAttributeRepository_Write(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresAttributeRepository(db)
+	repo := NewPostgresAttributeRepository(cluster)
 	ctx := context.Background()
 	tenantID := "tenant1"
 
@@ -133,10 +133,10 @@ func TestAttributeRepository_Write(t *testing.T) {
 }
 
 func TestAttributeRepository_Read(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresAttributeRepository(db)
+	repo := NewPostgresAttributeRepository(cluster)
 	ctx := context.Background()
 	tenantID := "tenant2"
 
@@ -188,10 +188,10 @@ func TestAttributeRepository_Read(t *testing.T) {
 }
 
 func TestAttributeRepository_GetValue(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresAttributeRepository(db)
+	repo := NewPostgresAttributeRepository(cluster)
 	ctx := context.Background()
 	tenantID := "tenant3"
 
@@ -233,10 +233,10 @@ func TestAttributeRepository_GetValue(t *testing.T) {
 }
 
 func TestAttributeRepository_Delete(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresAttributeRepository(db)
+	repo := NewPostgresAttributeRepository(cluster)
 	ctx := context.Background()
 	tenantID := "tenant4"
 
@@ -310,10 +310,10 @@ func TestAttributeRepository_Delete(t *testing.T) {
 }
 
 func TestAttributeRepository_ComplexTypes(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresAttributeRepository(db)
+	repo := NewPostgresAttributeRepository(cluster)
 	ctx := context.Background()
 	tenantID := "tenant5"
 

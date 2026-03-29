@@ -10,8 +10,9 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// SetupTestDB creates a test database connection and runs migrations
-func SetupTestDB(t *testing.T) *sql.DB {
+// SetupTestDB creates a test database connection, runs migrations, and returns
+// a single-node DBCluster suitable for testing.
+func SetupTestDB(t *testing.T) *database.DBCluster {
 	t.Helper()
 
 	// Initialize test config
@@ -35,15 +36,36 @@ func SetupTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("Failed to run migrations: %v", err)
 	}
 
-	return pg.DB
+	return database.NewSingleNodeCluster(pg.DB)
 }
 
 // CleanupTestDB closes the database connection and cleans up test data
-func CleanupTestDB(t *testing.T, db *sql.DB) {
+func CleanupTestDB(t *testing.T, cluster *database.DBCluster) {
+	t.Helper()
+
+	db := cluster.PrimaryDB()
+
+	// Clean up all tables
+	tables := []string{"entity_closure", "attributes", "relations", "schemas"}
+	for _, table := range tables {
+		_, err := db.Exec(fmt.Sprintf("DELETE FROM %s", table))
+		if err != nil {
+			t.Logf("Warning: Failed to clean up table %s: %v", table, err)
+		}
+	}
+
+	if err := db.Close(); err != nil {
+		t.Logf("Warning: Failed to close database: %v", err)
+	}
+}
+
+// CleanupTestDBWithRawDB closes the database connection and cleans up test data
+// using a raw *sql.DB. Used by integration tests that need the raw DB handle.
+func CleanupTestDBWithRawDB(t *testing.T, db *sql.DB) {
 	t.Helper()
 
 	// Clean up all tables
-	tables := []string{"attributes", "relations", "schemas"}
+	tables := []string{"entity_closure", "attributes", "relations", "schemas"}
 	for _, table := range tables {
 		_, err := db.Exec(fmt.Sprintf("DELETE FROM %s", table))
 		if err != nil {

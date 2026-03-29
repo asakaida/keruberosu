@@ -8,23 +8,23 @@ import (
 	"time"
 
 	"github.com/asakaida/keruberosu/internal/entities"
+	"github.com/asakaida/keruberosu/internal/infrastructure/database"
 	"github.com/asakaida/keruberosu/internal/repositories"
 	"github.com/oklog/ulid/v2"
 )
 
 // PostgresSchemaRepository implements SchemaRepository using PostgreSQL
 type PostgresSchemaRepository struct {
-	db *sql.DB
+	cluster *database.DBCluster
 }
 
 // NewPostgresSchemaRepository creates a new PostgreSQL schema repository
-func NewPostgresSchemaRepository(db *sql.DB) repositories.SchemaRepository {
-	return &PostgresSchemaRepository{db: db}
+func NewPostgresSchemaRepository(cluster *database.DBCluster) repositories.SchemaRepository {
+	return &PostgresSchemaRepository{cluster: cluster}
 }
 
 // Create creates a new schema version for a tenant and returns the version ID
 func (r *PostgresSchemaRepository) Create(ctx context.Context, tenantID string, schemaDSL string) (string, error) {
-	// Generate ULID for version
 	version := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String()
 
 	query := `
@@ -32,10 +32,11 @@ func (r *PostgresSchemaRepository) Create(ctx context.Context, tenantID string, 
 		VALUES ($1, $2, $3, $4, $5)
 	`
 	now := time.Now()
-	_, err := r.db.ExecContext(ctx, query, tenantID, version, schemaDSL, now, now)
+	_, err := r.cluster.Writer().ExecContext(ctx, query, tenantID, version, schemaDSL, now, now)
 	if err != nil {
 		return "", fmt.Errorf("failed to create schema: %w", err)
 	}
+	r.cluster.RecordWrite(tenantID)
 	return version, nil
 }
 
@@ -51,7 +52,8 @@ func (r *PostgresSchemaRepository) GetLatestVersion(ctx context.Context, tenantI
 	var version, schemaDSL string
 	var createdAt, updatedAt time.Time
 
-	err := r.db.QueryRowContext(ctx, query, tenantID).Scan(&version, &schemaDSL, &createdAt, &updatedAt)
+	db := r.cluster.ReaderFor(tenantID)
+	err := db.QueryRowContext(ctx, query, tenantID).Scan(&version, &schemaDSL, &createdAt, &updatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("schema not found for tenant %s: %w", tenantID, repositories.ErrNotFound)
 	}
@@ -59,16 +61,13 @@ func (r *PostgresSchemaRepository) GetLatestVersion(ctx context.Context, tenantI
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}
 
-	schema := &entities.Schema{
+	return &entities.Schema{
 		TenantID:  tenantID,
 		Version:   version,
 		DSL:       schemaDSL,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
-		// Note: Entities will be populated by the parser in the service layer
-	}
-
-	return schema, nil
+	}, nil
 }
 
 // GetByVersion retrieves a specific schema version for a tenant
@@ -81,7 +80,8 @@ func (r *PostgresSchemaRepository) GetByVersion(ctx context.Context, tenantID st
 	var versionOut, schemaDSL string
 	var createdAt, updatedAt time.Time
 
-	err := r.db.QueryRowContext(ctx, query, tenantID, version).Scan(&versionOut, &schemaDSL, &createdAt, &updatedAt)
+	db := r.cluster.ReaderFor(tenantID)
+	err := db.QueryRowContext(ctx, query, tenantID, version).Scan(&versionOut, &schemaDSL, &createdAt, &updatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("schema version %s not found for tenant %s: %w", version, tenantID, repositories.ErrNotFound)
 	}
@@ -89,16 +89,13 @@ func (r *PostgresSchemaRepository) GetByVersion(ctx context.Context, tenantID st
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}
 
-	schema := &entities.Schema{
+	return &entities.Schema{
 		TenantID:  tenantID,
 		Version:   versionOut,
 		DSL:       schemaDSL,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
-		// Note: Entities will be populated by the parser in the service layer
-	}
-
-	return schema, nil
+	}, nil
 }
 
 // ListVersions retrieves schema versions for a tenant with pagination
@@ -110,7 +107,8 @@ func (r *PostgresSchemaRepository) ListVersions(ctx context.Context, tenantID st
 		ORDER BY created_at DESC
 		LIMIT $2 OFFSET $3
 	`
-	rows, err := r.db.QueryContext(ctx, query, tenantID, limit, offset)
+	db := r.cluster.ReaderFor(tenantID)
+	rows, err := db.QueryContext(ctx, query, tenantID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list schema versions: %w", err)
 	}
@@ -136,7 +134,9 @@ func (r *PostgresSchemaRepository) ListVersions(ctx context.Context, tenantID st
 	return versions, nil
 }
 
-// GetByTenant retrieves the latest schema for a tenant (backward compatibility)
+// GetByTenant retrieves the latest schema for a tenant (for backward compatibility)
+//
+// Deprecated: Use GetLatestVersion instead
 func (r *PostgresSchemaRepository) GetByTenant(ctx context.Context, tenantID string) (*entities.Schema, error) {
 	return r.GetLatestVersion(ctx, tenantID)
 }
@@ -144,7 +144,7 @@ func (r *PostgresSchemaRepository) GetByTenant(ctx context.Context, tenantID str
 // Delete deletes all schemas for a tenant
 func (r *PostgresSchemaRepository) Delete(ctx context.Context, tenantID string) error {
 	query := `DELETE FROM schemas WHERE tenant_id = $1`
-	result, err := r.db.ExecContext(ctx, query, tenantID)
+	result, err := r.cluster.Writer().ExecContext(ctx, query, tenantID)
 	if err != nil {
 		return fmt.Errorf("failed to delete schema: %w", err)
 	}
@@ -157,5 +157,6 @@ func (r *PostgresSchemaRepository) Delete(ctx context.Context, tenantID string) 
 		return fmt.Errorf("schema not found for tenant: %s", tenantID)
 	}
 
+	r.cluster.RecordWrite(tenantID)
 	return nil
 }

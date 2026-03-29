@@ -72,42 +72,64 @@ func NewLookup(
 	}
 }
 
-// LookupEntity finds all entities of a given type that a subject has permission on
-// This is a brute-force implementation for Phase 1 (cacheless)
+// LookupEntity finds all entities of a given type that a subject has permission on.
+// Uses smart candidate narrowing via relation extraction and closure table when possible,
+// falling back to brute-force for ABAC/RuleCall permissions.
 func (l *Lookup) LookupEntity(ctx context.Context, req *LookupEntityRequest) (*LookupEntityResponse, error) {
-	// Validate request
 	if err := l.validateLookupEntityRequest(req); err != nil {
 		return nil, fmt.Errorf("invalid lookup entity request: %w", err)
 	}
 
-	// Get parsed schema
 	schema, err := l.schemaService.GetSchemaEntity(ctx, req.TenantID, req.SchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}
 
-	// Verify entity type exists
 	entity := schema.GetEntity(req.EntityType)
 	if entity == nil {
 		return nil, fmt.Errorf("entity type %s not found in schema", req.EntityType)
 	}
 
-	// Verify permission exists
 	permission := entity.GetPermission(req.Permission)
 	if permission == nil {
 		return nil, fmt.Errorf("permission %s not found in entity %s", req.Permission, req.EntityType)
 	}
 
-	// Get all entities that could potentially have this permission
-	// by querying all relation tuples that reference this entity type
-	candidateIDs, err := l.getCandidateEntityIDs(ctx, req.TenantID, req.EntityType, req.PageToken, req.PageSize)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get candidate entities: %w", err)
+	// Extract relations from the permission rule to narrow candidates
+	directRels, _, hasABAC := extractRelationsFromRule(permission.Rule)
+	candidateIDs := make(map[string]bool)
+
+	if !hasABAC && len(directRels) > 0 {
+		// Pure ReBAC: query relations directly to find candidate entity IDs
+		for _, relName := range directRels {
+			filter := &repositories.RelationFilter{
+				EntityType:  req.EntityType,
+				Relation:    relName,
+				SubjectType: req.SubjectType,
+				SubjectID:   req.SubjectID,
+			}
+			tuples, err := l.relationRepo.Read(ctx, req.TenantID, filter)
+			if err != nil {
+				continue
+			}
+			for _, t := range tuples {
+				candidateIDs[t.EntityID] = true
+			}
+		}
+	} else {
+		// Has ABAC or complex rules: fall back to brute-force candidates
+		ids, err := l.getCandidateEntityIDs(ctx, req.TenantID, req.EntityType, "", 0)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get candidate entities: %w", err)
+		}
+		for _, id := range ids {
+			candidateIDs[id] = true
+		}
 	}
 
 	// Check each candidate entity
 	allowedIDs := make([]string, 0)
-	for _, entityID := range candidateIDs {
+	for entityID := range candidateIDs {
 		checkReq := &CheckRequest{
 			TenantID:         req.TenantID,
 			SchemaVersion:    req.SchemaVersion,
@@ -121,27 +143,21 @@ func (l *Lookup) LookupEntity(ctx context.Context, req *LookupEntityRequest) (*L
 
 		resp, err := l.checker.Check(ctx, checkReq)
 		if err != nil {
-			// Skip entities that cause errors
 			continue
 		}
 
 		if resp.Allowed {
 			allowedIDs = append(allowedIDs, entityID)
-
-			// Check page size limit
 			if req.PageSize > 0 && len(allowedIDs) >= req.PageSize {
 				break
 			}
 		}
 	}
 
-	// Generate next page token if needed
 	nextPageToken := ""
 	if req.PageSize > 0 && len(allowedIDs) == req.PageSize {
-		// There might be more results
-		// In a real implementation, we'd use the last entityID as the token
-		if len(candidateIDs) > 0 {
-			nextPageToken = candidateIDs[len(candidateIDs)-1]
+		if len(allowedIDs) > 0 {
+			nextPageToken = allowedIDs[len(allowedIDs)-1]
 		}
 	}
 
@@ -364,4 +380,33 @@ func (l *Lookup) validateLookupSubjectRequest(req *LookupSubjectRequest) error {
 		return fmt.Errorf("subject type is required")
 	}
 	return nil
+}
+
+// extractRelationsFromRule recursively extracts relation names from a permission rule.
+// Returns direct relations, hierarchical relations, and whether ABAC/RuleCall rules are present.
+func extractRelationsFromRule(rule entities.PermissionRule) (directRels []string, hierarchicalRels []string, hasABAC bool) {
+	switch r := rule.(type) {
+	case *entities.RelationRule:
+		directRels = append(directRels, r.Relation)
+	case *entities.LogicalRule:
+		ld, lh, la := extractRelationsFromRule(r.Left)
+		directRels = append(directRels, ld...)
+		hierarchicalRels = append(hierarchicalRels, lh...)
+		hasABAC = hasABAC || la
+		if r.Right != nil {
+			rd, rh, ra := extractRelationsFromRule(r.Right)
+			directRels = append(directRels, rd...)
+			hierarchicalRels = append(hierarchicalRels, rh...)
+			hasABAC = hasABAC || ra
+		}
+	case *entities.HierarchicalRule:
+		hierarchicalRels = append(hierarchicalRels, r.Relation)
+	case *entities.ABACRule:
+		hasABAC = true
+	case *entities.RuleCallRule:
+		hasABAC = true
+	case *entities.HierarchicalRuleCallRule:
+		hasABAC = true
+	}
+	return
 }

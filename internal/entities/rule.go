@@ -56,3 +56,15 @@ type RuleCallRule struct {
 }
 
 func (r *RuleCallRule) isPermissionRule() {}
+
+// HierarchicalRuleCallRule represents a hierarchical rule call
+// DSL syntax: "parent.check_confidentiality(authority)"
+// Meaning: traverse "parent" relation, call "check_confidentiality" rule on parent,
+// passing the current entity's "authority" attribute as argument
+type HierarchicalRuleCallRule struct {
+	Relation  string   // The relation to traverse (e.g., "parent")
+	RuleName  string   // The rule to call on the parent entity (e.g., "check_confidentiality")
+	Arguments []string // Attribute names from the current entity (e.g., ["authority"])
+}
+
+func (r *HierarchicalRuleCallRule) isPermissionRule() {}

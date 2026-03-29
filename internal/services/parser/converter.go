@@ -144,6 +144,13 @@ func convertPermissionRule(ast PermissionRuleAST) (entities.PermissionRule, erro
 			Arguments: r.Arguments,
 		}, nil
 
+	case *HierarchicalRuleCallPermissionAST:
+		return &entities.HierarchicalRuleCallRule{
+			Relation:  r.Relation,
+			RuleName:  r.RuleName,
+			Arguments: r.Arguments,
+		}, nil
+
 	default:
 		return nil, fmt.Errorf("unknown rule type: %T", ast)
 	}
@@ -226,6 +233,13 @@ func convertPermissionRuleToAST(rule entities.PermissionRule) (PermissionRuleAST
 
 	case *entities.RuleCallRule:
 		return &RuleCallPermissionAST{
+			RuleName:  r.RuleName,
+			Arguments: r.Arguments,
+		}, nil
+
+	case *entities.HierarchicalRuleCallRule:
+		return &HierarchicalRuleCallPermissionAST{
+			Relation:  r.Relation,
 			RuleName:  r.RuleName,
 			Arguments: r.Arguments,
 		}, nil

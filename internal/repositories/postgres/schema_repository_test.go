@@ -9,10 +9,10 @@ import (
 )
 
 func TestSchemaRepository_Create(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresSchemaRepository(db)
+	repo := NewPostgresSchemaRepository(cluster)
 	ctx := context.Background()
 
 	t.Run("正常系: スキーマ作成成功", func(t *testing.T) {
@@ -57,10 +57,10 @@ func TestSchemaRepository_Create(t *testing.T) {
 }
 
 func TestSchemaRepository_GetLatestVersion(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresSchemaRepository(db)
+	repo := NewPostgresSchemaRepository(cluster)
 	ctx := context.Background()
 
 	t.Run("正常系: 最新バージョン取得成功", func(t *testing.T) {
@@ -128,10 +128,10 @@ func TestSchemaRepository_GetLatestVersion(t *testing.T) {
 }
 
 func TestSchemaRepository_GetByVersion(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresSchemaRepository(db)
+	repo := NewPostgresSchemaRepository(cluster)
 	ctx := context.Background()
 
 	t.Run("正常系: 特定バージョン取得成功", func(t *testing.T) {
@@ -185,10 +185,10 @@ func TestSchemaRepository_GetByVersion(t *testing.T) {
 }
 
 func TestSchemaRepository_GetByTenant(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresSchemaRepository(db)
+	repo := NewPostgresSchemaRepository(cluster)
 	ctx := context.Background()
 
 	t.Run("正常系: GetByTenantはGetLatestVersionと同じ（後方互換性）", func(t *testing.T) {
@@ -217,10 +217,10 @@ func TestSchemaRepository_GetByTenant(t *testing.T) {
 }
 
 func TestSchemaRepository_Delete(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresSchemaRepository(db)
+	repo := NewPostgresSchemaRepository(cluster)
 	ctx := context.Background()
 
 	t.Run("正常系: テナントの全バージョン削除成功", func(t *testing.T) {
@@ -269,10 +269,10 @@ func TestSchemaRepository_Delete(t *testing.T) {
 }
 
 func TestSchemaRepository_ListVersions(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresSchemaRepository(db)
+	repo := NewPostgresSchemaRepository(cluster)
 	ctx := context.Background()
 
 	t.Run("正常系: バージョン一覧取得成功", func(t *testing.T) {

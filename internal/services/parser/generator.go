@@ -170,6 +170,10 @@ func (g *Generator) generatePermissionRule(rule PermissionRuleAST) string {
 		// Permify syntax: rule_name(arg1, arg2)
 		return fmt.Sprintf("%s(%s)", r.RuleName, strings.Join(r.Arguments, ", "))
 
+	case *HierarchicalRuleCallPermissionAST:
+		// relation.rulename(arg1, arg2)
+		return fmt.Sprintf("%s.%s(%s)", r.Relation, r.RuleName, strings.Join(r.Arguments, ", "))
+
 	default:
 		return ""
 	}

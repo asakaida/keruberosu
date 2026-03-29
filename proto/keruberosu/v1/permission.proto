@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package keruberosu.v1;
 
+import "buf/validate/validate.proto";
 import "google/protobuf/struct.proto";
 import "keruberosu/v1/common.proto";
 
@@ -26,11 +27,11 @@ service Permission {
 // ========================================
 
 message PermissionCheckRequest {
-  string tenant_id = 1;
+  string tenant_id = 1 [(buf.validate.field).string.min_len = 1];
   PermissionCheckMetadata metadata = 2;
-  Entity entity = 3;
-  string permission = 4;
-  Subject subject = 5;
+  Entity entity = 3 [(buf.validate.field).required = true];
+  string permission = 4 [(buf.validate.field).string.min_len = 1];
+  Subject subject = 5 [(buf.validate.field).required = true];
   Context context = 6;
   repeated google.protobuf.Value arguments = 7;
 }

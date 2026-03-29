@@ -67,9 +67,10 @@ func SetupE2ETest(t *testing.T) *E2ETestServer {
 	cleanupDatabase(t, pg.DB)
 
 	// Initialize repositories
-	schemaRepo := postgres.NewPostgresSchemaRepository(pg.DB)
-	relationRepo := postgres.NewPostgresRelationRepository(pg.DB)
-	attributeRepo := postgres.NewPostgresAttributeRepository(pg.DB)
+	cluster := database.NewSingleNodeCluster(pg.DB)
+	schemaRepo := postgres.NewPostgresSchemaRepository(cluster)
+	relationRepo := postgres.NewPostgresRelationRepository(cluster, nil)
+	attributeRepo := postgres.NewPostgresAttributeRepository(cluster)
 
 	// Initialize services
 	schemaService := services.NewSchemaService(schemaRepo)
@@ -175,7 +176,7 @@ func cleanupDatabase(t *testing.T, db *sql.DB) {
 	defer cancel()
 
 	// Delete in correct order due to foreign key constraints
-	tables := []string{"attributes", "relations", "schemas"}
+	tables := []string{"entity_closure", "attributes", "relations", "schemas"}
 	for _, table := range tables {
 		query := fmt.Sprintf("DELETE FROM %s", table)
 		if _, err := db.ExecContext(ctx, query); err != nil {

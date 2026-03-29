@@ -130,6 +130,52 @@ func (e *CELEngine) GetAvailableFunctions() []string {
 	}
 }
 
+// EvaluateWithParams evaluates a CEL expression with "this" (parent attributes)
+// and dynamically named parameters. Used for HierarchicalRuleCallRule evaluation.
+func (e *CELEngine) EvaluateWithParams(expression string, thisAttrs map[string]interface{}, params map[string]interface{}) (bool, error) {
+	// Build CEL environment options with "this" and each parameter
+	envOpts := []cel.EnvOption{
+		cel.Variable("this", cel.MapType(cel.StringType, cel.DynType)),
+	}
+	for paramName := range params {
+		envOpts = append(envOpts, cel.Variable(paramName, cel.DynType))
+	}
+
+	env, err := cel.NewEnv(envOpts...)
+	if err != nil {
+		return false, fmt.Errorf("failed to create CEL environment for params: %w", err)
+	}
+
+	ast, issues := env.Compile(expression)
+	if issues != nil && issues.Err() != nil {
+		return false, fmt.Errorf("failed to compile CEL expression: %w", issues.Err())
+	}
+
+	program, err := env.Program(ast)
+	if err != nil {
+		return false, fmt.Errorf("failed to create CEL program: %w", err)
+	}
+
+	vars := map[string]interface{}{
+		"this": thisAttrs,
+	}
+	for k, v := range params {
+		vars[k] = v
+	}
+
+	result, _, err := program.Eval(vars)
+	if err != nil {
+		return false, fmt.Errorf("failed to evaluate CEL expression: %w", err)
+	}
+
+	boolResult, ok := result.Value().(bool)
+	if !ok {
+		return false, fmt.Errorf("CEL expression did not evaluate to boolean, got: %T", result.Value())
+	}
+
+	return boolResult, nil
+}
+
 // ConvertGoValueToCEL converts a Go value to a CEL ref.Val
 func ConvertGoValueToCEL(value interface{}) ref.Val {
 	switch v := value.(type) {

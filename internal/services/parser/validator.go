@@ -299,6 +299,35 @@ func (v *Validator) validatePermissionRule(entity *EntityAST, permissionName str
 					entity.Name, permissionName, r.RuleName, arg))
 			}
 		}
+
+	case *HierarchicalRuleCallPermissionAST:
+		// Check the relation exists on the current entity
+		foundRelation := false
+		for _, rel := range entity.Relations {
+			if rel.Name == r.Relation {
+				foundRelation = true
+				break
+			}
+		}
+		if !foundRelation {
+			v.errors = append(v.errors, fmt.Sprintf("entity %s: permission %s references undefined relation: %s",
+				entity.Name, permissionName, r.Relation))
+			return
+		}
+
+		// Check if the rule exists (check both plain name and could be namespaced)
+		ruleDef, exists := v.rules[r.RuleName]
+		if !exists {
+			v.errors = append(v.errors, fmt.Sprintf("entity %s: permission %s calls undefined rule: %s",
+				entity.Name, permissionName, r.RuleName))
+			return
+		}
+
+		// Check argument count matches parameter count
+		if len(r.Arguments) != len(ruleDef.Parameters) {
+			v.errors = append(v.errors, fmt.Sprintf("entity %s: permission %s calls rule %s with %d arguments, expected %d",
+				entity.Name, permissionName, r.RuleName, len(r.Arguments), len(ruleDef.Parameters)))
+		}
 	}
 }
 

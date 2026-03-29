@@ -80,3 +80,13 @@ type RuleCallPermissionAST struct {
 }
 
 func (r *RuleCallPermissionAST) isPermissionRule() {}
+
+// HierarchicalRuleCallPermissionAST represents a hierarchical rule call
+// DSL syntax: "parent.check_confidentiality(authority)"
+type HierarchicalRuleCallPermissionAST struct {
+	Relation  string   // The relation to traverse (e.g., "parent")
+	RuleName  string   // The rule to call on the related entity
+	Arguments []string // Argument names passed to the rule
+}
+
+func (r *HierarchicalRuleCallPermissionAST) isPermissionRule() {}

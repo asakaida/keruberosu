@@ -16,6 +16,7 @@ import (
 	"github.com/asakaida/keruberosu/internal/infrastructure/config"
 	"github.com/asakaida/keruberosu/internal/infrastructure/database"
 	"github.com/asakaida/keruberosu/internal/infrastructure/metrics"
+	"github.com/asakaida/keruberosu/internal/infrastructure/validation"
 	"github.com/asakaida/keruberosu/internal/repositories/postgres"
 	"github.com/asakaida/keruberosu/internal/services"
 	"github.com/asakaida/keruberosu/internal/services/authorization"
@@ -70,22 +71,27 @@ func runServer(cmd *cobra.Command, args []string) {
 		cfg.Server.Port = portFlag
 	}
 
-	// Connect to database
-	pg, err := database.NewPostgres(&cfg.Database)
+	// Connect to database cluster (primary + optional replica)
+	cluster, err := database.NewDBCluster(&cfg.Database)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
+	cluster.Start()
 
 	log.Printf("Connected to database: %s@%s:%d/%s",
 		cfg.Database.User,
 		cfg.Database.Host,
 		cfg.Database.Port,
 		cfg.Database.Database)
+	if cfg.Database.HasReplica() {
+		log.Printf("Read replica configured: %s:%d", cfg.Database.ReplicaHost, cfg.Database.ReplicaPort)
+	}
 
 	// Initialize repositories
-	schemaRepo := postgres.NewPostgresSchemaRepository(pg.DB)
-	relationRepo := postgres.NewPostgresRelationRepository(pg.DB)
-	attributeRepo := postgres.NewPostgresAttributeRepository(pg.DB)
+	closureExcluded := cfg.Database.ParseClosureExcludedRelations()
+	schemaRepo := postgres.NewPostgresSchemaRepository(cluster)
+	relationRepo := postgres.NewPostgresRelationRepository(cluster, closureExcluded)
+	attributeRepo := postgres.NewPostgresAttributeRepository(cluster)
 
 	// Initialize services
 	schemaService := services.NewSchemaService(schemaRepo)
@@ -115,7 +121,7 @@ func runServer(cmd *cobra.Command, args []string) {
 
 		// Initialize snapshot manager for cache consistency
 		connStr := cfg.Database.ConnectionString()
-		snapshotMgr = cache.NewSnapshotManager(pg.DB, connStr, 5*time.Minute)
+		snapshotMgr = cache.NewSnapshotManager(cluster.PrimaryDB(), connStr, 5*time.Minute)
 		if err := snapshotMgr.Start(context.Background()); err != nil {
 			log.Printf("Warning: Failed to start snapshot manager: %v (cache will use TTL-only mode)", err)
 			snapshotMgr = nil
@@ -149,7 +155,7 @@ func runServer(cmd *cobra.Command, args []string) {
 	prometheusExporter := metrics.NewPrometheusExporter(metricsCollector)
 
 	// Initialize token generator for Data API snapshot tokens
-	tokenGenerator := postgres.NewSnapshotManager(pg.DB)
+	tokenGenerator := postgres.NewSnapshotManager(cluster.PrimaryDB())
 
 	// Initialize service handlers
 	permissionHandler := handlers.NewPermissionHandler(
@@ -168,9 +174,12 @@ func runServer(cmd *cobra.Command, args []string) {
 		schemaRepo,
 	)
 
-	// Create gRPC server with metrics interceptor
+	// Create gRPC server with chained interceptors (metrics + validation)
 	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(metrics.UnaryServerInterceptor(metricsCollector, prometheusExporter)),
+		grpc.ChainUnaryInterceptor(
+			metrics.UnaryServerInterceptor(metricsCollector, prometheusExporter),
+			validation.UnaryServerInterceptor(),
+		),
 	)
 	pb.RegisterPermissionServer(grpcServer, permissionHandler)
 	pb.RegisterDataServer(grpcServer, dataHandler)
@@ -277,9 +286,10 @@ func runServer(cmd *cobra.Command, args []string) {
 			}
 		}
 
-		// Close database connection
-		if err := pg.Close(); err != nil {
-			log.Printf("Error closing database connection: %v", err)
+		// Stop write tracker and close database connections
+		cluster.Stop()
+		if err := cluster.Close(); err != nil {
+			log.Printf("Error closing database connections: %v", err)
 		}
 
 		log.Println("Shutdown complete")

@@ -3,10 +3,26 @@ package authorization
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/asakaida/keruberosu/internal/entities"
 	"github.com/asakaida/keruberosu/internal/repositories"
 )
+
+// extractBaseType extracts the base entity type from a relation target type.
+// Handles formats like "folder", "folder#member", "folder user" → returns first type.
+func extractBaseType(targetType string) string {
+	// Split by space first (multiple types like "folder user")
+	parts := strings.Fields(targetType)
+	if len(parts) > 0 {
+		targetType = parts[0]
+	}
+	// Strip #relation suffix (like "folder#member")
+	if idx := strings.Index(targetType, "#"); idx >= 0 {
+		return targetType[:idx]
+	}
+	return targetType
+}
 
 const (
 	// MaxDepth is the maximum recursion depth for hierarchical permission evaluation
@@ -76,6 +92,8 @@ func (e *Evaluator) EvaluateRule(
 		return e.evaluateABAC(ctx, req, r)
 	case *entities.RuleCallRule:
 		return e.evaluateRuleCall(ctx, req, r)
+	case *entities.HierarchicalRuleCallRule:
+		return e.evaluateHierarchicalRuleCall(ctx, req, r)
 	default:
 		return false, fmt.Errorf("unknown rule type: %T", rule)
 	}
@@ -100,35 +118,26 @@ func (e *Evaluator) evaluateRelation(
 		}
 	}
 
-	// Check in database for direct match
-	filter := &repositories.RelationFilter{
-		EntityType:  req.EntityType,
-		EntityID:    req.EntityID,
-		Relation:    rule.Relation,
+	// Check in database for direct match using Exists (more efficient than Read)
+	exists, err := e.relationRepo.Exists(ctx, req.TenantID, &entities.RelationTuple{
+		EntityType: req.EntityType,
+		EntityID:   req.EntityID,
+		Relation:   rule.Relation,
 		SubjectType: req.SubjectType,
 		SubjectID:   req.SubjectID,
-	}
-
-	tuples, err := e.relationRepo.Read(ctx, req.TenantID, filter)
+	})
 	if err != nil {
-		return false, fmt.Errorf("failed to read relations: %w", err)
+		return false, fmt.Errorf("failed to check relation existence: %w", err)
 	}
-
-	if len(tuples) > 0 {
+	if exists {
 		return true, nil
 	}
 
 	// Check for subject relations (e.g., team:backend-team#member)
-	// Get all tuples for this entity and relation, regardless of subject
-	allTuplesFilter := &repositories.RelationFilter{
-		EntityType: req.EntityType,
-		EntityID:   req.EntityID,
-		Relation:   rule.Relation,
-	}
-
-	allTuples, err := e.relationRepo.Read(ctx, req.TenantID, allTuplesFilter)
+	// Get all tuples for this entity and relation using specialized query
+	allTuples, err := e.relationRepo.FindByEntityWithRelation(ctx, req.TenantID, req.EntityType, req.EntityID, rule.Relation)
 	if err != nil {
-		return false, fmt.Errorf("failed to read all relations: %w", err)
+		return false, fmt.Errorf("failed to find relations by entity with relation: %w", err)
 	}
 
 	// Add contextual tuples
@@ -256,14 +265,22 @@ func (e *Evaluator) evaluateHierarchical(
 		return false, fmt.Errorf("relation %s not found in entity %s", rule.Relation, req.EntityType)
 	}
 
-	// Get the parent entity(s) via the relation
-	filter := &repositories.RelationFilter{
-		EntityType: req.EntityType,
-		EntityID:   req.EntityID,
-		Relation:   rule.Relation,
+	// Optimization: For same-type hierarchies where the permission is a direct relation,
+	// use CTE-based hierarchical search for O(1) lookup
+	targetType := extractBaseType(relation.TargetType)
+	parentEntity := schema.GetEntity(targetType)
+	if targetType == req.EntityType && parentEntity != nil && parentEntity.GetRelation(rule.Permission) != nil {
+		found, err := e.relationRepo.FindHierarchicalWithSubject(
+			ctx, req.TenantID, req.EntityType, req.EntityID,
+			rule.Relation, req.SubjectType, req.SubjectID, MaxDepth)
+		if err == nil {
+			return found, nil
+		}
+		// Fall through to recursive evaluation on error
 	}
 
-	tuples, err := e.relationRepo.Read(ctx, req.TenantID, filter)
+	// Get the parent entity(s) via the relation using specialized query
+	tuples, err := e.relationRepo.FindByEntityWithRelation(ctx, req.TenantID, req.EntityType, req.EntityID, rule.Relation)
 	if err != nil {
 		return false, fmt.Errorf("failed to read relations: %w", err)
 	}
@@ -304,35 +321,32 @@ func (e *Evaluator) evaluateHierarchical(
 			}
 		} else {
 			// If not a permission, check if it's a relation (Permify compatibility)
-			parentEntity := schema.GetEntity(tuple.SubjectType)
-			if parentEntity != nil && parentEntity.GetRelation(rule.Permission) != nil {
-				// Check if the subject has this relation to the parent entity
-				relationFilter := &repositories.RelationFilter{
-					EntityType:  tuple.SubjectType,
-					EntityID:    tuple.SubjectID,
-					Relation:    rule.Permission,
-					SubjectType: req.SubjectType,
-					SubjectID:   req.SubjectID,
-				}
-
-				relationTuples, err := e.relationRepo.Read(ctx, req.TenantID, relationFilter)
-				if err != nil {
-					return false, fmt.Errorf("failed to read parent relations: %w", err)
-				}
-
-				// Check contextual tuples as well
+			parentEntityDef := schema.GetEntity(tuple.SubjectType)
+			if parentEntityDef != nil && parentEntityDef.GetRelation(rule.Permission) != nil {
+				// Check contextual tuples first
 				for _, ctxTuple := range req.ContextualTuples {
 					if ctxTuple.EntityType == tuple.SubjectType &&
 						ctxTuple.EntityID == tuple.SubjectID &&
 						ctxTuple.Relation == rule.Permission &&
 						ctxTuple.SubjectType == req.SubjectType &&
 						ctxTuple.SubjectID == req.SubjectID {
-						relationTuples = append(relationTuples, ctxTuple)
+						return true, nil
 					}
 				}
 
-				if len(relationTuples) > 0 {
-					return true, nil // Subject has the relation to parent
+				// Use Exists for efficient single-row check
+				relExists, err := e.relationRepo.Exists(ctx, req.TenantID, &entities.RelationTuple{
+					EntityType:  tuple.SubjectType,
+					EntityID:    tuple.SubjectID,
+					Relation:    rule.Permission,
+					SubjectType: req.SubjectType,
+					SubjectID:   req.SubjectID,
+				})
+				if err != nil {
+					return false, fmt.Errorf("failed to check parent relation existence: %w", err)
+				}
+				if relExists {
+					return true, nil
 				}
 			}
 		}
@@ -436,4 +450,84 @@ func (e *Evaluator) evaluateRuleCall(
 	}
 
 	return result, nil
+}
+
+// evaluateHierarchicalRuleCall evaluates a hierarchical rule call
+// Example: "parent.check_confidentiality(authority)"
+// Traverses the relation to find parent entities, then calls the rule on each parent
+func (e *Evaluator) evaluateHierarchicalRuleCall(
+	ctx context.Context,
+	req *EvaluationRequest,
+	rule *entities.HierarchicalRuleCallRule,
+) (bool, error) {
+	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID, req.SchemaVersion)
+	if err != nil {
+		return false, fmt.Errorf("failed to get schema: %w", err)
+	}
+
+	// Get parent entities via the relation
+	filter := &repositories.RelationFilter{
+		EntityType: req.EntityType,
+		EntityID:   req.EntityID,
+		Relation:   rule.Relation,
+	}
+	tuples, err := e.relationRepo.Read(ctx, req.TenantID, filter)
+	if err != nil {
+		return false, fmt.Errorf("failed to read parent relations: %w", err)
+	}
+
+	// Also check contextual tuples
+	for _, ct := range req.ContextualTuples {
+		if ct.EntityType == req.EntityType &&
+			ct.EntityID == req.EntityID &&
+			ct.Relation == rule.Relation {
+			tuples = append(tuples, ct)
+		}
+	}
+
+	// Get current entity's attributes (for argument values)
+	currentAttrs, err := e.attributeRepo.Read(ctx, req.TenantID, req.EntityType, req.EntityID)
+	if err != nil {
+		return false, fmt.Errorf("failed to read current entity attributes: %w", err)
+	}
+
+	for _, tuple := range tuples {
+		// Find rule definition (try namespaced first, then plain)
+		namespacedName := tuple.SubjectType + "." + rule.RuleName
+		ruleDef := schema.GetRule(namespacedName)
+		if ruleDef == nil {
+			ruleDef = schema.GetRule(rule.RuleName)
+		}
+		if ruleDef == nil {
+			return false, fmt.Errorf("rule %s not found", rule.RuleName)
+		}
+
+		// Get parent entity's attributes → these become "this" context
+		parentAttrs, err := e.attributeRepo.Read(ctx, req.TenantID, tuple.SubjectType, tuple.SubjectID)
+		if err != nil {
+			return false, fmt.Errorf("failed to read parent attributes: %w", err)
+		}
+
+		// Build parameter values: map rule parameter names → current entity attribute values
+		paramMap := make(map[string]interface{})
+		for i, paramName := range ruleDef.Parameters {
+			if i < len(rule.Arguments) {
+				argAttrName := rule.Arguments[i]
+				if val, ok := currentAttrs[argAttrName]; ok {
+					paramMap[paramName] = val
+				}
+			}
+		}
+
+		// Evaluate CEL with "this" = parent attributes, plus parameter values
+		result, err := e.celEngine.EvaluateWithParams(ruleDef.Body, parentAttrs, paramMap)
+		if err != nil {
+			return false, fmt.Errorf("failed to evaluate hierarchical rule %s: %w", rule.RuleName, err)
+		}
+		if result {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }

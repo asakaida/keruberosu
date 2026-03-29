@@ -510,17 +510,54 @@ func (p *Parser) parsePrimaryExpression() PermissionRuleAST {
 			}
 		}
 
-		// Check for hierarchical permission (relation.permission)
+		// Check for hierarchical permission (relation.permission) or
+		// hierarchical rule call (relation.rulename(args))
 		if p.peekTokenIs(TOKEN_DOT) {
-			p.nextToken() // consume .
+			p.nextToken() // consume DOT
 			if !p.expectPeek(TOKEN_IDENTIFIER) {
 				return nil
 			}
-			permissionName := p.current.Value
+			secondName := p.current.Value
+
+			// Check if this is a hierarchical rule call: relation.rulename(args)
+			if p.peekTokenIs(TOKEN_LPAREN) {
+				p.nextToken() // consume LPAREN
+				var arguments []string
+				p.nextToken()
+				if !p.currentTokenIs(TOKEN_RPAREN) {
+					if !p.currentTokenIs(TOKEN_IDENTIFIER) {
+						p.errors = append(p.errors, fmt.Sprintf("expected identifier in hierarchical rule call arguments, got %s at %d:%d",
+							tokenNames[p.current.Type], p.current.Line, p.current.Column))
+						return nil
+					}
+					arguments = append(arguments, p.current.Value)
+					for p.peekTokenIs(TOKEN_COMMA) {
+						p.nextToken() // consume comma
+						if !p.expectPeek(TOKEN_IDENTIFIER) {
+							return nil
+						}
+						arguments = append(arguments, p.current.Value)
+					}
+					p.nextToken()
+				}
+				if !p.currentTokenIs(TOKEN_RPAREN) {
+					p.errors = append(p.errors, fmt.Sprintf("expected ')' after hierarchical rule call arguments, got %s at %d:%d",
+						tokenNames[p.current.Type], p.current.Line, p.current.Column))
+					return nil
+				}
+				p.nextToken()
+				return &HierarchicalRuleCallPermissionAST{
+					Relation:  name,
+					RuleName:  secondName,
+					Arguments: arguments,
+				}
+			}
+
+			// Otherwise it's a plain hierarchical permission
 			p.nextToken()
 			return &HierarchicalPermissionAST{
 				Relation:   name,
-				Permission: permissionName,
+				Permission: secondName,
 			}
 		}
 

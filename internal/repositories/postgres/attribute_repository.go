@@ -8,17 +8,18 @@ import (
 	"time"
 
 	"github.com/asakaida/keruberosu/internal/entities"
+	"github.com/asakaida/keruberosu/internal/infrastructure/database"
 	"github.com/asakaida/keruberosu/internal/repositories"
 )
 
 // PostgresAttributeRepository implements AttributeRepository using PostgreSQL
 type PostgresAttributeRepository struct {
-	db *sql.DB
+	cluster *database.DBCluster
 }
 
 // NewPostgresAttributeRepository creates a new PostgreSQL attribute repository
-func NewPostgresAttributeRepository(db *sql.DB) repositories.AttributeRepository {
-	return &PostgresAttributeRepository{db: db}
+func NewPostgresAttributeRepository(cluster *database.DBCluster) repositories.AttributeRepository {
+	return &PostgresAttributeRepository{cluster: cluster}
 }
 
 // Write creates or updates an attribute
@@ -27,7 +28,6 @@ func (r *PostgresAttributeRepository) Write(ctx context.Context, tenantID string
 		return fmt.Errorf("invalid attribute: %w", err)
 	}
 
-	// Serialize value to JSON
 	valueJSON, err := json.Marshal(attr.Value)
 	if err != nil {
 		return fmt.Errorf("failed to marshal attribute value: %w", err)
@@ -40,13 +40,14 @@ func (r *PostgresAttributeRepository) Write(ctx context.Context, tenantID string
 		DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
 	`
 	now := time.Now()
-	_, err = r.db.ExecContext(ctx, query,
+	_, err = r.cluster.Writer().ExecContext(ctx, query,
 		tenantID, attr.EntityType, attr.EntityID, attr.Name, string(valueJSON), now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to write attribute: %w", err)
 	}
 
+	r.cluster.RecordWrite(tenantID)
 	return nil
 }
 
@@ -57,7 +58,8 @@ func (r *PostgresAttributeRepository) Read(ctx context.Context, tenantID string,
 		FROM attributes
 		WHERE tenant_id = $1 AND entity_type = $2 AND entity_id = $3
 	`
-	rows, err := r.db.QueryContext(ctx, query, tenantID, entityType, entityID)
+	db := r.cluster.ReaderFor(tenantID)
+	rows, err := db.QueryContext(ctx, query, tenantID, entityType, entityID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read attributes: %w", err)
 	}
@@ -91,11 +93,12 @@ func (r *PostgresAttributeRepository) Delete(ctx context.Context, tenantID strin
 		DELETE FROM attributes
 		WHERE tenant_id = $1 AND entity_type = $2 AND entity_id = $3 AND attribute = $4
 	`
-	_, err := r.db.ExecContext(ctx, query, tenantID, entityType, entityID, attrName)
+	_, err := r.cluster.Writer().ExecContext(ctx, query, tenantID, entityType, entityID, attrName)
 	if err != nil {
 		return fmt.Errorf("failed to delete attribute: %w", err)
 	}
 
+	r.cluster.RecordWrite(tenantID)
 	return nil
 }
 
@@ -106,8 +109,9 @@ func (r *PostgresAttributeRepository) GetValue(ctx context.Context, tenantID str
 		FROM attributes
 		WHERE tenant_id = $1 AND entity_type = $2 AND entity_id = $3 AND attribute = $4
 	`
+	db := r.cluster.ReaderFor(tenantID)
 	var valueJSON string
-	err := r.db.QueryRowContext(ctx, query, tenantID, entityType, entityID, attrName).Scan(&valueJSON)
+	err := db.QueryRowContext(ctx, query, tenantID, entityType, entityID, attrName).Scan(&valueJSON)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("attribute not found: %s", attrName)
 	}
@@ -122,3 +126,6 @@ func (r *PostgresAttributeRepository) GetValue(ctx context.Context, tenantID str
 
 	return value, nil
 }
+
+// ensure interface compliance
+var _ repositories.AttributeRepository = (*PostgresAttributeRepository)(nil)

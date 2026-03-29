@@ -57,11 +57,12 @@ func setupIntegrationTest(t *testing.T) (*HandlerSet, *sql.DB) {
 	}
 
 	db := pg.DB
+	cluster := database.NewSingleNodeCluster(db)
 
 	// Initialize repositories
-	schemaRepo := postgres.NewPostgresSchemaRepository(db)
-	relationRepo := postgres.NewPostgresRelationRepository(db)
-	attributeRepo := postgres.NewPostgresAttributeRepository(db)
+	schemaRepo := postgres.NewPostgresSchemaRepository(cluster)
+	relationRepo := postgres.NewPostgresRelationRepository(cluster, nil)
+	attributeRepo := postgres.NewPostgresAttributeRepository(cluster)
 
 	// Initialize services
 	schemaService := services.NewSchemaService(schemaRepo)
@@ -89,7 +90,7 @@ func cleanupIntegrationTest(t *testing.T, db *sql.DB) {
 	t.Helper()
 
 	// Clean up all tables
-	tables := []string{"attributes", "relations", "schemas"}
+	tables := []string{"entity_closure", "attributes", "relations", "schemas"}
 	for _, table := range tables {
 		_, err := db.Exec("DELETE FROM " + table)
 		if err != nil {

@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package keruberosu.v1;
 
+import "buf/validate/validate.proto";
 import "keruberosu/v1/common.proto";
 
 option go_package = "github.com/asakaida/keruberosu/proto/keruberosu/v1;keruberosupb";
@@ -22,7 +23,7 @@ service Schema {
 // ========================================
 
 message SchemaWriteRequest {
-  string schema = 1;  // Permify互換: schema_dsl → schema
+  string schema = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 message SchemaWriteResponse {

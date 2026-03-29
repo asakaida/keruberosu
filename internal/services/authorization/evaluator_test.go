@@ -104,6 +104,34 @@ func (m *mockRelationRepository) ReadByFilter(ctx context.Context, tenantID stri
 	return nil, "", nil
 }
 
+func (m *mockRelationRepository) Exists(ctx context.Context, tenantID string, tuple *entities.RelationTuple) (bool, error) {
+	return m.CheckExists(ctx, tenantID, tuple)
+}
+
+func (m *mockRelationRepository) ExistsWithSubjectRelation(ctx context.Context, tenantID string, entityType, entityID, relation, subjectType, subjectID, subjectRelation string) (bool, error) {
+	return false, nil
+}
+
+func (m *mockRelationRepository) FindByEntityWithRelation(ctx context.Context, tenantID string, entityType, entityID, relation string) ([]*entities.RelationTuple, error) {
+	return m.Read(ctx, tenantID, &repositories.RelationFilter{
+		EntityType: entityType,
+		EntityID:   entityID,
+		Relation:   relation,
+	})
+}
+
+func (m *mockRelationRepository) LookupAncestorsViaRelation(ctx context.Context, tenantID string, entityType, entityID string, maxDepth int) ([]*entities.RelationTuple, error) {
+	return nil, nil
+}
+
+func (m *mockRelationRepository) FindHierarchicalWithSubject(ctx context.Context, tenantID string, entityType, entityID, relation, subjectType, subjectID string, maxDepth int) (bool, error) {
+	return false, nil
+}
+
+func (m *mockRelationRepository) RebuildClosure(ctx context.Context, tenantID string) error {
+	return nil
+}
+
 type mockAttributeRepository struct {
 	attributes map[string]map[string]interface{} // key: entityType:entityID, value: attributes
 }

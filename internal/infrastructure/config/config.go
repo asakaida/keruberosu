@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -34,12 +35,16 @@ type CacheConfig struct {
 
 // DatabaseConfig represents database configuration
 type DatabaseConfig struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
-	Database string
-	SSLMode  string
+	Host                      string
+	Port                      int
+	User                      string
+	Password                  string
+	Database                  string
+	SSLMode                   string
+	ReplicaHost               string // empty means no replica
+	ReplicaPort               int    // 0 means same as primary Port
+	WriteTrackerWindowSeconds int    // seconds to route reads to primary after a write
+	ClosureExcludedRelations  string // comma-separated relation names to exclude from closure updates
 }
 
 // findProjectRoot finds the project root directory by looking for go.mod
@@ -98,6 +103,10 @@ func InitConfig(env string) error {
 	viper.SetDefault("DB_USER", "keruberosu")
 	viper.SetDefault("DB_NAME", "keruberosu_dev")
 	viper.SetDefault("DB_SSLMODE", "disable")
+	viper.SetDefault("DB_REPLICA_HOST", "")
+	viper.SetDefault("DB_REPLICA_PORT", 0)
+	viper.SetDefault("WRITE_TRACKER_WINDOW_SECONDS", 1)
+	viper.SetDefault("CLOSURE_EXCLUDED_RELATIONS", "")
 
 	// Cache defaults
 	viper.SetDefault("CACHE_ENABLED", true)
@@ -125,12 +134,16 @@ func Load() (*Config, error) {
 			MetricsPort: viper.GetInt("METRICS_PORT"),
 		},
 		Database: DatabaseConfig{
-			Host:     viper.GetString("DB_HOST"),
-			Port:     viper.GetInt("DB_PORT"),
-			User:     viper.GetString("DB_USER"),
-			Password: dbPassword,
-			Database: viper.GetString("DB_NAME"),
-			SSLMode:  viper.GetString("DB_SSLMODE"),
+			Host:                      viper.GetString("DB_HOST"),
+			Port:                      viper.GetInt("DB_PORT"),
+			User:                      viper.GetString("DB_USER"),
+			Password:                  dbPassword,
+			Database:                  viper.GetString("DB_NAME"),
+			SSLMode:                   viper.GetString("DB_SSLMODE"),
+			ReplicaHost:               viper.GetString("DB_REPLICA_HOST"),
+			ReplicaPort:               viper.GetInt("DB_REPLICA_PORT"),
+			WriteTrackerWindowSeconds: viper.GetInt("WRITE_TRACKER_WINDOW_SECONDS"),
+			ClosureExcludedRelations:  viper.GetString("CLOSURE_EXCLUDED_RELATIONS"),
 		},
 		Cache: CacheConfig{
 			Enabled:        viper.GetBool("CACHE_ENABLED"),
@@ -145,7 +158,7 @@ func Load() (*Config, error) {
 	return config, nil
 }
 
-// ConnectionString returns PostgreSQL connection string
+// ConnectionString returns PostgreSQL connection string for the primary.
 func (c *DatabaseConfig) ConnectionString() string {
 	return fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
@@ -156,4 +169,41 @@ func (c *DatabaseConfig) ConnectionString() string {
 		c.Database,
 		c.SSLMode,
 	)
+}
+
+// ReplicaConnectionString returns PostgreSQL connection string for the read replica.
+func (c *DatabaseConfig) ReplicaConnectionString() string {
+	port := c.ReplicaPort
+	if port == 0 {
+		port = c.Port
+	}
+	return fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		c.ReplicaHost,
+		port,
+		c.User,
+		c.Password,
+		c.Database,
+		c.SSLMode,
+	)
+}
+
+// HasReplica returns true if a read replica is configured.
+func (c *DatabaseConfig) HasReplica() bool {
+	return c.ReplicaHost != ""
+}
+
+// ParseClosureExcludedRelations parses the comma-separated exclusion list.
+func (c *DatabaseConfig) ParseClosureExcludedRelations() map[string]bool {
+	result := make(map[string]bool)
+	if c.ClosureExcludedRelations == "" {
+		return result
+	}
+	for _, rel := range strings.Split(c.ClosureExcludedRelations, ",") {
+		trimmed := strings.TrimSpace(rel)
+		if trimmed != "" {
+			result[trimmed] = true
+		}
+	}
+	return result
 }

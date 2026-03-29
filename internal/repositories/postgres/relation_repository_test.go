@@ -9,10 +9,10 @@ import (
 )
 
 func TestRelationRepository_Write(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresRelationRepository(db)
+	repo := NewPostgresRelationRepository(cluster, nil)
 	ctx := context.Background()
 
 	t.Run("正常系: リレーション作成成功", func(t *testing.T) {
@@ -85,10 +85,10 @@ func TestRelationRepository_Write(t *testing.T) {
 }
 
 func TestRelationRepository_Read(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresRelationRepository(db)
+	repo := NewPostgresRelationRepository(cluster, nil)
 	ctx := context.Background()
 	tenantID := "tenant2"
 
@@ -203,10 +203,10 @@ func TestRelationRepository_Read(t *testing.T) {
 }
 
 func TestRelationRepository_CheckExists(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresRelationRepository(db)
+	repo := NewPostgresRelationRepository(cluster, nil)
 	ctx := context.Background()
 	tenantID := "tenant3"
 
@@ -267,10 +267,10 @@ func TestRelationRepository_CheckExists(t *testing.T) {
 }
 
 func TestRelationRepository_Delete(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresRelationRepository(db)
+	repo := NewPostgresRelationRepository(cluster, nil)
 	ctx := context.Background()
 	tenantID := "tenant4"
 
@@ -332,10 +332,10 @@ func TestRelationRepository_Delete(t *testing.T) {
 }
 
 func TestRelationRepository_BatchWrite(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresRelationRepository(db)
+	repo := NewPostgresRelationRepository(cluster, nil)
 	ctx := context.Background()
 	tenantID := "tenant5"
 
@@ -384,10 +384,10 @@ func TestRelationRepository_BatchWrite(t *testing.T) {
 }
 
 func TestRelationRepository_BatchDelete(t *testing.T) {
-	db := SetupTestDB(t)
-	defer CleanupTestDB(t, db)
+	cluster := SetupTestDB(t)
+	defer CleanupTestDB(t, cluster)
 
-	repo := NewPostgresRelationRepository(db)
+	repo := NewPostgresRelationRepository(cluster, nil)
 	ctx := context.Background()
 	tenantID := "tenant6"
 

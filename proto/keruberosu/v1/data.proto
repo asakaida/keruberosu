@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package keruberosu.v1;
 
+import "buf/validate/validate.proto";
 import "keruberosu/v1/common.proto";
 
 option go_package = "github.com/asakaida/keruberosu/proto/keruberosu/v1;keruberosupb";
@@ -31,27 +32,27 @@ message DataWriteRequest {
 }
 
 message DataWriteRequestMetadata {
-  string schema_version = 1;  // 将来実装予定
+  string schema_version = 1;
 }
 
 message DataWriteResponse {
-  string snap_token = 1;  // 将来実装予定
+  string snap_token = 1;
 }
 
 // Permify互換: フィルター形式で削除
 message DataDeleteRequest {
-  TupleFilter filter = 1;
+  TupleFilter filter = 1 [(buf.validate.field).required = true];
 }
 
 message DataDeleteResponse {
-  string snap_token = 1;  // 将来実装予定
+  string snap_token = 1;
 }
 
 // Permify互換: フィルター + ページネーションで読み取り
 message DataReadRequest {
   PermissionCheckMetadata metadata = 1;
   TupleFilter filter = 2;
-  int32 page_size = 3;
+  int32 page_size = 3 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
   string continuous_token = 4;
 }
 

@@ -43,4 +43,27 @@ type RelationRepository interface {
 
 	// ReadByFilter retrieves relation tuples matching filter with pagination (Permify互換)
 	ReadByFilter(ctx context.Context, tenantID string, filter *RelationFilter, pageSize int, pageToken string) ([]*entities.RelationTuple, string, error)
+
+	// Exists checks if a specific relation tuple exists
+	Exists(ctx context.Context, tenantID string, tuple *entities.RelationTuple) (bool, error)
+
+	// ExistsWithSubjectRelation checks existence including subject relation
+	ExistsWithSubjectRelation(ctx context.Context, tenantID string,
+		entityType, entityID, relation, subjectType, subjectID, subjectRelation string) (bool, error)
+
+	// FindByEntityWithRelation returns tuples for a specific entity and relation
+	FindByEntityWithRelation(ctx context.Context, tenantID string,
+		entityType, entityID, relation string) ([]*entities.RelationTuple, error)
+
+	// LookupAncestorsViaRelation finds all ancestors via closure table
+	LookupAncestorsViaRelation(ctx context.Context, tenantID string,
+		entityType, entityID string, maxDepth int) ([]*entities.RelationTuple, error)
+
+	// FindHierarchicalWithSubject checks if a subject exists in the hierarchy using recursive CTE
+	FindHierarchicalWithSubject(ctx context.Context, tenantID string,
+		entityType, entityID, relation, subjectType, subjectID string,
+		maxDepth int) (bool, error)
+
+	// RebuildClosure rebuilds the closure table for a tenant from scratch
+	RebuildClosure(ctx context.Context, tenantID string) error
 }
