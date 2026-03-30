@@ -215,6 +215,7 @@ func (h *PermissionHandler) LookupSubject(ctx context.Context, req *pb.Permissio
 		EntityID:         req.Entity.Id,
 		Permission:       req.Permission,
 		SubjectType:      req.SubjectReference.Type,
+		SubjectRelation:  req.SubjectReference.Relation,
 		ContextualTuples: contextualTuples,
 		PageSize:         int(req.PageSize),
 		PageToken:        req.ContinuousToken,

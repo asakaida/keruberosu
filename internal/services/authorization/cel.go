@@ -133,6 +133,13 @@ func (e *CELEngine) GetAvailableFunctions() []string {
 // EvaluateWithParams evaluates a CEL expression with "this" (parent attributes)
 // and dynamically named parameters. Used for HierarchicalRuleCallRule evaluation.
 func (e *CELEngine) EvaluateWithParams(expression string, thisAttrs map[string]interface{}, params map[string]interface{}) (bool, error) {
+	if thisAttrs == nil {
+		thisAttrs = map[string]interface{}{}
+	}
+	if params == nil {
+		params = map[string]interface{}{}
+	}
+
 	// Build CEL environment options with "this" and each parameter
 	envOpts := []cel.EnvOption{
 		cel.Variable("this", cel.MapType(cel.StringType, cel.DynType)),

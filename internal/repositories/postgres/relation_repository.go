@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/asakaida/keruberosu/internal/entities"
@@ -843,6 +844,355 @@ func (r *PostgresRelationRepository) updateClosureOnDelete(
 	}
 
 	return nil
+}
+
+// GetSortedEntityIDs returns sorted unique entity IDs with cursor-based pagination.
+func (r *PostgresRelationRepository) GetSortedEntityIDs(ctx context.Context, tenantID string,
+	entityType string, cursor string, limit int) ([]string, error) {
+	query := `SELECT DISTINCT entity_id FROM relations WHERE tenant_id = $1 AND entity_type = $2`
+	args := []interface{}{tenantID, entityType}
+	argIdx := 3
+
+	if cursor != "" {
+		query += fmt.Sprintf(" AND entity_id > $%d", argIdx)
+		args = append(args, cursor)
+		argIdx++
+	}
+
+	query += " ORDER BY entity_id"
+	query += fmt.Sprintf(" LIMIT $%d", argIdx)
+	args = append(args, limit)
+
+	db := r.cluster.ReaderFor(tenantID)
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sorted entity IDs: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan entity ID: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// GetSortedSubjectIDs returns sorted unique subject IDs with cursor-based pagination.
+func (r *PostgresRelationRepository) GetSortedSubjectIDs(ctx context.Context, tenantID string,
+	subjectType string, cursor string, limit int) ([]string, error) {
+	query := `SELECT DISTINCT subject_id FROM relations WHERE tenant_id = $1 AND subject_type = $2`
+	args := []interface{}{tenantID, subjectType}
+	argIdx := 3
+
+	if cursor != "" {
+		query += fmt.Sprintf(" AND subject_id > $%d", argIdx)
+		args = append(args, cursor)
+		argIdx++
+	}
+
+	query += " ORDER BY subject_id"
+	query += fmt.Sprintf(" LIMIT $%d", argIdx)
+	args = append(args, limit)
+
+	db := r.cluster.ReaderFor(tenantID)
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sorted subject IDs: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan subject ID: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// LookupAccessibleEntitiesComplex finds entity IDs that a subject can access
+// via direct relations, computed usersets, or hierarchical relations using closure table.
+func (r *PostgresRelationRepository) LookupAccessibleEntitiesComplex(ctx context.Context, tenantID string,
+	entityType string, relations []string, parentRelations []string,
+	subjectType string, subjectID string,
+	maxDepth int, cursor string, limit int) ([]string, error) {
+
+	var subQueries []string
+	var args []interface{}
+	argIdx := 1
+
+	// Helper to add arg and return $N placeholder
+	addArg := func(val interface{}) string {
+		args = append(args, val)
+		placeholder := fmt.Sprintf("$%d", argIdx)
+		argIdx++
+		return placeholder
+	}
+
+	pTenantID := addArg(tenantID)
+	pEntityType := addArg(entityType)
+	pSubjectType := addArg(subjectType)
+	pSubjectID := addArg(subjectID)
+
+	if len(relations) > 0 {
+		pRelations := addArg(pq.Array(relations))
+
+		// Sub-query 1: Direct relations
+		subQueries = append(subQueries, fmt.Sprintf(`
+			SELECT DISTINCT r.entity_id
+			FROM relations r
+			WHERE r.tenant_id = %s AND r.entity_type = %s
+			  AND r.relation = ANY(%s)
+			  AND r.subject_type = %s AND r.subject_id = %s
+			  AND COALESCE(r.subject_relation, '') = ''
+		`, pTenantID, pEntityType, pRelations, pSubjectType, pSubjectID))
+
+		// Sub-query 2: Computed usersets
+		subQueries = append(subQueries, fmt.Sprintf(`
+			SELECT DISTINCT r.entity_id
+			FROM relations r
+			INNER JOIN relations sr
+			  ON sr.tenant_id = r.tenant_id
+			  AND sr.entity_type = r.subject_type
+			  AND sr.entity_id = r.subject_id
+			  AND sr.relation = r.subject_relation
+			  AND sr.subject_type = %s AND sr.subject_id = %s
+			WHERE r.tenant_id = %s AND r.entity_type = %s
+			  AND r.relation = ANY(%s)
+			  AND r.subject_relation IS NOT NULL AND r.subject_relation != ''
+		`, pSubjectType, pSubjectID, pTenantID, pEntityType, pRelations))
+	}
+
+	if len(parentRelations) > 0 {
+		// Parse parentRelations to extract target relations
+		// e.g., ["parent.owner", "parent.editor"] -> targetRelations = ["owner", "editor"]
+		targetRelations := make([]string, 0, len(parentRelations))
+		for _, pr := range parentRelations {
+			parts := strings.SplitN(pr, ".", 2)
+			if len(parts) == 2 {
+				targetRelations = append(targetRelations, parts[1])
+			}
+		}
+
+		if len(targetRelations) > 0 {
+			pTargetRelations := addArg(pq.Array(targetRelations))
+			pMaxDepth := addArg(maxDepth)
+
+			// Sub-query 3: Hierarchical direct
+			subQueries = append(subQueries, fmt.Sprintf(`
+				SELECT DISTINCT c.descendant_id AS entity_id
+				FROM entity_closure c
+				INNER JOIN relations r
+				  ON r.tenant_id = c.tenant_id
+				  AND r.entity_type = c.ancestor_type
+				  AND r.entity_id = c.ancestor_id
+				  AND r.relation = ANY(%s)
+				  AND r.subject_type = %s AND r.subject_id = %s
+				  AND COALESCE(r.subject_relation, '') = ''
+				WHERE c.tenant_id = %s AND c.descendant_type = %s
+				  AND c.depth <= %s
+			`, pTargetRelations, pSubjectType, pSubjectID, pTenantID, pEntityType, pMaxDepth))
+
+			// Sub-query 4: Hierarchical computed usersets
+			subQueries = append(subQueries, fmt.Sprintf(`
+				SELECT DISTINCT c.descendant_id AS entity_id
+				FROM entity_closure c
+				INNER JOIN relations r
+				  ON r.tenant_id = c.tenant_id
+				  AND r.entity_type = c.ancestor_type
+				  AND r.entity_id = c.ancestor_id
+				  AND r.relation = ANY(%s)
+				  AND r.subject_relation IS NOT NULL AND r.subject_relation != ''
+				INNER JOIN relations sr
+				  ON sr.tenant_id = r.tenant_id
+				  AND sr.entity_type = r.subject_type
+				  AND sr.entity_id = r.subject_id
+				  AND sr.relation = r.subject_relation
+				  AND sr.subject_type = %s AND sr.subject_id = %s
+				WHERE c.tenant_id = %s AND c.descendant_type = %s
+				  AND c.depth <= %s
+			`, pTargetRelations, pSubjectType, pSubjectID, pTenantID, pEntityType, pMaxDepth))
+		}
+	}
+
+	if len(subQueries) == 0 {
+		return nil, nil
+	}
+
+	// Build final query with cursor pagination
+	combined := strings.Join(subQueries, " UNION ")
+	query := fmt.Sprintf(`SELECT entity_id FROM (%s) combined`, combined)
+
+	if cursor != "" {
+		pCursor := addArg(cursor)
+		query += fmt.Sprintf(` WHERE entity_id > %s`, pCursor)
+	}
+
+	query += " ORDER BY entity_id"
+	pLimit := addArg(limit)
+	query += fmt.Sprintf(` LIMIT %s`, pLimit)
+
+	db := r.cluster.ReaderFor(tenantID)
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lookup accessible entities: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan entity ID: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// LookupAccessibleSubjectsComplex finds subject IDs that can access an entity
+// via direct relations, computed usersets, or hierarchical relations using closure table.
+func (r *PostgresRelationRepository) LookupAccessibleSubjectsComplex(ctx context.Context, tenantID string,
+	entityType string, entityID string, relations []string, parentRelations []string,
+	subjectType string,
+	maxDepth int, cursor string, limit int) ([]string, error) {
+
+	var subQueries []string
+	var args []interface{}
+	argIdx := 1
+
+	// Helper to add arg and return $N placeholder
+	addArg := func(val interface{}) string {
+		args = append(args, val)
+		placeholder := fmt.Sprintf("$%d", argIdx)
+		argIdx++
+		return placeholder
+	}
+
+	pTenantID := addArg(tenantID)
+	pEntityType := addArg(entityType)
+	pEntityID := addArg(entityID)
+	pSubjectType := addArg(subjectType)
+
+	if len(relations) > 0 {
+		pRelations := addArg(pq.Array(relations))
+
+		// Sub-query 1: Direct relations
+		subQueries = append(subQueries, fmt.Sprintf(`
+			SELECT DISTINCT r.subject_id
+			FROM relations r
+			WHERE r.tenant_id = %s AND r.entity_type = %s AND r.entity_id = %s
+			  AND r.relation = ANY(%s)
+			  AND r.subject_type = %s
+			  AND COALESCE(r.subject_relation, '') = ''
+		`, pTenantID, pEntityType, pEntityID, pRelations, pSubjectType))
+
+		// Sub-query 2: Computed usersets
+		subQueries = append(subQueries, fmt.Sprintf(`
+			SELECT DISTINCT sr.subject_id
+			FROM relations r
+			INNER JOIN relations sr
+			  ON sr.tenant_id = r.tenant_id
+			  AND sr.entity_type = r.subject_type
+			  AND sr.entity_id = r.subject_id
+			  AND sr.relation = r.subject_relation
+			  AND sr.subject_type = %s
+			WHERE r.tenant_id = %s AND r.entity_type = %s AND r.entity_id = %s
+			  AND r.relation = ANY(%s)
+			  AND r.subject_relation IS NOT NULL AND r.subject_relation != ''
+		`, pSubjectType, pTenantID, pEntityType, pEntityID, pRelations))
+	}
+
+	if len(parentRelations) > 0 {
+		// Parse parentRelations to extract target relations
+		targetRelations := make([]string, 0, len(parentRelations))
+		for _, pr := range parentRelations {
+			parts := strings.SplitN(pr, ".", 2)
+			if len(parts) == 2 {
+				targetRelations = append(targetRelations, parts[1])
+			}
+		}
+
+		if len(targetRelations) > 0 {
+			pTargetRelations := addArg(pq.Array(targetRelations))
+			pMaxDepth := addArg(maxDepth)
+
+			// Sub-query 3: Hierarchical direct
+			subQueries = append(subQueries, fmt.Sprintf(`
+				SELECT DISTINCT r.subject_id
+				FROM entity_closure c
+				INNER JOIN relations r
+				  ON r.tenant_id = c.tenant_id
+				  AND r.entity_type = c.ancestor_type
+				  AND r.entity_id = c.ancestor_id
+				  AND r.relation = ANY(%s)
+				  AND r.subject_type = %s
+				  AND COALESCE(r.subject_relation, '') = ''
+				WHERE c.tenant_id = %s AND c.descendant_type = %s AND c.descendant_id = %s
+				  AND c.depth <= %s
+			`, pTargetRelations, pSubjectType, pTenantID, pEntityType, pEntityID, pMaxDepth))
+
+			// Sub-query 4: Hierarchical computed usersets
+			subQueries = append(subQueries, fmt.Sprintf(`
+				SELECT DISTINCT r.subject_id
+				FROM entity_closure c
+				INNER JOIN relations r
+				  ON r.tenant_id = c.tenant_id
+				  AND r.entity_type = c.ancestor_type
+				  AND r.entity_id = c.ancestor_id
+				  AND r.relation = ANY(%s)
+				  AND r.subject_relation IS NOT NULL AND r.subject_relation != ''
+				INNER JOIN relations sr
+				  ON sr.tenant_id = r.tenant_id
+				  AND sr.entity_type = r.subject_type
+				  AND sr.entity_id = r.subject_id
+				  AND sr.relation = r.subject_relation
+				  AND sr.subject_type = %s
+				WHERE c.tenant_id = %s AND c.descendant_type = %s AND c.descendant_id = %s
+				  AND c.depth <= %s
+			`, pTargetRelations, pSubjectType, pTenantID, pEntityType, pEntityID, pMaxDepth))
+		}
+	}
+
+	if len(subQueries) == 0 {
+		return nil, nil
+	}
+
+	// Build final query with cursor pagination
+	combined := strings.Join(subQueries, " UNION ")
+	query := fmt.Sprintf(`SELECT subject_id FROM (%s) combined`, combined)
+
+	if cursor != "" {
+		pCursor := addArg(cursor)
+		query += fmt.Sprintf(` WHERE subject_id > %s`, pCursor)
+	}
+
+	query += " ORDER BY subject_id"
+	pLimit := addArg(limit)
+	query += fmt.Sprintf(` LIMIT %s`, pLimit)
+
+	db := r.cluster.ReaderFor(tenantID)
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lookup accessible subjects: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan subject ID: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // scanTuples scans rows into RelationTuple slices.

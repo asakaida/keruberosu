@@ -112,6 +112,22 @@ func (m *mockRelationRepository) RebuildClosure(ctx context.Context, tenantID st
 	return nil
 }
 
+func (m *mockRelationRepository) GetSortedEntityIDs(ctx context.Context, tenantID string, entityType string, cursor string, limit int) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockRelationRepository) GetSortedSubjectIDs(ctx context.Context, tenantID string, subjectType string, cursor string, limit int) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockRelationRepository) LookupAccessibleEntitiesComplex(ctx context.Context, tenantID string, entityType string, relations []string, parentRelations []string, subjectType string, subjectID string, maxDepth int, cursor string, limit int) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockRelationRepository) LookupAccessibleSubjectsComplex(ctx context.Context, tenantID string, entityType string, entityID string, relations []string, parentRelations []string, subjectType string, maxDepth int, cursor string, limit int) ([]string, error) {
+	return nil, nil
+}
+
 // Mock AttributeRepository
 type mockAttributeRepository struct {
 	writeFunc func(ctx context.Context, tenantID string, attr *entities.Attribute) error

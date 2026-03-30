@@ -8,6 +8,12 @@ import (
 	"github.com/asakaida/keruberosu/internal/repositories"
 )
 
+const (
+	defaultLookupLimit = 1000
+	defaultBatchSize   = 300
+	maxBatchSize       = 10000
+)
+
 // LookupInterface defines the interface for entity and subject lookup
 type LookupInterface interface {
 	LookupEntity(ctx context.Context, req *LookupEntityRequest) (*LookupEntityResponse, error)
@@ -23,40 +29,41 @@ type Lookup struct {
 
 // LookupEntityRequest contains the parameters for looking up entities
 type LookupEntityRequest struct {
-	TenantID         string                    // Tenant ID
-	SchemaVersion    string                    // Schema version (empty = latest)
-	EntityType       string                    // Entity type to search for (e.g., "document")
-	Permission       string                    // Permission to check (e.g., "view")
-	SubjectType      string                    // Subject type (e.g., "user")
-	SubjectID        string                    // Subject ID (e.g., "alice")
-	ContextualTuples []*entities.RelationTuple // Temporary tuples for this request
-	PageSize         int                       // Maximum number of results to return (0 = unlimited)
-	PageToken        string                    // Pagination token for next page
+	TenantID         string
+	SchemaVersion    string
+	EntityType       string
+	Permission       string
+	SubjectType      string
+	SubjectID        string
+	ContextualTuples []*entities.RelationTuple
+	PageSize         int
+	PageToken        string
 }
 
 // LookupEntityResponse contains the list of entities
 type LookupEntityResponse struct {
-	EntityIDs     []string // Entity IDs that the subject has permission on
-	NextPageToken string   // Token for fetching the next page (empty if no more results)
+	EntityIDs     []string
+	NextPageToken string
 }
 
 // LookupSubjectRequest contains the parameters for looking up subjects
 type LookupSubjectRequest struct {
-	TenantID         string                    // Tenant ID
-	SchemaVersion    string                    // Schema version (empty = latest)
-	EntityType       string                    // Entity type (e.g., "document")
-	EntityID         string                    // Entity ID (e.g., "doc1")
-	Permission       string                    // Permission to check (e.g., "view")
-	SubjectType      string                    // Subject type to search for (e.g., "user")
-	ContextualTuples []*entities.RelationTuple // Temporary tuples for this request
-	PageSize         int                       // Maximum number of results to return (0 = unlimited)
-	PageToken        string                    // Pagination token for next page
+	TenantID         string
+	SchemaVersion    string
+	EntityType       string
+	EntityID         string
+	Permission       string
+	SubjectType      string
+	SubjectRelation  string // optional: for computed userset lookups (e.g., "member")
+	ContextualTuples []*entities.RelationTuple
+	PageSize         int
+	PageToken        string
 }
 
 // LookupSubjectResponse contains the list of subjects
 type LookupSubjectResponse struct {
-	SubjectIDs    []string // Subject IDs that have permission on the entity
-	NextPageToken string   // Token for fetching the next page (empty if no more results)
+	SubjectIDs    []string
+	NextPageToken string
 }
 
 // NewLookup creates a new Lookup
@@ -73,8 +80,8 @@ func NewLookup(
 }
 
 // LookupEntity finds all entities of a given type that a subject has permission on.
-// Uses smart candidate narrowing via relation extraction and closure table when possible,
-// falling back to brute-force for ABAC/RuleCall permissions.
+// Uses optimized SQL lookup with closure table when possible, falling back to
+// batched Check() loop for complex rules (ABAC/RuleCall).
 func (l *Lookup) LookupEntity(ctx context.Context, req *LookupEntityRequest) (*LookupEntityResponse, error) {
 	if err := l.validateLookupEntityRequest(req); err != nil {
 		return nil, fmt.Errorf("invalid lookup entity request: %w", err)
@@ -95,70 +102,169 @@ func (l *Lookup) LookupEntity(ctx context.Context, req *LookupEntityRequest) (*L
 		return nil, fmt.Errorf("permission %s not found in entity %s", req.Permission, req.EntityType)
 	}
 
-	// Extract relations from the permission rule to narrow candidates
-	directRels, _, hasABAC := extractRelationsFromRule(permission.Rule)
-	candidateIDs := make(map[string]bool)
+	limit := req.PageSize
+	if limit <= 0 {
+		limit = defaultLookupLimit
+	}
 
-	if !hasABAC && len(directRels) > 0 {
-		// Pure ReBAC: query relations directly to find candidate entity IDs
-		for _, relName := range directRels {
-			filter := &repositories.RelationFilter{
-				EntityType:  req.EntityType,
-				Relation:    relName,
-				SubjectType: req.SubjectType,
-				SubjectID:   req.SubjectID,
-			}
-			tuples, err := l.relationRepo.Read(ctx, req.TenantID, filter)
+	// Extract relations with schema context for hierarchical expansion
+	visited := make(map[string]bool)
+	relations, parentRelations, hasUnresolvable := extractRelationsFromRuleWithContext(
+		schema, req.EntityType, permission.Rule, visited)
+
+	if !hasUnresolvable && (len(relations) > 0 || len(parentRelations) > 0) {
+		// Optimized path: pure ReBAC with or without hierarchy
+		entityIDs, err := l.relationRepo.LookupAccessibleEntitiesComplex(
+			ctx, req.TenantID,
+			req.EntityType, relations, parentRelations,
+			req.SubjectType, req.SubjectID,
+			MaxDepth, req.PageToken, limit+1)
+		if err != nil {
+			return nil, fmt.Errorf("failed to lookup accessible entities: %w", err)
+		}
+
+		// If contextual tuples present, verify each result with Check
+		if len(req.ContextualTuples) > 0 {
+			return l.verifyEntitiesAndPaginate(ctx, req, entityIDs, limit)
+		}
+
+		nextPageToken := ""
+		if len(entityIDs) > limit {
+			entityIDs = entityIDs[:limit]
+			nextPageToken = entityIDs[len(entityIDs)-1]
+		}
+
+		return &LookupEntityResponse{
+			EntityIDs:     entityIDs,
+			NextPageToken: nextPageToken,
+		}, nil
+	}
+
+	// Fallback path: batched sorted entity IDs + Check loop
+	return l.lookupEntityFallback(ctx, req, limit)
+}
+
+// LookupSubject finds all subjects of a given type that have permission on an entity.
+// Uses optimized SQL lookup with closure table when possible.
+func (l *Lookup) LookupSubject(ctx context.Context, req *LookupSubjectRequest) (*LookupSubjectResponse, error) {
+	if err := l.validateLookupSubjectRequest(req); err != nil {
+		return nil, fmt.Errorf("invalid lookup subject request: %w", err)
+	}
+
+	schema, err := l.schemaService.GetSchemaEntity(ctx, req.TenantID, req.SchemaVersion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get schema: %w", err)
+	}
+
+	entity := schema.GetEntity(req.EntityType)
+	if entity == nil {
+		return nil, fmt.Errorf("entity type %s not found in schema", req.EntityType)
+	}
+
+	permission := entity.GetPermission(req.Permission)
+	if permission == nil {
+		return nil, fmt.Errorf("permission %s not found in entity %s", req.Permission, req.EntityType)
+	}
+
+	limit := req.PageSize
+	if limit <= 0 {
+		limit = defaultLookupLimit
+	}
+
+	// Extract relations with schema context
+	visited := make(map[string]bool)
+	relations, parentRelations, hasUnresolvable := extractRelationsFromRuleWithContext(
+		schema, req.EntityType, permission.Rule, visited)
+
+	if !hasUnresolvable && (len(relations) > 0 || len(parentRelations) > 0) {
+		// Optimized path
+		subjectIDs, err := l.relationRepo.LookupAccessibleSubjectsComplex(
+			ctx, req.TenantID,
+			req.EntityType, req.EntityID, relations, parentRelations,
+			req.SubjectType,
+			MaxDepth, req.PageToken, limit+1)
+		if err != nil {
+			return nil, fmt.Errorf("failed to lookup accessible subjects: %w", err)
+		}
+
+		if len(req.ContextualTuples) > 0 {
+			return l.verifySubjectsAndPaginate(ctx, req, subjectIDs, limit)
+		}
+
+		nextPageToken := ""
+		if len(subjectIDs) > limit {
+			subjectIDs = subjectIDs[:limit]
+			nextPageToken = subjectIDs[len(subjectIDs)-1]
+		}
+
+		return &LookupSubjectResponse{
+			SubjectIDs:    subjectIDs,
+			NextPageToken: nextPageToken,
+		}, nil
+	}
+
+	// Fallback path
+	return l.lookupSubjectFallback(ctx, req, limit)
+}
+
+// lookupEntityFallback uses batched GetSortedEntityIDs + Check loop
+func (l *Lookup) lookupEntityFallback(ctx context.Context, req *LookupEntityRequest, limit int) (*LookupEntityResponse, error) {
+	batchSize := limit * 3
+	if batchSize < defaultBatchSize {
+		batchSize = defaultBatchSize
+	}
+	if batchSize > maxBatchSize {
+		batchSize = maxBatchSize
+	}
+
+	cursor := req.PageToken
+	var allowedIDs []string
+
+	for {
+		candidates, err := l.relationRepo.GetSortedEntityIDs(ctx, req.TenantID, req.EntityType, cursor, batchSize)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get sorted entity IDs: %w", err)
+		}
+
+		if len(candidates) == 0 {
+			break
+		}
+
+		for _, entityID := range candidates {
+			resp, err := l.checker.Check(ctx, &CheckRequest{
+				TenantID:         req.TenantID,
+				SchemaVersion:    req.SchemaVersion,
+				EntityType:       req.EntityType,
+				EntityID:         entityID,
+				Permission:       req.Permission,
+				SubjectType:      req.SubjectType,
+				SubjectID:        req.SubjectID,
+				ContextualTuples: req.ContextualTuples,
+			})
 			if err != nil {
 				continue
 			}
-			for _, t := range tuples {
-				candidateIDs[t.EntityID] = true
+			if resp.Allowed {
+				allowedIDs = append(allowedIDs, entityID)
+				if len(allowedIDs) >= limit {
+					break
+				}
 			}
 		}
-	} else {
-		// Has ABAC or complex rules: fall back to brute-force candidates
-		ids, err := l.getCandidateEntityIDs(ctx, req.TenantID, req.EntityType, "", 0)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get candidate entities: %w", err)
-		}
-		for _, id := range ids {
-			candidateIDs[id] = true
-		}
-	}
 
-	// Check each candidate entity
-	allowedIDs := make([]string, 0)
-	for entityID := range candidateIDs {
-		checkReq := &CheckRequest{
-			TenantID:         req.TenantID,
-			SchemaVersion:    req.SchemaVersion,
-			EntityType:       req.EntityType,
-			EntityID:         entityID,
-			Permission:       req.Permission,
-			SubjectType:      req.SubjectType,
-			SubjectID:        req.SubjectID,
-			ContextualTuples: req.ContextualTuples,
+		if len(allowedIDs) >= limit {
+			break
 		}
 
-		resp, err := l.checker.Check(ctx, checkReq)
-		if err != nil {
-			continue
-		}
-
-		if resp.Allowed {
-			allowedIDs = append(allowedIDs, entityID)
-			if req.PageSize > 0 && len(allowedIDs) >= req.PageSize {
-				break
-			}
+		cursor = candidates[len(candidates)-1]
+		if len(candidates) < batchSize {
+			break
 		}
 	}
 
 	nextPageToken := ""
-	if req.PageSize > 0 && len(allowedIDs) == req.PageSize {
-		if len(allowedIDs) > 0 {
-			nextPageToken = allowedIDs[len(allowedIDs)-1]
-		}
+	if len(allowedIDs) >= limit {
+		nextPageToken = allowedIDs[len(allowedIDs)-1]
 	}
 
 	return &LookupEntityResponse{
@@ -167,77 +273,64 @@ func (l *Lookup) LookupEntity(ctx context.Context, req *LookupEntityRequest) (*L
 	}, nil
 }
 
-// LookupSubject finds all subjects of a given type that have permission on an entity
-// This is a brute-force implementation for Phase 1 (cacheless)
-func (l *Lookup) LookupSubject(ctx context.Context, req *LookupSubjectRequest) (*LookupSubjectResponse, error) {
-	// Validate request
-	if err := l.validateLookupSubjectRequest(req); err != nil {
-		return nil, fmt.Errorf("invalid lookup subject request: %w", err)
+// lookupSubjectFallback uses batched GetSortedSubjectIDs + Check loop
+func (l *Lookup) lookupSubjectFallback(ctx context.Context, req *LookupSubjectRequest, limit int) (*LookupSubjectResponse, error) {
+	batchSize := limit * 3
+	if batchSize < defaultBatchSize {
+		batchSize = defaultBatchSize
+	}
+	if batchSize > maxBatchSize {
+		batchSize = maxBatchSize
 	}
 
-	// Get parsed schema
-	schema, err := l.schemaService.GetSchemaEntity(ctx, req.TenantID, req.SchemaVersion)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get schema: %w", err)
-	}
+	cursor := req.PageToken
+	var allowedIDs []string
 
-	// Verify entity type exists
-	entity := schema.GetEntity(req.EntityType)
-	if entity == nil {
-		return nil, fmt.Errorf("entity type %s not found in schema", req.EntityType)
-	}
-
-	// Verify permission exists
-	permission := entity.GetPermission(req.Permission)
-	if permission == nil {
-		return nil, fmt.Errorf("permission %s not found in entity %s", req.Permission, req.EntityType)
-	}
-
-	// Get all subjects that could potentially have this permission
-	// by querying all relation tuples that reference this subject type
-	candidateIDs, err := l.getCandidateSubjectIDs(ctx, req.TenantID, req.SubjectType, req.PageToken, req.PageSize)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get candidate subjects: %w", err)
-	}
-
-	// Check each candidate subject
-	allowedIDs := make([]string, 0)
-	for _, subjectID := range candidateIDs {
-		checkReq := &CheckRequest{
-			TenantID:         req.TenantID,
-			SchemaVersion:    req.SchemaVersion,
-			EntityType:       req.EntityType,
-			EntityID:         req.EntityID,
-			Permission:       req.Permission,
-			SubjectType:      req.SubjectType,
-			SubjectID:        subjectID,
-			ContextualTuples: req.ContextualTuples,
-		}
-
-		resp, err := l.checker.Check(ctx, checkReq)
+	for {
+		candidates, err := l.relationRepo.GetSortedSubjectIDs(ctx, req.TenantID, req.SubjectType, cursor, batchSize)
 		if err != nil {
-			// Skip subjects that cause errors
-			continue
+			return nil, fmt.Errorf("failed to get sorted subject IDs: %w", err)
 		}
 
-		if resp.Allowed {
-			allowedIDs = append(allowedIDs, subjectID)
+		if len(candidates) == 0 {
+			break
+		}
 
-			// Check page size limit
-			if req.PageSize > 0 && len(allowedIDs) >= req.PageSize {
-				break
+		for _, subjectID := range candidates {
+			resp, err := l.checker.Check(ctx, &CheckRequest{
+				TenantID:         req.TenantID,
+				SchemaVersion:    req.SchemaVersion,
+				EntityType:       req.EntityType,
+				EntityID:         req.EntityID,
+				Permission:       req.Permission,
+				SubjectType:      req.SubjectType,
+				SubjectID:        subjectID,
+				ContextualTuples: req.ContextualTuples,
+			})
+			if err != nil {
+				continue
+			}
+			if resp.Allowed {
+				allowedIDs = append(allowedIDs, subjectID)
+				if len(allowedIDs) >= limit {
+					break
+				}
 			}
 		}
+
+		if len(allowedIDs) >= limit {
+			break
+		}
+
+		cursor = candidates[len(candidates)-1]
+		if len(candidates) < batchSize {
+			break
+		}
 	}
 
-	// Generate next page token if needed
 	nextPageToken := ""
-	if req.PageSize > 0 && len(allowedIDs) == req.PageSize {
-		// There might be more results
-		// In a real implementation, we'd use the last subjectID as the token
-		if len(candidateIDs) > 0 {
-			nextPageToken = candidateIDs[len(candidateIDs)-1]
-		}
+	if len(allowedIDs) >= limit {
+		nextPageToken = allowedIDs[len(allowedIDs)-1]
 	}
 
 	return &LookupSubjectResponse{
@@ -246,100 +339,176 @@ func (l *Lookup) LookupSubject(ctx context.Context, req *LookupSubjectRequest) (
 	}, nil
 }
 
-// getCandidateEntityIDs gets all unique entity IDs of a given type from relation tuples
-func (l *Lookup) getCandidateEntityIDs(ctx context.Context, tenantID, entityType, pageToken string, pageSize int) ([]string, error) {
-	// Query all relation tuples for this entity type
-	filter := &repositories.RelationFilter{
-		EntityType: entityType,
-	}
-
-	tuples, err := l.relationRepo.Read(ctx, tenantID, filter)
-	if err != nil {
-		return nil, err
-	}
-
-	// Extract unique entity IDs
-	entityIDSet := make(map[string]bool)
-	for _, tuple := range tuples {
-		entityIDSet[tuple.EntityID] = true
-	}
-
-	// Convert set to slice
-	entityIDs := make([]string, 0, len(entityIDSet))
-	for id := range entityIDSet {
-		entityIDs = append(entityIDs, id)
-	}
-
-	// Apply pagination
-	startIdx := 0
-	if pageToken != "" {
-		// Find the index of the page token
-		for i, id := range entityIDs {
-			if id == pageToken {
-				startIdx = i + 1
+// verifyEntitiesAndPaginate verifies candidate entity IDs with Check and applies pagination
+func (l *Lookup) verifyEntitiesAndPaginate(ctx context.Context, req *LookupEntityRequest, candidates []string, limit int) (*LookupEntityResponse, error) {
+	var allowedIDs []string
+	for _, entityID := range candidates {
+		resp, err := l.checker.Check(ctx, &CheckRequest{
+			TenantID:         req.TenantID,
+			SchemaVersion:    req.SchemaVersion,
+			EntityType:       req.EntityType,
+			EntityID:         entityID,
+			Permission:       req.Permission,
+			SubjectType:      req.SubjectType,
+			SubjectID:        req.SubjectID,
+			ContextualTuples: req.ContextualTuples,
+		})
+		if err != nil {
+			continue
+		}
+		if resp.Allowed {
+			allowedIDs = append(allowedIDs, entityID)
+			if len(allowedIDs) >= limit {
 				break
 			}
 		}
 	}
 
-	if startIdx >= len(entityIDs) {
-		return []string{}, nil
+	nextPageToken := ""
+	if len(allowedIDs) >= limit {
+		nextPageToken = allowedIDs[len(allowedIDs)-1]
 	}
 
-	endIdx := len(entityIDs)
-	if pageSize > 0 && startIdx+pageSize < endIdx {
-		endIdx = startIdx + pageSize
-	}
-
-	return entityIDs[startIdx:endIdx], nil
+	return &LookupEntityResponse{
+		EntityIDs:     allowedIDs,
+		NextPageToken: nextPageToken,
+	}, nil
 }
 
-// getCandidateSubjectIDs gets all unique subject IDs of a given type from relation tuples
-func (l *Lookup) getCandidateSubjectIDs(ctx context.Context, tenantID, subjectType, pageToken string, pageSize int) ([]string, error) {
-	// Query all relation tuples for this subject type
-	filter := &repositories.RelationFilter{
-		SubjectType: subjectType,
-	}
-
-	tuples, err := l.relationRepo.Read(ctx, tenantID, filter)
-	if err != nil {
-		return nil, err
-	}
-
-	// Extract unique subject IDs
-	subjectIDSet := make(map[string]bool)
-	for _, tuple := range tuples {
-		subjectIDSet[tuple.SubjectID] = true
-	}
-
-	// Convert set to slice
-	subjectIDs := make([]string, 0, len(subjectIDSet))
-	for id := range subjectIDSet {
-		subjectIDs = append(subjectIDs, id)
-	}
-
-	// Apply pagination
-	startIdx := 0
-	if pageToken != "" {
-		// Find the index of the page token
-		for i, id := range subjectIDs {
-			if id == pageToken {
-				startIdx = i + 1
+// verifySubjectsAndPaginate verifies candidate subject IDs with Check and applies pagination
+func (l *Lookup) verifySubjectsAndPaginate(ctx context.Context, req *LookupSubjectRequest, candidates []string, limit int) (*LookupSubjectResponse, error) {
+	var allowedIDs []string
+	for _, subjectID := range candidates {
+		resp, err := l.checker.Check(ctx, &CheckRequest{
+			TenantID:         req.TenantID,
+			SchemaVersion:    req.SchemaVersion,
+			EntityType:       req.EntityType,
+			EntityID:         req.EntityID,
+			Permission:       req.Permission,
+			SubjectType:      req.SubjectType,
+			SubjectID:        subjectID,
+			ContextualTuples: req.ContextualTuples,
+		})
+		if err != nil {
+			continue
+		}
+		if resp.Allowed {
+			allowedIDs = append(allowedIDs, subjectID)
+			if len(allowedIDs) >= limit {
 				break
 			}
 		}
 	}
 
-	if startIdx >= len(subjectIDs) {
-		return []string{}, nil
+	nextPageToken := ""
+	if len(allowedIDs) >= limit {
+		nextPageToken = allowedIDs[len(allowedIDs)-1]
 	}
 
-	endIdx := len(subjectIDs)
-	if pageSize > 0 && startIdx+pageSize < endIdx {
-		endIdx = startIdx + pageSize
+	return &LookupSubjectResponse{
+		SubjectIDs:    allowedIDs,
+		NextPageToken: nextPageToken,
+	}, nil
+}
+
+// extractRelationsFromRuleWithContext recursively extracts relation names from a
+// permission rule, using schema context to expand hierarchical rules into concrete
+// parent relation paths that the SQL layer can handle via closure table.
+//
+// Returns:
+//   - relations: direct relation names (e.g., ["owner", "editor"])
+//   - parentRelations: hierarchical paths (e.g., ["parent.owner", "parent.editor"])
+//   - hasUnresolvable: true if ABAC/RuleCall/HierarchicalRuleCall prevents full expansion
+func extractRelationsFromRuleWithContext(
+	schema *entities.Schema,
+	entityType string,
+	rule entities.PermissionRule,
+	visited map[string]bool,
+) (relations []string, parentRelations []string, hasUnresolvable bool) {
+	switch r := rule.(type) {
+	case *entities.RelationRule:
+		relations = append(relations, r.Relation)
+
+	case *entities.LogicalRule:
+		lr, lp, lu := extractRelationsFromRuleWithContext(schema, entityType, r.Left, visited)
+		relations = append(relations, lr...)
+		parentRelations = append(parentRelations, lp...)
+		hasUnresolvable = hasUnresolvable || lu
+		if r.Right != nil {
+			rr, rp, ru := extractRelationsFromRuleWithContext(schema, entityType, r.Right, visited)
+			relations = append(relations, rr...)
+			parentRelations = append(parentRelations, rp...)
+			hasUnresolvable = hasUnresolvable || ru
+		}
+
+	case *entities.HierarchicalRule:
+		// Resolve the target entity type from the relation definition
+		entity := schema.GetEntity(entityType)
+		if entity == nil {
+			hasUnresolvable = true
+			return
+		}
+		relation := entity.GetRelation(r.Relation)
+		if relation == nil {
+			hasUnresolvable = true
+			return
+		}
+
+		targetType := extractBaseType(relation.TargetType)
+
+		// Cycle detection key
+		key := targetType + "." + r.Permission
+		if visited[key] {
+			// Self-referential cycle (e.g., folder.view = parent.view where parent is folder)
+			// The closure table handles transitive ancestry, so emit as parentRelation
+			parentRelations = append(parentRelations, r.Relation+"."+r.Permission)
+			return
+		}
+		visited[key] = true
+
+		// Look up the permission on the target entity type
+		targetPermission := schema.GetPermission(targetType, r.Permission)
+		if targetPermission != nil {
+			// Recursively expand the target permission
+			childRels, childParentRels, childUnresolvable := extractRelationsFromRuleWithContext(
+				schema, targetType, targetPermission.Rule, visited)
+
+			// Direct relations on the target become parent relations for us
+			for _, rel := range childRels {
+				parentRelations = append(parentRelations, r.Relation+"."+rel)
+			}
+
+			// Multi-hop parent relations (target has its own hierarchical rules)
+			// These require multi-level closure traversal which our SQL supports
+			// since closure table stores transitive ancestors
+			for _, pr := range childParentRels {
+				// pr is like "parent.owner" on the target entity
+				// We can't directly use multi-hop in a single closure query,
+				// so fall back for nested hierarchies beyond one level
+				_ = pr
+				hasUnresolvable = true
+			}
+
+			hasUnresolvable = hasUnresolvable || childUnresolvable
+		} else {
+			// Not a permission, check if it's a relation on the target entity
+			targetEntity := schema.GetEntity(targetType)
+			if targetEntity != nil && targetEntity.GetRelation(r.Permission) != nil {
+				parentRelations = append(parentRelations, r.Relation+"."+r.Permission)
+			} else {
+				hasUnresolvable = true
+			}
+		}
+
+	case *entities.ABACRule:
+		hasUnresolvable = true
+	case *entities.RuleCallRule:
+		hasUnresolvable = true
+	case *entities.HierarchicalRuleCallRule:
+		hasUnresolvable = true
 	}
 
-	return subjectIDs[startIdx:endIdx], nil
+	return
 }
 
 // validateLookupEntityRequest validates the lookup entity request
@@ -382,31 +551,4 @@ func (l *Lookup) validateLookupSubjectRequest(req *LookupSubjectRequest) error {
 	return nil
 }
 
-// extractRelationsFromRule recursively extracts relation names from a permission rule.
-// Returns direct relations, hierarchical relations, and whether ABAC/RuleCall rules are present.
-func extractRelationsFromRule(rule entities.PermissionRule) (directRels []string, hierarchicalRels []string, hasABAC bool) {
-	switch r := rule.(type) {
-	case *entities.RelationRule:
-		directRels = append(directRels, r.Relation)
-	case *entities.LogicalRule:
-		ld, lh, la := extractRelationsFromRule(r.Left)
-		directRels = append(directRels, ld...)
-		hierarchicalRels = append(hierarchicalRels, lh...)
-		hasABAC = hasABAC || la
-		if r.Right != nil {
-			rd, rh, ra := extractRelationsFromRule(r.Right)
-			directRels = append(directRels, rd...)
-			hierarchicalRels = append(hierarchicalRels, rh...)
-			hasABAC = hasABAC || ra
-		}
-	case *entities.HierarchicalRule:
-		hierarchicalRels = append(hierarchicalRels, r.Relation)
-	case *entities.ABACRule:
-		hasABAC = true
-	case *entities.RuleCallRule:
-		hasABAC = true
-	case *entities.HierarchicalRuleCallRule:
-		hasABAC = true
-	}
-	return
-}
+// extractBaseType is defined in evaluator.go - reused via package scope.

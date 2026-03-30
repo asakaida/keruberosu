@@ -66,4 +66,28 @@ type RelationRepository interface {
 
 	// RebuildClosure rebuilds the closure table for a tenant from scratch
 	RebuildClosure(ctx context.Context, tenantID string) error
+
+	// GetSortedEntityIDs returns sorted unique entity IDs with cursor-based pagination
+	GetSortedEntityIDs(ctx context.Context, tenantID string,
+		entityType string, cursor string, limit int) ([]string, error)
+
+	// GetSortedSubjectIDs returns sorted unique subject IDs with cursor-based pagination
+	GetSortedSubjectIDs(ctx context.Context, tenantID string,
+		subjectType string, cursor string, limit int) ([]string, error)
+
+	// LookupAccessibleEntitiesComplex finds entity IDs that a subject can access
+	// via direct relations, computed usersets, or hierarchical relations using closure table.
+	// parentRelations format: "relation.targetRelation" (e.g., "parent.owner")
+	LookupAccessibleEntitiesComplex(ctx context.Context, tenantID string,
+		entityType string, relations []string, parentRelations []string,
+		subjectType string, subjectID string,
+		maxDepth int, cursor string, limit int) ([]string, error)
+
+	// LookupAccessibleSubjectsComplex finds subject IDs that can access an entity
+	// via direct relations, computed usersets, or hierarchical relations using closure table.
+	// parentRelations format: "relation.targetRelation" (e.g., "parent.owner")
+	LookupAccessibleSubjectsComplex(ctx context.Context, tenantID string,
+		entityType string, entityID string, relations []string, parentRelations []string,
+		subjectType string,
+		maxDepth int, cursor string, limit int) ([]string, error)
 }

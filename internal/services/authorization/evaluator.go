@@ -265,11 +265,12 @@ func (e *Evaluator) evaluateHierarchical(
 		return false, fmt.Errorf("relation %s not found in entity %s", rule.Relation, req.EntityType)
 	}
 
-	// Optimization: For same-type hierarchies where the permission is a direct relation,
-	// use CTE-based hierarchical search for O(1) lookup
+	// Optimization: For same-type hierarchies where the permission being checked
+	// is the SAME relation as the traversal (e.g., permission view = parent.parent),
+	// use CTE-based hierarchical search. This only works when rule.Permission == rule.Relation
+	// on the same entity type, AND there are no contextual tuples to consider.
 	targetType := extractBaseType(relation.TargetType)
-	parentEntity := schema.GetEntity(targetType)
-	if targetType == req.EntityType && parentEntity != nil && parentEntity.GetRelation(rule.Permission) != nil {
+	if targetType == req.EntityType && rule.Permission == rule.Relation && len(req.ContextualTuples) == 0 {
 		found, err := e.relationRepo.FindHierarchicalWithSubject(
 			ctx, req.TenantID, req.EntityType, req.EntityID,
 			rule.Relation, req.SubjectType, req.SubjectID, MaxDepth)

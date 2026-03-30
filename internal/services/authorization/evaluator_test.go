@@ -2,6 +2,7 @@ package authorization
 
 import (
 	"context"
+	"sort"
 	"testing"
 
 	"github.com/asakaida/keruberosu/internal/entities"
@@ -130,6 +131,72 @@ func (m *mockRelationRepository) FindHierarchicalWithSubject(ctx context.Context
 
 func (m *mockRelationRepository) RebuildClosure(ctx context.Context, tenantID string) error {
 	return nil
+}
+
+func (m *mockRelationRepository) GetSortedEntityIDs(ctx context.Context, tenantID string, entityType string, cursor string, limit int) ([]string, error) {
+	seen := make(map[string]bool)
+	var ids []string
+	for _, t := range m.tuples {
+		if t.EntityType == entityType && !seen[t.EntityID] {
+			seen[t.EntityID] = true
+			ids = append(ids, t.EntityID)
+		}
+	}
+	sort.Strings(ids)
+
+	// Apply cursor
+	if cursor != "" {
+		filtered := ids[:0]
+		for _, id := range ids {
+			if id > cursor {
+				filtered = append(filtered, id)
+			}
+		}
+		ids = filtered
+	}
+
+	// Apply limit
+	if limit > 0 && len(ids) > limit {
+		ids = ids[:limit]
+	}
+	return ids, nil
+}
+
+func (m *mockRelationRepository) GetSortedSubjectIDs(ctx context.Context, tenantID string, subjectType string, cursor string, limit int) ([]string, error) {
+	seen := make(map[string]bool)
+	var ids []string
+	for _, t := range m.tuples {
+		if t.SubjectType == subjectType && !seen[t.SubjectID] {
+			seen[t.SubjectID] = true
+			ids = append(ids, t.SubjectID)
+		}
+	}
+	sort.Strings(ids)
+
+	// Apply cursor
+	if cursor != "" {
+		filtered := ids[:0]
+		for _, id := range ids {
+			if id > cursor {
+				filtered = append(filtered, id)
+			}
+		}
+		ids = filtered
+	}
+
+	// Apply limit
+	if limit > 0 && len(ids) > limit {
+		ids = ids[:limit]
+	}
+	return ids, nil
+}
+
+func (m *mockRelationRepository) LookupAccessibleEntitiesComplex(ctx context.Context, tenantID string, entityType string, relations []string, parentRelations []string, subjectType string, subjectID string, maxDepth int, cursor string, limit int) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockRelationRepository) LookupAccessibleSubjectsComplex(ctx context.Context, tenantID string, entityType string, entityID string, relations []string, parentRelations []string, subjectType string, maxDepth int, cursor string, limit int) ([]string, error) {
+	return nil, nil
 }
 
 type mockAttributeRepository struct {
