@@ -9,7 +9,7 @@
 3. [認可エンジンの処理フロー](#認可エンジンの処理フロー)
 4. [キャッシュシステム](#キャッシュシステム)
 5. [メトリクスシステム](#メトリクスシステム)
-6. [DSL パーサーの処理フロー](#dslパーサーの処理フロー)
+6. [DSL パーサーの処理フロー](#dsl-パーサーの処理フロー)
 7. [データフロー](#データフロー)
 
 ---
@@ -25,7 +25,11 @@ graph TB
     subgraph "Keruberosu Server"
         GRPCServer[gRPC Server<br/>:50051]
         MetricsServer[Prometheus Metrics<br/>:9090]
-        Interceptor[Metrics Interceptor]
+
+        subgraph "Interceptors (ChainUnaryInterceptor)"
+            MetricsInterceptor[Metrics Interceptor]
+            ValidationInterceptor[Validation Interceptor<br/>protovalidate]
+        end
 
         subgraph "Handlers (3 Services)"
             PermissionHandler[Permission Handler]
@@ -53,15 +57,19 @@ graph TB
     end
 
     subgraph "データストア"
-        DB[(PostgreSQL)]
+        subgraph "DBCluster"
+            Primary[(PostgreSQL Primary)]
+            Replica[(PostgreSQL Read Replica)]
+        end
         ClosureTable[(Entity Closure<br/>Table)]
     end
 
     Client -->|gRPC| GRPCServer
-    GRPCServer --> Interceptor
-    Interceptor --> PermissionHandler
-    Interceptor --> DataHandler
-    Interceptor --> SchemaHandler
+    GRPCServer --> MetricsInterceptor
+    MetricsInterceptor --> ValidationInterceptor
+    ValidationInterceptor --> PermissionHandler
+    ValidationInterceptor --> DataHandler
+    ValidationInterceptor --> SchemaHandler
 
     PermissionHandler --> AuthzEngine
     PermissionHandler --> SchemaService
@@ -77,14 +85,16 @@ graph TB
     AuthzEngine --> RelationRepo
     AuthzEngine --> AttributeRepo
 
-    Interceptor --> MetricsCollector
+    MetricsInterceptor --> MetricsCollector
     MetricsCollector --> MetricsServer
 
-    SchemaRepo --> DB
-    RelationRepo --> DB
+    SchemaRepo --> Primary
+    RelationRepo --> Primary
+    RelationRepo --> Replica
     RelationRepo --> ClosureTable
-    AttributeRepo --> DB
-    ClosureTable --> DB
+    AttributeRepo --> Primary
+    AttributeRepo --> Replica
+    ClosureTable --> Primary
 ```
 
 ---
@@ -99,6 +109,7 @@ graph TB
         PermHandler[Permission Handler]
         DataHandler[Data Handler]
         SchemaHandler[Schema Handler]
+        ValidationInt[Validation Interceptor<br/>protovalidate]
     end
 
     subgraph "Application Layer"
@@ -112,6 +123,9 @@ graph TB
     end
 
     subgraph "Infrastructure Layer"
+        DBCluster[DBCluster<br/>Primary + Read Replica]
+        ResilientDB[ResilientDB<br/>自動リトライ]
+        WriteTracker[WriteTracker<br/>書き込み追跡]
         SchemaRepo[Schema Repository<br/>PostgreSQL]
         RelationRepo[Relation Repository<br/>PostgreSQL + Closure Table]
         AttributeRepo[Attribute Repository<br/>PostgreSQL]
@@ -138,22 +152,28 @@ graph TB
     AuthzEngine --> Entities
 
     Parser --> Entities
+
+    DBCluster --> ResilientDB
+    DBCluster --> WriteTracker
+    SchemaRepo --> DBCluster
+    RelationRepo --> DBCluster
+    AttributeRepo --> DBCluster
 ```
 
-**各層の責務:**
+各層の責務:
 
-| Layer              | 責務                           | 主要コンポーネント                 |
-| ------------------ | ------------------------------ | ---------------------------------- |
-| **Presentation**   | gRPC リクエスト/レスポンス処理 | `handlers/`                        |
-| **Application**    | ビジネスロジック、パース処理   | `services/`                        |
-| **Domain**         | ドメインモデル定義             | `entities/`                        |
-| **Infrastructure** | データアクセス、キャッシュ、メトリクス | `repositories/`, `infrastructure/`, `pkg/cache/` |
+| Layer | 責務 | 主要コンポーネント |
+| --- | --- | --- |
+| Presentation | gRPC リクエスト/レスポンス処理、バリデーション | `handlers/`, `infrastructure/validation/` |
+| Application | ビジネスロジック、パース処理 | `services/` |
+| Domain | ドメインモデル定義 | `entities/` |
+| Infrastructure | データアクセス、DBクラスター、キャッシュ、メトリクス | `repositories/`, `infrastructure/`, `pkg/cache/` |
 
 ---
 
 ## 認可エンジンの処理フロー
 
-### Check API の処理フロー（キャッシュ対応）
+### Check API の処理フロー (キャッシュ対応)
 
 ```mermaid
 sequenceDiagram
@@ -187,19 +207,25 @@ sequenceDiagram
         Checker->>Evaluator: EvaluateRule(req, rule)
 
         alt RelationRule
-            Evaluator->>RelationRepo: Read(entity, relation, subject)
-            RelationRepo-->>Evaluator: Tuples
+            Evaluator->>RelationRepo: Exists(entity, relation, subject)
+            RelationRepo-->>Evaluator: bool
             Evaluator-->>Checker: true/false
         else HierarchicalRule
             Evaluator->>ClosureTable: LookupAncestors(entity)
             ClosureTable-->>Evaluator: Ancestor entities (O(1))
             Evaluator->>Evaluator: Check permission on ancestors
             Evaluator-->>Checker: true/false
-        else ABACRule
-            Evaluator->>AttributeRepo: Read(entity attributes)
-            AttributeRepo-->>Evaluator: Entity attributes
-            Evaluator->>AttributeRepo: Read(subject attributes)
-            AttributeRepo-->>Evaluator: Subject attributes
+        else HierarchicalRuleCallRule
+            Evaluator->>RelationRepo: Read(entity, relation)
+            RelationRepo-->>Evaluator: Parent entities
+            Evaluator->>AttributeRepo: Read(current + parent attributes)
+            AttributeRepo-->>Evaluator: Attributes
+            Evaluator->>CELEngine: EvaluateWithParams(body, parentAttrs, paramMap)
+            CELEngine-->>Evaluator: Result
+            Evaluator-->>Checker: true/false
+        else ABACRule / RuleCallRule
+            Evaluator->>AttributeRepo: Read(entity + subject attributes)
+            AttributeRepo-->>Evaluator: Attributes
             Evaluator->>CELEngine: Evaluate(expression, env)
             CELEngine-->>Evaluator: Result
             Evaluator-->>Checker: true/false
@@ -223,12 +249,16 @@ graph LR
 
     Rule --> RelationRule[Relation Rule<br/>例: owner]
     Rule --> HierarchicalRule[Hierarchical Rule<br/>例: parent.view<br/>Closure Table使用]
+    Rule --> HierarchicalRuleCallRule[HierarchicalRuleCall<br/>例: parent.check_conf - authority<br/>親エンティティでルール実行]
     Rule --> ABACRule[ABAC Rule<br/>例: rule subject.level >= 3]
+    Rule --> RuleCallRule[RuleCall Rule<br/>例: is_public - resource]
     Rule --> LogicalRule[Logical Rule<br/>or/and/not]
 
     LogicalRule --> RelationRule
     LogicalRule --> HierarchicalRule
+    LogicalRule --> HierarchicalRuleCallRule
     LogicalRule --> ABACRule
+    LogicalRule --> RuleCallRule
     LogicalRule --> LogicalRule
 ```
 
@@ -246,7 +276,7 @@ graph TB
     end
 
     subgraph "Cache Key Structure"
-        Key["{tenantID}:{entityType}:{entityID}:<br/>{permission}:{subjectType}:{subjectID}:<br/>{snapToken}"]
+        Key[tenantID:entityType:entityID:<br/>permission:subjectType:subjectID:<br/>snapToken]
     end
 
     subgraph "MVCC / Snapshot Management"
@@ -274,7 +304,7 @@ graph TB
 ### キャッシュ設定
 
 | 設定項目 | デフォルト値 | 説明 |
-|---------|------------|------|
+| --- | --- | --- |
 | `CACHE_ENABLED` | `true` | キャッシュ有効化 |
 | `CACHE_MAX_MEMORY_BYTES` | `104857600` (100MB) | 最大メモリ使用量 |
 | `CACHE_TTL_MINUTES` | `5` | キャッシュ TTL |
@@ -327,7 +357,7 @@ graph TB
 ### 利用可能なメトリクス
 
 | メトリクス名 | タイプ | 説明 |
-|-------------|--------|------|
+| --- | --- | --- |
 | `keruberosu_grpc_requests_total` | Counter | gRPC リクエスト総数 |
 | `keruberosu_grpc_request_duration_seconds` | Histogram | リクエスト処理時間 |
 | `keruberosu_grpc_errors_total` | Counter | エラー総数 |
@@ -445,7 +475,7 @@ sequenceDiagram
     participant Parser
     participant Validator
     participant SchemaRepo
-    participant DB
+    participant DBCluster
 
     Client->>Handler: Schema.Write(schema_dsl)
     Handler->>SchemaService: WriteSchema(dsl)
@@ -458,39 +488,41 @@ sequenceDiagram
     SchemaService->>SchemaService: Convert AST to Entity
     SchemaService->>SchemaRepo: Create(tenantID, dsl)
     SchemaRepo->>SchemaRepo: Generate ULID version
-    SchemaRepo->>DB: INSERT schema with version
-    DB-->>SchemaRepo: Success
+    SchemaRepo->>DBCluster: INSERT schema with version (Primary)
+    DBCluster-->>SchemaRepo: Success
     SchemaRepo-->>SchemaService: version ID (ULID)
     SchemaService-->>Handler: version ID
-    Handler-->>Client: SchemaWriteResponse{schema_version}
+    Handler-->>Client: SchemaWriteResponse(schema_version)
 ```
 
-### 2. リレーション書き込みフロー（Closure Table 更新含む）
+### 2. リレーション書き込みフロー (Closure Table 更新含む)
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant Handler
     participant RelationRepo
+    participant WriteTracker
     participant TokenGen
-    participant DB
+    participant DBCluster
     participant ClosureTable
 
     Client->>Handler: Data.Write(tuples)
     Handler->>RelationRepo: BatchWrite(tenantID, tuples)
-    RelationRepo->>DB: BEGIN TRANSACTION
+    RelationRepo->>DBCluster: BEGIN TRANSACTION (Primary)
     loop For each tuple
-        RelationRepo->>DB: INSERT relation tuple
+        RelationRepo->>DBCluster: INSERT relation tuple
         RelationRepo->>ClosureTable: updateClosureOnAdd()
-        ClosureTable->>DB: INSERT closure entries
+        ClosureTable->>DBCluster: INSERT closure entries
     end
-    RelationRepo->>DB: COMMIT
-    DB-->>RelationRepo: Success
+    RelationRepo->>DBCluster: COMMIT
+    DBCluster-->>RelationRepo: Success
+    RelationRepo->>WriteTracker: RecordWrite(tenantID)
     Handler->>TokenGen: GenerateWriteToken()
-    TokenGen->>DB: SELECT txid_current()
-    DB-->>TokenGen: Transaction ID
+    TokenGen->>DBCluster: SELECT txid_current()
+    DBCluster-->>TokenGen: Transaction ID
     TokenGen-->>Handler: SnapToken
-    Handler-->>Client: DataWriteResponse{snap_token}
+    Handler-->>Client: DataWriteResponse(snap_token)
 ```
 
 ### 3. Check API の権限判定フロー
@@ -505,7 +537,9 @@ graph TB
 
     CheckRelation[関係性チェック]
     CheckHierarchical[階層的チェック<br/>Closure Table使用]
+    CheckHierarchicalRuleCall[階層的ルール呼び出し<br/>parent.rule_name - args]
     CheckABAC[ABAC評価]
+    CheckRuleCall[RuleCall評価]
     CheckLogical[論理演算]
 
     UpdateCache[キャッシュ更新]
@@ -520,7 +554,9 @@ graph TB
 
     EvaluateRule --> CheckRelation
     EvaluateRule --> CheckHierarchical
+    EvaluateRule --> CheckHierarchicalRuleCall
     EvaluateRule --> CheckABAC
+    EvaluateRule --> CheckRuleCall
     EvaluateRule --> CheckLogical
 
     CheckRelation -->|タプル存在| UpdateCache
@@ -529,13 +565,54 @@ graph TB
     CheckHierarchical -->|祖先が許可| UpdateCache
     CheckHierarchical -->|祖先が拒否| Denied
 
+    CheckHierarchicalRuleCall -->|CEL true| UpdateCache
+    CheckHierarchicalRuleCall -->|CEL false| Denied
+
     CheckABAC -->|CEL true| UpdateCache
     CheckABAC -->|CEL false| Denied
+
+    CheckRuleCall -->|CEL true| UpdateCache
+    CheckRuleCall -->|CEL false| Denied
 
     CheckLogical -->|true| UpdateCache
     CheckLogical -->|false| Denied
 
     UpdateCache --> Success
+```
+
+### 4. Lookup API の 3 パスロジック
+
+```mermaid
+graph TB
+    Start[Lookup Request]
+    ExtractRules[extractRelationsFromRuleWithContext<br/>ルールからリレーション抽出]
+    CheckResolvable{ABAC/RuleCall<br/>を含む?}
+
+    OptimizedPath[最適化パス<br/>LookupAccessibleEntitiesComplex<br/>LookupAccessibleSubjectsComplex]
+    CheckContextual{Contextual<br/>Tuples あり?}
+    VerifyWithCheck[Check で結果を検証]
+    DirectReturn[結果を直接返却]
+
+    FallbackPath[フォールバックパス<br/>GetSortedEntityIDs + Check ループ]
+    BatchLoop[バッチ処理<br/>候補取得 → Check → 蓄積]
+
+    Result[LookupResponse]
+
+    Start --> ExtractRules
+    ExtractRules --> CheckResolvable
+
+    CheckResolvable -->|No: 純粋 ReBAC| OptimizedPath
+    CheckResolvable -->|Yes: ABAC/RuleCall 含む| FallbackPath
+
+    OptimizedPath --> CheckContextual
+    CheckContextual -->|Yes| VerifyWithCheck
+    CheckContextual -->|No| DirectReturn
+
+    FallbackPath --> BatchLoop
+    BatchLoop --> Result
+
+    VerifyWithCheck --> Result
+    DirectReturn --> Result
 ```
 
 ---
@@ -580,8 +657,8 @@ classDiagram
     }
 
     class Lookup {
-        +LookupEntity(req) []string
-        +LookupSubject(req) []string
+        +LookupEntity(req) LookupEntityResponse
+        +LookupSubject(req) LookupSubjectResponse
         -checker CheckerInterface
         -schemaService SchemaServiceInterface
         -relationRepo RelationRepository
@@ -595,6 +672,57 @@ classDiagram
     Checker --> Evaluator
     Lookup --> CheckerInterface
     Evaluator --> CELEngine
+```
+
+### Database Layer
+
+```mermaid
+classDiagram
+    class DBTX {
+        <<interface>>
+        +ExecContext(ctx, query, args) Result
+        +QueryContext(ctx, query, args) Rows
+        +QueryRowContext(ctx, query, args) Row
+        +BeginTx(ctx, opts) Tx
+        +PingContext(ctx) error
+    }
+
+    class DBCluster {
+        +Writer() DBTX
+        +ReaderFor(tenantID) DBTX
+        +RecordWrite(tenantID)
+        +PrimaryDB() sql.DB
+        +Start()
+        +Stop()
+        +Close() error
+        +HealthCheck() error
+        -primary ResilientDB
+        -replica ResilientDB
+        -writeTracker WriteTracker
+    }
+
+    class ResilientDB {
+        +ExecContext(ctx, query, args) Result
+        +QueryContext(ctx, query, args) Rows
+        +QueryRowContext(ctx, query, args) Row
+        +BeginTx(ctx, opts) Tx
+        +DB() sql.DB
+        -db sql.DB
+        -config RetryConfig
+    }
+
+    class WriteTracker {
+        +RecordWrite(tenantID)
+        +HasRecentWrite(tenantID) bool
+        +Start()
+        +Stop()
+        -writes map
+        -window Duration
+    }
+
+    DBTX <|.. ResilientDB
+    DBCluster --> ResilientDB
+    DBCluster --> WriteTracker
 ```
 
 ### Repository Layer
@@ -616,6 +744,13 @@ classDiagram
         +Delete(tenantID, tuple)
         +BatchWrite(tenantID, tuples)
         +BatchDelete(tenantID, tuples)
+        +Exists(tenantID, tuple) bool
+        +FindByEntityWithRelation() []Tuple
+        +LookupAccessibleEntitiesComplex() []string
+        +LookupAccessibleSubjectsComplex() []string
+        +GetSortedEntityIDs() []string
+        +GetSortedSubjectIDs() []string
+        +RebuildClosure(tenantID) error
     }
 
     class AttributeRepository {
@@ -629,7 +764,7 @@ classDiagram
         +GetLatestVersion()
         +GetByVersion()
         +ListVersions()
-        -db *sql.DB
+        -cluster DBCluster
     }
 
     class PostgresRelationRepository {
@@ -638,15 +773,20 @@ classDiagram
         +Delete()
         +BatchWrite()
         +BatchDelete()
+        +Exists()
+        +LookupAccessibleEntitiesComplex()
+        +LookupAccessibleSubjectsComplex()
+        +RebuildClosure()
         +updateClosureOnAdd()
         +updateClosureOnDelete()
-        -db *sql.DB
+        -cluster DBCluster
+        -closureExcluded map
     }
 
     class PostgresAttributeRepository {
         +Write()
         +Read()
-        -db *sql.DB
+        -cluster DBCluster
     }
 
     SchemaRepository <|.. PostgresSchemaRepository
@@ -661,13 +801,15 @@ classDiagram
 ```mermaid
 graph TB
     subgraph "フロントエンド層"
-        gRPC[gRPC / Protocol Buffers]
+        gRPC[gRPC v1.79.3 / Protocol Buffers]
+        ProtoValidate[protovalidate v1.1.3<br/>リクエストバリデーション]
         Prometheus[Prometheus Metrics<br/>HTTP :9090]
     end
 
     subgraph "アプリケーション層"
-        Go[Go 1.21+]
-        CEL[Google CEL<br/>Common Expression Language]
+        Go[Go 1.25.1]
+        CEL[Google CEL v0.27.0<br/>Common Expression Language]
+        Cobra[Cobra CLI<br/>server / admin]
     end
 
     subgraph "キャッシュ層"
@@ -676,9 +818,14 @@ graph TB
     end
 
     subgraph "データ層"
-        PostgreSQL[(PostgreSQL 18+)]
+        subgraph "DBCluster"
+            PostgreSQL[(PostgreSQL 18+ Primary)]
+            ReadReplica[(PostgreSQL 18+ Replica)]
+        end
+        ResilientDB[ResilientDB<br/>自動リトライ]
+        WriteTracker[WriteTracker<br/>書き込み追跡]
         JSONB[JSONB<br/>属性データ]
-        ClosureTable[Entity Closure Table<br/>O(1) 祖先検索]
+        ClosureTable[Entity Closure Table<br/>O-1 祖先検索]
     end
 
     subgraph "開発ツール"
@@ -687,28 +834,50 @@ graph TB
     end
 
     gRPC --> Go
+    ProtoValidate --> Go
     Prometheus --> Go
     Go --> CEL
+    Go --> Cobra
     Go --> MemoryCache
     MemoryCache --> SnapshotToken
-    Go --> PostgreSQL
+    Go --> ResilientDB
+    ResilientDB --> PostgreSQL
+    ResilientDB --> ReadReplica
     PostgreSQL --> JSONB
     PostgreSQL --> ClosureTable
+    WriteTracker --> ReadReplica
     Docker --> PostgreSQL
     Migrate --> PostgreSQL
 ```
+
+### 主要依存ライブラリ
+
+| ライブラリ | バージョン | 用途 |
+| --- | --- | --- |
+| Go | 1.25.1 | ランタイム |
+| google.golang.org/grpc | v1.79.3 | gRPC サーバー/クライアント |
+| github.com/google/cel-go | v0.27.0 | CEL 式評価 (ABAC) |
+| buf.build/go/protovalidate | v1.1.3 | gRPC リクエストバリデーション |
+| github.com/lib/pq | v1.10.9 | PostgreSQL ドライバー |
+| github.com/spf13/cobra | v1.10.1 | CLI フレームワーク |
+| github.com/spf13/viper | v1.21.0 | 設定管理 |
+| github.com/golang-migrate/migrate/v4 | v4.19.0 | DBマイグレーション |
+| github.com/prometheus/client_golang | v1.18.0 | Prometheus メトリクス |
 
 ---
 
 ## プロジェクト構造
 
-```
+```text
 keruberosu/
 ├── cmd/
-│   ├── server/          # メインサーバー
+│   ├── server/          # メインサーバー (gRPC + Prometheus)
+│   ├── admin/           # 管理CLI (rebuild-closures)
 │   └── migrate/         # マイグレーションコマンド
 ├── internal/
 │   ├── entities/        # ドメインエンティティ
+│   │   ├── rule.go      # PermissionRule (6種: Relation/Logical/Hierarchical/ABAC/RuleCall/HierarchicalRuleCall)
+│   │   └── ...
 │   ├── handlers/        # gRPC ハンドラー (3サービス)
 │   │   ├── permission_handler.go
 │   │   ├── data_handler.go
@@ -716,13 +885,22 @@ keruberosu/
 │   ├── repositories/    # データアクセス層
 │   │   └── postgres/    # PostgreSQL実装 + Closure Table
 │   ├── services/        # ビジネスロジック
-│   │   ├── authorization/  # 認可エンジン
-│   │   └── parser/      # DSLパーサー
+│   │   ├── authorization/  # 認可エンジン (checker/evaluator/expander/lookup/cel)
+│   │   └── parser/      # DSLパーサー (lexer/parser/validator/converter/generator)
 │   └── infrastructure/  # インフラ層
-│       ├── cache/       # キャッシュ管理
-│       ├── config/      # 設定管理
-│       ├── database/    # DB接続・マイグレーション
-│       └── metrics/     # Prometheusメトリクス
+│       ├── cache/       # キャッシュ管理 (Snapshot Manager)
+│       ├── config/      # 設定管理 (Viper)
+│       ├── database/    # DB接続・クラスター管理
+│       │   ├── postgres.go       # 基本接続
+│       │   ├── dbtx.go           # DBTX インターフェース
+│       │   ├── cluster.go        # DBCluster (Primary + Read Replica)
+│       │   ├── resilient_db.go   # ResilientDB (自動リトライ)
+│       │   ├── write_tracker.go  # WriteTracker (書き込み追跡)
+│       │   ├── testing.go        # テスト用ヘルパー
+│       │   └── migrations/       # マイグレーションファイル
+│       ├── metrics/     # Prometheusメトリクス
+│       └── validation/  # gRPCバリデーション
+│           └── interceptor.go    # protovalidate interceptor
 ├── pkg/
 │   └── cache/
 │       └── memorycache/ # LRU+TTLキャッシュ実装
@@ -731,7 +909,10 @@ keruberosu/
 │       ├── common.proto
 │       ├── permission.proto
 │       ├── data.proto
-│       └── schema.proto
+│       ├── schema.proto
+│       └── audit.proto
+├── test/                # E2Eテスト・テストデータ
+├── scripts/             # ユーティリティスクリプト
 ├── docs/                # ドキュメント
 ├── examples/            # サンプルコード
 └── docker-compose.yml   # 開発環境
@@ -739,10 +920,23 @@ keruberosu/
 
 ---
 
+## 設定項目
+
+### データベース設定
+
+| 設定項目 | 説明 |
+| --- | --- |
+| `DB_HOST` / `DB_PORT` | Primary DB ホスト/ポート |
+| `DB_REPLICA_HOST` / `DB_REPLICA_PORT` | Read Replica ホスト/ポート (省略時は Primary のみ) |
+| `DB_WRITE_TRACKER_WINDOW_SECONDS` | 書き込み後に Primary から読む時間 (デフォルト: 1秒) |
+| `CLOSURE_EXCLUDED_RELATIONS` | Closure Table 更新から除外するリレーション名 (カンマ区切り) |
+
+---
+
 ## 参考資料
 
-- [DESIGN.md](DESIGN.md): 設計ドキュメント（詳細な設計決定）
-- [PRD.md](PRD.md): 要求仕様書（API 仕様）
+- [DESIGN.md](DESIGN.md): 設計ドキュメント (詳細な設計決定)
+- [PRD.md](PRD.md): 要求仕様書 (API 仕様)
 - [DEVELOPMENT.md](DEVELOPMENT.md): 開発進捗管理
 - [PERMIFY_COMPATIBILITY_STATUS.md](PERMIFY_COMPATIBILITY_STATUS.md): Permify互換性ステータス
 - [examples/](../examples/): 実装サンプルコード

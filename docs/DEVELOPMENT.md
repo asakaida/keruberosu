@@ -399,7 +399,7 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 ### 7. gRPC ハンドラー層
 
-**設計方針**：Google Zanzibar / Permify の業界標準に従い、単一の AuthorizationService として実装。認可は分離できない 1 つのドメインであり、Schema、Data、Authorization の全操作を 1 つのハンドラーで提供。
+設計方針：Google Zanzibar / Permify の業界標準に従い、単一の AuthorizationService として実装。認可は分離できない 1 つのドメインであり、Schema、Data、Authorization の全操作を 1 つのハンドラーで提供。
 
 #### 7.1 統合 Authorization Handler
 
@@ -439,7 +439,7 @@ Phase: Phase 1 - キャッシュレス完全実装
     - [x] schema_handler_test.go と data_handler_test.go を統合
     - [x] 全テストを authorization_handler_test.go に集約
 
-**備考**：既存の schema_handler.go と data_handler.go のロジックを authorization_handler.go に統合。コード重複を避けるため、既存のヘルパー関数を再利用。テストファイルも統合し、単一のテストファイルで全機能をカバー。
+備考：既存の schema_handler.go と data_handler.go のロジックを authorization_handler.go に統合。コード重複を避けるため、既存のヘルパー関数を再利用。テストファイルも統合し、単一のテストファイルで全機能をカバー。
 
 ---
 
@@ -501,7 +501,7 @@ Phase: Phase 1 - キャッシュレス完全実装
 - [x] Google Docs 風の ReBAC 例（14/14 テストパス）
 - [x] ABAC 例（全演算子）（19/19 テストパス）
 - [x] Permify 互換性検証（12/12 テストパス）
-- [x] **全 E2E テスト成功（45/45 テストケース、100% パス率）**
+- [x] 全 E2E テスト成功（45/45 テストケース、100% パス率）
 
 ---
 
@@ -533,7 +533,7 @@ Phase: Phase 1 - キャッシュレス完全実装
 
 ### 現在のステータス
 
-**全体進捗: 100% (Phase 1 完了 ✅)**
+全体進捗: 100% (Phase 1 完了)
 
 Phase 1 の全ての機能・テスト・ドキュメントが完成しました。
 
@@ -972,7 +972,7 @@ Milestone 4: 認可エンジン実装完了（Week 4）
 
 Phase 2 では、wevox-cerberus を参考にパフォーマンス最適化機能を実装。
 
-**完了日**: 2024/12/30
+完了日: 2024/12/30
 
 ### 11. キャッシュシステム
 
@@ -1067,6 +1067,132 @@ Phase 2 では、wevox-cerberus を参考にパフォーマンス最適化機能
 - [x] Metrics Interceptor テスト作成
 - [x] E2E テスト更新
 - [x] README 更新（環境変数、メトリクス説明追加）
+
+---
+
+## Phase 3 タスクリスト（機能拡充）
+
+Phase 3 では、DB基盤強化、リポジトリ改修、HierarchicalRuleCallRule追加、Evaluator/Lookup最適化、gRPCバリデーション、Admin CLIを実装。
+
+完了日: 2026/03/30
+
+### 16. DB基盤強化
+
+#### 16.1 DBTX interface
+
+- [x] DBTX interface定義（db操作の抽象化）
+
+#### 16.2 WriteTracker
+
+- [x] テナント単位の書き込み追跡
+
+#### 16.3 ResilientDB
+
+- [x] トランジェントエラー自動リトライ
+
+#### 16.4 DBCluster
+
+- [x] Primary + Read Replica対応
+
+#### 16.5 Config拡張
+
+- [x] Replica設定
+- [x] Tracker設定
+- [x] Closure設定
+
+### 17. リポジトリ改修
+
+#### 17.1 全リポジトリDBCluster化
+
+- [x] 全リポジトリをDBCluster対応に改修
+
+#### 17.2 RelationRepository拡張
+
+- [x] Exists
+- [x] FindByEntityWithRelation
+- [x] LookupAccessibleEntitiesComplex
+- [x] その他拡張メソッド
+
+#### 17.3 Closure除外設定
+
+- [x] Closure除外設定の追加
+
+### 18. HierarchicalRuleCallRule追加
+
+#### 18.1 エンティティ
+
+- [x] HierarchicalRuleCallRule エンティティ定義
+
+#### 18.2 AST
+
+- [x] HierarchicalRuleCallRule AST定義
+
+#### 18.3 パーサー
+
+- [x] parent.rule(args) 構文のパース対応
+
+#### 18.4 コンバーター
+
+- [x] HierarchicalRuleCallRule の変換処理
+
+#### 18.5 バリデーター
+
+- [x] HierarchicalRuleCallRule のバリデーション
+
+#### 18.6 ジェネレーター
+
+- [x] HierarchicalRuleCallRule のDSL生成
+
+#### 18.7 CELEngine.EvaluateWithParams
+
+- [x] パラメータ付きCEL式評価
+
+#### 18.8 Evaluator対応
+
+- [x] HierarchicalRuleCallRule の評価処理
+
+### 19. Evaluator/Lookup最適化
+
+#### 19.1 evaluateRelation最適化
+
+- [x] Read() から Exists() + FindByEntityWithRelation() に変更
+
+#### 19.2 evaluateHierarchical最適化
+
+- [x] CTE最適化
+
+#### 19.3 Lookup最適化
+
+- [x] extractRelationsFromRuleWithContext
+- [x] LookupAccessibleEntitiesComplex
+- [x] LookupAccessibleSubjectsComplex
+
+#### 19.4 フォールバック
+
+- [x] バッチ式GetSortedEntityIDs + Check
+
+### 20. gRPCバリデーション
+
+#### 20.1 protovalidate
+
+- [x] protovalidate導入
+- [x] UnaryServerInterceptor
+
+#### 20.2 Proto制約追加
+
+- [x] 各Protoメッセージに制約追加
+
+### 21. Admin CLI
+
+#### 21.1 rebuild-closuresコマンド
+
+- [x] rebuild-closuresコマンド実装
+
+### 22. 依存更新
+
+- [x] gRPC v1.71.0 から v1.79.3 へ更新
+- [x] CEL v0.26.1 から v0.27.0 へ更新
+- [x] protovalidate v1.1.3 追加
 
 ---
 
