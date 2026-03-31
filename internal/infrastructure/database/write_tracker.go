@@ -8,10 +8,11 @@ import (
 // WriteTracker tracks recent writes per tenant to prevent stale reads
 // from read replicas during replication lag.
 type WriteTracker struct {
-	mu     sync.RWMutex
-	writes map[string]time.Time
-	window time.Duration
-	stopCh chan struct{}
+	mu       sync.RWMutex
+	writes   map[string]time.Time
+	window   time.Duration
+	stopCh   chan struct{}
+	stopOnce sync.Once
 }
 
 // NewWriteTracker creates a new WriteTracker.
@@ -53,7 +54,9 @@ func (w *WriteTracker) Start() {
 
 // Stop stops the background cleanup goroutine.
 func (w *WriteTracker) Stop() {
-	close(w.stopCh)
+	w.stopOnce.Do(func() {
+		close(w.stopCh)
+	})
 }
 
 func (w *WriteTracker) cleanupLoop() {

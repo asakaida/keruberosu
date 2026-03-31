@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/asakaida/keruberosu/internal/infrastructure/config"
 )
@@ -84,6 +85,7 @@ func (c *DBCluster) Stop() {
 
 // Close closes all database connections and stops background processes.
 func (c *DBCluster) Close() error {
+	c.writeTracker.Stop()
 	var firstErr error
 	if err := c.primary.DB().Close(); err != nil {
 		firstErr = fmt.Errorf("failed to close primary: %w", err)
@@ -118,8 +120,8 @@ func newPostgresDB(connStr string) (*sql.DB, error) {
 
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(5 * 60 * 1e9) // 5 minutes
-	db.SetConnMaxIdleTime(1 * 60 * 1e9) // 1 minute
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(1 * time.Minute)
 
 	if err := db.Ping(); err != nil {
 		db.Close()

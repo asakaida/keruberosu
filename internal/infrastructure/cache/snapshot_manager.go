@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -137,7 +138,7 @@ func (m *SnapshotManager) startListener() error {
 	reportProblem := func(ev pq.ListenerEventType, err error) {
 		if err != nil {
 			// Log error but don't fail - we have TTL fallback
-			fmt.Printf("SnapshotManager listener error: %v\n", err)
+			log.Printf("SnapshotManager listener error: %v", err)
 		}
 	}
 
@@ -156,28 +157,35 @@ func (m *SnapshotManager) startListener() error {
 
 // handleNotifications processes incoming NOTIFY events.
 func (m *SnapshotManager) handleNotifications() {
+	pingTimer := time.NewTimer(90 * time.Second)
+	defer pingTimer.Stop()
 	for {
 		select {
 		case <-m.stopCh:
 			return
 		case notification := <-m.listener.Notify:
 			if notification == nil {
-				// Connection lost, listener will reconnect automatically
 				continue
 			}
-
-			// Update token from notification payload
 			m.mu.Lock()
 			m.currentToken = notification.Extra
 			m.lastRefresh = time.Now()
 			m.mu.Unlock()
-		case <-time.After(90 * time.Second):
-			// Periodic ping to keep connection alive
+			// Reset ping timer on activity
+			if !pingTimer.Stop() {
+				select {
+				case <-pingTimer.C:
+				default:
+				}
+			}
+			pingTimer.Reset(90 * time.Second)
+		case <-pingTimer.C:
 			go func() {
 				if err := m.listener.Ping(); err != nil {
-					fmt.Printf("SnapshotManager ping error: %v\n", err)
+					log.Printf("SnapshotManager ping error: %v", err)
 				}
 			}()
+			pingTimer.Reset(90 * time.Second)
 		}
 	}
 }
@@ -200,10 +208,12 @@ func (m *SnapshotManager) GetCurrentSnapshotForRead(ctx context.Context) (*postg
 		return nil, err
 	}
 
-	// Parse token as int64, default to 0 if empty or invalid
+	// Parse token as int64, default to 0 if empty
 	var tokenValue int64
 	if token != "" {
-		fmt.Sscanf(token, "%d", &tokenValue)
+		if _, err := fmt.Sscanf(token, "%d", &tokenValue); err != nil {
+			return nil, fmt.Errorf("invalid snapshot token format: %w", err)
+		}
 	}
 
 	return &postgres.SnapshotToken{

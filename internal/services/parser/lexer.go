@@ -2,7 +2,6 @@ package parser
 
 import (
 	"fmt"
-	"unicode"
 )
 
 // TokenType represents the type of a token
@@ -356,12 +355,13 @@ func (l *Lexer) NextToken() (*Token, error) {
 	return tok, nil
 }
 
-// isLetter checks if a character is a letter
+// isLetter checks if a character is a letter or underscore.
+// Only supports ASCII identifiers (Permify DSL standard).
 func isLetter(ch byte) bool {
-	return unicode.IsLetter(rune(ch))
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_'
 }
 
 // isDigit checks if a character is a digit
 func isDigit(ch byte) bool {
-	return unicode.IsDigit(rune(ch))
+	return ch >= '0' && ch <= '9'
 }

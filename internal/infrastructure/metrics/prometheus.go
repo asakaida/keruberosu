@@ -19,44 +19,54 @@ type PrometheusExporter struct {
 	grpcRequests     *prometheus.CounterVec
 	grpcDuration     *prometheus.HistogramVec
 	grpcErrors       *prometheus.CounterVec
+
+	// Last known cumulative values for delta calculation
+	lastHits      uint64
+	lastMisses    uint64
+	lastEvictions uint64
 }
 
 // NewPrometheusExporter creates a new Prometheus exporter.
-func NewPrometheusExporter(collector *Collector) *PrometheusExporter {
+// registry allows passing a custom prometheus.Registerer (pass nil for default).
+func NewPrometheusExporter(collector *Collector, registry prometheus.Registerer) *PrometheusExporter {
+	if registry == nil {
+		registry = prometheus.DefaultRegisterer
+	}
+	factory := promauto.With(registry)
 	return &PrometheusExporter{
 		collector: collector,
-		cacheHits: promauto.NewCounter(prometheus.CounterOpts{
+		cacheHits: factory.NewCounter(prometheus.CounterOpts{
 			Name: "keruberosu_check_cache_hits_total",
 			Help: "Total number of cache hits for permission checks",
 		}),
-		cacheMisses: promauto.NewCounter(prometheus.CounterOpts{
+		cacheMisses: factory.NewCounter(prometheus.CounterOpts{
 			Name: "keruberosu_check_cache_misses_total",
 			Help: "Total number of cache misses for permission checks",
 		}),
-		cacheHitRate: promauto.NewGauge(prometheus.GaugeOpts{
+		cacheHitRate: factory.NewGauge(prometheus.GaugeOpts{
 			Name: "keruberosu_check_cache_hit_rate",
 			Help: "Current cache hit rate (0.0 to 1.0)",
 		}),
-		cacheKeys: promauto.NewGauge(prometheus.GaugeOpts{
+		cacheKeys: factory.NewGauge(prometheus.GaugeOpts{
 			Name: "keruberosu_check_cache_keys_current",
 			Help: "Current number of keys in the check cache",
 		}),
-		cacheMemoryBytes: promauto.NewGauge(prometheus.GaugeOpts{
+		cacheMemoryBytes: factory.NewGauge(prometheus.GaugeOpts{
 			Name: "keruberosu_check_cache_memory_bytes",
 			Help: "Current memory usage of the check cache in bytes",
 		}),
-		cacheEvictions: promauto.NewCounter(prometheus.CounterOpts{
+		cacheEvictions: factory.NewCounter(prometheus.CounterOpts{
 			Name: "keruberosu_check_cache_evictions_total",
 			Help: "Total number of cache evictions due to memory limits",
 		}),
-		grpcRequests: promauto.NewCounterVec(
+		grpcRequests: factory.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "keruberosu_grpc_requests_total",
 				Help: "Total number of gRPC requests",
 			},
 			[]string{"method"},
 		),
-		grpcDuration: promauto.NewHistogramVec(
+		grpcDuration: factory.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Name:    "keruberosu_grpc_request_duration_seconds",
 				Help:    "Duration of gRPC requests in seconds",
@@ -64,7 +74,7 @@ func NewPrometheusExporter(collector *Collector) *PrometheusExporter {
 			},
 			[]string{"method"},
 		),
-		grpcErrors: promauto.NewCounterVec(
+		grpcErrors: factory.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "keruberosu_grpc_errors_total",
 				Help: "Total number of gRPC errors",
@@ -82,6 +92,23 @@ func (e *PrometheusExporter) Update() {
 	e.cacheHitRate.Set(cacheMetrics.HitRate)
 	e.cacheKeys.Set(float64(cacheMetrics.KeysCurrent))
 	e.cacheMemoryBytes.Set(float64(cacheMetrics.MemoryBytes))
+
+	// Update counters from collector's cumulative values (delta calculation)
+	currentHits := cacheMetrics.Hits
+	if currentHits > e.lastHits {
+		e.cacheHits.Add(float64(currentHits - e.lastHits))
+		e.lastHits = currentHits
+	}
+	currentMisses := cacheMetrics.Misses
+	if currentMisses > e.lastMisses {
+		e.cacheMisses.Add(float64(currentMisses - e.lastMisses))
+		e.lastMisses = currentMisses
+	}
+	currentEvictions := cacheMetrics.Evictions
+	if currentEvictions > e.lastEvictions {
+		e.cacheEvictions.Add(float64(currentEvictions - e.lastEvictions))
+		e.lastEvictions = currentEvictions
+	}
 }
 
 // RecordRequest records a request in Prometheus.

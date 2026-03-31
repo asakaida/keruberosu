@@ -101,7 +101,7 @@ func (e *Expander) expandRule(
 	depth int,
 ) (*ExpandNode, error) {
 	// Check depth limit
-	if depth > MaxDepth {
+	if depth >= MaxDepth {
 		return nil, fmt.Errorf("maximum recursion depth exceeded (depth: %d)", depth)
 	}
 
@@ -123,6 +123,14 @@ func (e *Expander) expandRule(
 			Entity:   entityRef,
 			Relation: "abac",
 			Subject:  fmt.Sprintf("expression:%s", r.Expression),
+		}, nil
+
+	case *entities.RuleCallRule:
+		return &ExpandNode{
+			Type:     "leaf",
+			Entity:   entityRef,
+			Relation: fmt.Sprintf("rule:%s(%v)", r.RuleName, r.Arguments),
+			Subject:  "rule_call",
 		}, nil
 
 	case *entities.HierarchicalRuleCallRule:

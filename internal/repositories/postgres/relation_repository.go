@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -62,7 +63,7 @@ func (r *PostgresRelationRepository) Write(ctx context.Context, tenantID string,
 
 	if !r.closureExcludedRelations[tuple.Relation] {
 		if err := r.updateClosureOnAdd(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID); err != nil {
-			// Log warning but don't fail - closure table is an optimization
+			log.Printf("WARNING: closure table update failed: %v", err)
 		}
 	}
 
@@ -106,7 +107,7 @@ func (r *PostgresRelationRepository) Delete(ctx context.Context, tenantID string
 
 	if !r.closureExcludedRelations[tuple.Relation] {
 		if err := r.updateClosureOnDelete(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID); err != nil {
-			// Log warning but don't fail
+			log.Printf("WARNING: closure table update failed: %v", err)
 		}
 	}
 
@@ -427,7 +428,7 @@ func (r *PostgresRelationRepository) BatchWrite(ctx context.Context, tenantID st
 
 		if !r.closureExcludedRelations[tuple.Relation] {
 			if err := r.updateClosureOnAdd(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID); err != nil {
-				// Log warning but don't fail
+				log.Printf("WARNING: closure table update failed: %v", err)
 			}
 		}
 	}
@@ -483,7 +484,7 @@ func (r *PostgresRelationRepository) BatchDelete(ctx context.Context, tenantID s
 
 		if !r.closureExcludedRelations[tuple.Relation] {
 			if err := r.updateClosureOnDelete(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID); err != nil {
-				// Log warning but don't fail
+				log.Printf("WARNING: closure table update failed: %v", err)
 			}
 		}
 	}
@@ -496,58 +497,106 @@ func (r *PostgresRelationRepository) BatchDelete(ctx context.Context, tenantID s
 	return nil
 }
 
-// DeleteByFilter removes relation tuples matching the filter
+// DeleteByFilter removes relation tuples matching the filter and updates the closure table.
 func (r *PostgresRelationRepository) DeleteByFilter(ctx context.Context, tenantID string, filter *repositories.RelationFilter) error {
 	if filter == nil {
 		return fmt.Errorf("filter is required")
 	}
 
-	query := `DELETE FROM relations WHERE tenant_id = $1`
+	tx, err := r.cluster.PrimaryDB().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// First, SELECT tuples that will be deleted (for closure table cleanup)
+	selectQuery := `SELECT entity_type, entity_id, relation, subject_type, subject_id FROM relations WHERE tenant_id = $1`
+	deleteQuery := `DELETE FROM relations WHERE tenant_id = $1`
 	args := []interface{}{tenantID}
 	argIdx := 2
 
+	var conditions string
 	if filter.EntityType != "" {
-		query += fmt.Sprintf(" AND entity_type = $%d", argIdx)
+		conditions += fmt.Sprintf(" AND entity_type = $%d", argIdx)
 		args = append(args, filter.EntityType)
 		argIdx++
 	}
 	if len(filter.EntityIDs) > 0 {
-		query += fmt.Sprintf(" AND entity_id = ANY($%d)", argIdx)
+		conditions += fmt.Sprintf(" AND entity_id = ANY($%d)", argIdx)
 		args = append(args, pq.Array(filter.EntityIDs))
 		argIdx++
 	} else if filter.EntityID != "" {
-		query += fmt.Sprintf(" AND entity_id = $%d", argIdx)
+		conditions += fmt.Sprintf(" AND entity_id = $%d", argIdx)
 		args = append(args, filter.EntityID)
 		argIdx++
 	}
 	if filter.Relation != "" {
-		query += fmt.Sprintf(" AND relation = $%d", argIdx)
+		conditions += fmt.Sprintf(" AND relation = $%d", argIdx)
 		args = append(args, filter.Relation)
 		argIdx++
 	}
 	if filter.SubjectType != "" {
-		query += fmt.Sprintf(" AND subject_type = $%d", argIdx)
+		conditions += fmt.Sprintf(" AND subject_type = $%d", argIdx)
 		args = append(args, filter.SubjectType)
 		argIdx++
 	}
 	if len(filter.SubjectIDs) > 0 {
-		query += fmt.Sprintf(" AND subject_id = ANY($%d)", argIdx)
+		conditions += fmt.Sprintf(" AND subject_id = ANY($%d)", argIdx)
 		args = append(args, pq.Array(filter.SubjectIDs))
 		argIdx++
 	} else if filter.SubjectID != "" {
-		query += fmt.Sprintf(" AND subject_id = $%d", argIdx)
+		conditions += fmt.Sprintf(" AND subject_id = $%d", argIdx)
 		args = append(args, filter.SubjectID)
 		argIdx++
 	}
 	if filter.SubjectRelation != "" {
-		query += fmt.Sprintf(" AND subject_relation = $%d", argIdx)
+		conditions += fmt.Sprintf(" AND subject_relation = $%d", argIdx)
 		args = append(args, filter.SubjectRelation)
 		argIdx++
 	}
 
-	_, err := r.cluster.Writer().ExecContext(ctx, query, args...)
+	selectQuery += conditions
+	deleteQuery += conditions
+
+	// Query tuples to be deleted for closure cleanup
+	rows, err := tx.QueryContext(ctx, selectQuery, args...)
+	if err != nil {
+		return fmt.Errorf("failed to query relations for closure cleanup: %w", err)
+	}
+	type tupleRef struct {
+		entityType, entityID, relation, subjectType, subjectID string
+	}
+	var refs []tupleRef
+	for rows.Next() {
+		var ref tupleRef
+		if err := rows.Scan(&ref.entityType, &ref.entityID, &ref.relation, &ref.subjectType, &ref.subjectID); err != nil {
+			rows.Close()
+			return fmt.Errorf("failed to scan tuple for closure cleanup: %w", err)
+		}
+		refs = append(refs, ref)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating tuples for closure cleanup: %w", err)
+	}
+
+	// Delete the tuples
+	_, err = tx.ExecContext(ctx, deleteQuery, args...)
 	if err != nil {
 		return fmt.Errorf("failed to delete relations by filter: %w", err)
+	}
+
+	// Update closure table for each deleted tuple
+	for _, ref := range refs {
+		if !r.closureExcludedRelations[ref.relation] {
+			if err := r.updateClosureOnDelete(ctx, tx, tenantID, ref.entityType, ref.entityID, ref.subjectType, ref.subjectID); err != nil {
+				log.Printf("WARNING: closure table update failed during filter delete: %v", err)
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	r.cluster.RecordWrite(tenantID)
@@ -561,7 +610,7 @@ func (r *PostgresRelationRepository) ReadByFilter(ctx context.Context, tenantID 
 	}
 
 	query := `
-		SELECT entity_type, entity_id, relation, subject_type, subject_id, subject_relation, created_at
+		SELECT id, entity_type, entity_id, relation, subject_type, subject_id, subject_relation, created_at
 		FROM relations
 		WHERE tenant_id = $1
 	`
@@ -610,12 +659,12 @@ func (r *PostgresRelationRepository) ReadByFilter(ctx context.Context, tenantID 
 	}
 
 	if pageToken != "" {
-		query += fmt.Sprintf(" AND created_at > $%d", argIdx)
+		query += fmt.Sprintf(" AND id > $%d", argIdx)
 		args = append(args, pageToken)
 		argIdx++
 	}
 
-	query += " ORDER BY created_at"
+	query += " ORDER BY id"
 	query += fmt.Sprintf(" LIMIT $%d", argIdx)
 	args = append(args, pageSize+1)
 
@@ -626,15 +675,41 @@ func (r *PostgresRelationRepository) ReadByFilter(ctx context.Context, tenantID 
 	}
 	defer rows.Close()
 
-	tuples, err := scanTuples(rows)
-	if err != nil {
-		return nil, "", err
+	type tupleWithID struct {
+		id    int64
+		tuple *entities.RelationTuple
+	}
+	var results []tupleWithID
+	for rows.Next() {
+		var tw tupleWithID
+		tw.tuple = &entities.RelationTuple{}
+		var subjectRelation sql.NullString
+		err := rows.Scan(
+			&tw.id,
+			&tw.tuple.EntityType, &tw.tuple.EntityID, &tw.tuple.Relation,
+			&tw.tuple.SubjectType, &tw.tuple.SubjectID, &subjectRelation, &tw.tuple.CreatedAt,
+		)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to scan relation: %w", err)
+		}
+		if subjectRelation.Valid {
+			tw.tuple.SubjectRelation = subjectRelation.String
+		}
+		results = append(results, tw)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("error iterating relations: %w", err)
 	}
 
 	var nextToken string
-	if len(tuples) > pageSize {
-		nextToken = tuples[pageSize-1].CreatedAt.Format(time.RFC3339Nano)
-		tuples = tuples[:pageSize]
+	if len(results) > pageSize {
+		nextToken = fmt.Sprintf("%d", results[pageSize-1].id)
+		results = results[:pageSize]
+	}
+
+	tuples := make([]*entities.RelationTuple, len(results))
+	for i, r := range results {
+		tuples[i] = r.tuple
 	}
 
 	return tuples, nextToken, nil
@@ -826,17 +901,26 @@ func (r *PostgresRelationRepository) updateClosureOnAdd(
 }
 
 // updateClosureOnDelete updates the entity_closure table when a relation is deleted.
+// Deletes the direct entry and all transitive entries that were reachable only through this edge.
 func (r *PostgresRelationRepository) updateClosureOnDelete(
 	ctx context.Context,
 	tx *sql.Tx,
 	tenantID, entityType, entityID, subjectType, subjectID string,
 ) error {
+	// Delete the direct entry AND all transitive entries where an ancestor of the
+	// subject was connected to this entity through the subject.
 	query := `
 		DELETE FROM entity_closure
 		WHERE tenant_id = $1
 		  AND descendant_type = $2 AND descendant_id = $3
-		  AND ancestor_type = $4 AND ancestor_id = $5
-		  AND depth = 1
+		  AND (
+		    (ancestor_type = $4 AND ancestor_id = $5)
+		    OR
+		    (ancestor_type, ancestor_id) IN (
+		      SELECT ancestor_type, ancestor_id FROM entity_closure
+		      WHERE tenant_id = $1 AND descendant_type = $4 AND descendant_id = $5
+		    )
+		  )
 	`
 	_, err := tx.ExecContext(ctx, query, tenantID, entityType, entityID, subjectType, subjectID)
 	if err != nil {

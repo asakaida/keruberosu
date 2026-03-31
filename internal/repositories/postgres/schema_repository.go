@@ -25,14 +25,18 @@ func NewPostgresSchemaRepository(cluster *database.DBCluster) repositories.Schem
 
 // Create creates a new schema version for a tenant and returns the version ID
 func (r *PostgresSchemaRepository) Create(ctx context.Context, tenantID string, schemaDSL string) (string, error) {
-	version := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String()
+	id, err := ulid.New(ulid.Timestamp(time.Now()), rand.Reader)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate version ID: %w", err)
+	}
+	version := id.String()
 
 	query := `
 		INSERT INTO schemas (tenant_id, version, schema_dsl, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5)
 	`
 	now := time.Now()
-	_, err := r.cluster.Writer().ExecContext(ctx, query, tenantID, version, schemaDSL, now, now)
+	_, err = r.cluster.Writer().ExecContext(ctx, query, tenantID, version, schemaDSL, now, now)
 	if err != nil {
 		return "", fmt.Errorf("failed to create schema: %w", err)
 	}

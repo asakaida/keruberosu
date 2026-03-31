@@ -289,8 +289,7 @@ func (h *PermissionHandler) SubjectPermission(ctx context.Context, req *pb.Permi
 
 		checkResp, err := h.checker.Check(ctx, checkReq)
 		if err != nil {
-			results[permission.Name] = pb.CheckResult_CHECK_RESULT_DENIED
-			continue
+			return nil, status.Errorf(codes.Internal, "failed to check permission %s: %v", permission.Name, err)
 		}
 
 		if checkResp.Allowed {

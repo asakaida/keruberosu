@@ -152,7 +152,7 @@ func runServer(cmd *cobra.Command, args []string) {
 	if checkCache != nil {
 		metricsCollector.SetCache(checkCache)
 	}
-	prometheusExporter := metrics.NewPrometheusExporter(metricsCollector)
+	prometheusExporter := metrics.NewPrometheusExporter(metricsCollector, nil)
 
 	// Initialize token generator for Data API snapshot tokens
 	tokenGenerator := postgres.NewSnapshotManager(cluster.PrimaryDB())

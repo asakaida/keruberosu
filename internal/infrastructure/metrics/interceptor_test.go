@@ -18,7 +18,7 @@ var (
 
 func getTestExporter(collector *Collector) *PrometheusExporter {
 	testExporterOnce.Do(func() {
-		testExporter = NewPrometheusExporter(collector)
+		testExporter = NewPrometheusExporter(collector, nil)
 	})
 	return testExporter
 }

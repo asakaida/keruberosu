@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"strings"
 
 	"github.com/asakaida/keruberosu/internal/entities"
 	"github.com/asakaida/keruberosu/internal/repositories"
@@ -36,7 +37,10 @@ func (h *SchemaHandler) Write(ctx context.Context, req *pb.SchemaWriteRequest) (
 
 	version, err := h.schemaService.WriteSchema(ctx, tenantID, req.Schema)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "failed to write schema: %v", err)
+		if strings.Contains(err.Error(), "parse") || strings.Contains(err.Error(), "validation") {
+			return nil, status.Errorf(codes.InvalidArgument, "failed to write schema: %v", err)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to write schema: %v", err)
 	}
 
 	return &pb.SchemaWriteResponse{
@@ -60,6 +64,10 @@ func (h *SchemaHandler) Read(ctx context.Context, req *pb.SchemaReadRequest) (*p
 
 	if err != nil {
 		return nil, handleReadSchemaError(err)
+	}
+
+	if schema == nil {
+		return nil, status.Error(codes.NotFound, "schema not found")
 	}
 
 	updatedAt := ""

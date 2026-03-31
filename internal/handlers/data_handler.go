@@ -103,6 +103,14 @@ func (h *DataHandler) Delete(ctx context.Context, req *pb.DataDeleteRequest) (*p
 		return nil, status.Error(codes.InvalidArgument, "filter is required")
 	}
 
+	// Validate filter has at least one criterion to prevent accidental mass deletion
+	hasEntityFilter := req.Filter.Entity != nil && (req.Filter.Entity.GetType() != "" || len(req.Filter.Entity.GetIds()) > 0)
+	hasSubjectFilter := req.Filter.Subject != nil && (req.Filter.Subject.GetType() != "" || len(req.Filter.Subject.GetIds()) > 0)
+	hasRelationFilter := req.Filter.GetRelation() != ""
+	if !hasEntityFilter && !hasSubjectFilter && !hasRelationFilter {
+		return nil, status.Error(codes.InvalidArgument, "filter must specify at least one of: entity, subject, or relation")
+	}
+
 	tenantID := "default"
 
 	// Convert filter to repository format

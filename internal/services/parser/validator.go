@@ -240,7 +240,15 @@ func (v *Validator) validatePermissionRule(entity *EntityAST, permissionName str
 		var targetEntity *EntityAST
 		for _, relation := range entity.Relations {
 			if relation.Name == r.Relation {
-				targetEntity = v.entities[relation.TargetType]
+				// Handle multi-type relations (e.g., "user team#member") - use first type
+				types := strings.Fields(relation.TargetType)
+				if len(types) > 0 {
+					typeName := types[0]
+					if idx := strings.Index(typeName, "#"); idx >= 0 {
+						typeName = typeName[:idx]
+					}
+					targetEntity = v.entities[typeName]
+				}
 				break
 			}
 		}
@@ -355,13 +363,17 @@ func (v *Validator) checkCircularPermission(entity *EntityAST, permissionName st
 				currentPath := fmt.Sprintf("%s.%s", entity.Name, perm.Name)
 
 				if visited[currentPath] {
-					cycle := append(path, currentPath)
+					cycle := make([]string, len(path)+1)
+					copy(cycle, path)
+					cycle[len(path)] = currentPath
 					v.errors = append(v.errors, fmt.Sprintf("circular permission reference: %s", strings.Join(cycle, " -> ")))
 					return
 				}
 
 				visited[currentPath] = true
-				newPath := append(path, currentPath)
+				newPath := make([]string, len(path)+1)
+				copy(newPath, path)
+				newPath[len(path)] = currentPath
 				v.checkCircularPermission(entity, perm.Name, perm.Rule, visited, newPath)
 				delete(visited, currentPath)
 				return

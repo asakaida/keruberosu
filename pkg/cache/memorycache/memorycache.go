@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/asakaida/keruberosu/pkg/cache"
@@ -38,10 +39,10 @@ type Cache struct {
 }
 
 type cacheMetrics struct {
-	hits        uint64
-	misses      uint64
-	keysAdded   uint64
-	keysEvicted uint64
+	hits        atomic.Uint64
+	misses      atomic.Uint64
+	keysAdded   atomic.Uint64
+	keysEvicted atomic.Uint64
 }
 
 // Config holds configuration for the memory cache.
@@ -60,10 +61,15 @@ type Config struct {
 
 // New creates a new memory cache with the given configuration.
 func New(config *Config) (*Cache, error) {
+	maxSize := config.MaxSizeBytes
+	if maxSize <= 0 {
+		maxSize = 100 * 1024 * 1024 // default 100MB
+	}
+
 	c := &Cache{
 		items:     make(map[string]*list.Element),
 		evictList: list.New(),
-		maxSize:   config.MaxSizeBytes,
+		maxSize:   maxSize,
 		ttl:       config.DefaultTTL,
 	}
 
@@ -76,14 +82,13 @@ func New(config *Config) (*Cache, error) {
 
 // Get retrieves a value from cache.
 func (c *Cache) Get(ctx context.Context, key string) (interface{}, bool) {
-	c.mu.RLock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	elem, exists := c.items[key]
 	if !exists {
-		c.mu.RUnlock()
 		if c.metrics != nil {
-			c.mu.Lock()
-			c.metrics.misses++
-			c.mu.Unlock()
+			c.metrics.misses.Add(1)
 		}
 		return nil, false
 	}
@@ -92,29 +97,20 @@ func (c *Cache) Get(ctx context.Context, key string) (interface{}, bool) {
 
 	// Check if expired
 	if time.Now().After(ent.expiresAt) {
-		c.mu.RUnlock()
-		// Need write lock to remove
-		c.mu.Lock()
 		c.removeElement(elem)
 		if c.metrics != nil {
-			c.metrics.misses++
+			c.metrics.misses.Add(1)
 		}
-		c.mu.Unlock()
 		return nil, false
 	}
 
-	// Cache hit
-	value := ent.value
-	c.mu.RUnlock()
-
-	// Update metrics
+	// Cache hit - move to front for LRU
+	c.evictList.MoveToFront(elem)
 	if c.metrics != nil {
-		c.mu.Lock()
-		c.metrics.hits++
-		c.mu.Unlock()
+		c.metrics.hits.Add(1)
 	}
 
-	return value, true
+	return ent.value, true
 }
 
 // Set stores a value in cache with the specified TTL.
@@ -151,7 +147,7 @@ func (c *Cache) Set(ctx context.Context, key string, value interface{}, ttl time
 	c.currentSize += size
 
 	if c.metrics != nil {
-		c.metrics.keysAdded++
+		c.metrics.keysAdded.Add(1)
 	}
 
 	// Evict LRU items if over capacity
@@ -160,7 +156,7 @@ func (c *Cache) Set(ctx context.Context, key string, value interface{}, ttl time
 		if oldest != nil {
 			c.removeElement(oldest)
 			if c.metrics != nil {
-				c.metrics.keysEvicted++
+				c.metrics.keysEvicted.Add(1)
 			}
 		}
 	}
@@ -203,14 +199,11 @@ func (c *Cache) Metrics() *cache.Metrics {
 		return &cache.Metrics{}
 	}
 
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	return &cache.Metrics{
-		Hits:        c.metrics.hits,
-		Misses:      c.metrics.misses,
-		KeysAdded:   c.metrics.keysAdded,
-		KeysEvicted: c.metrics.keysEvicted,
+		Hits:        c.metrics.hits.Load(),
+		Misses:      c.metrics.misses.Load(),
+		KeysAdded:   c.metrics.keysAdded.Load(),
+		KeysEvicted: c.metrics.keysEvicted.Load(),
 	}
 }
 
@@ -220,13 +213,10 @@ func (c *Cache) ResetMetrics() {
 		return
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.metrics.hits = 0
-	c.metrics.misses = 0
-	c.metrics.keysAdded = 0
-	c.metrics.keysEvicted = 0
+	c.metrics.hits.Store(0)
+	c.metrics.misses.Store(0)
+	c.metrics.keysAdded.Store(0)
+	c.metrics.keysEvicted.Store(0)
 }
 
 // removeElement removes an element from cache (must be called with lock held).

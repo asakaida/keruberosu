@@ -1,16 +1,24 @@
 package authorization
 
 import (
+	"context"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 )
 
+const celEvalTimeout = 5 * time.Second
+
 // CELEngine provides CEL expression evaluation for ABAC rules
 type CELEngine struct {
 	env *cel.Env
+
+	// Compiled program cache
+	programCache sync.Map // expression string -> *cel.Program
 }
 
 // EvaluationContext contains the context data for CEL evaluation
@@ -38,51 +46,78 @@ func NewCELEngine() (*CELEngine, error) {
 	}, nil
 }
 
-// Evaluate evaluates a CEL expression with the given context
-func (e *CELEngine) Evaluate(expression string, context *EvaluationContext) (bool, error) {
-	// Parse the expression
-	ast, issues := e.env.Compile(expression)
-	if issues != nil && issues.Err() != nil {
-		return false, fmt.Errorf("failed to compile CEL expression: %w", issues.Err())
+// getOrCompileProgram returns a cached CEL program or compiles and caches a new one.
+func (e *CELEngine) getOrCompileProgram(expression string) (cel.Program, error) {
+	if cached, ok := e.programCache.Load(expression); ok {
+		return cached.(cel.Program), nil
 	}
 
-	// Create the program
+	ast, issues := e.env.Compile(expression)
+	if issues != nil && issues.Err() != nil {
+		return nil, fmt.Errorf("failed to compile CEL expression: %w", issues.Err())
+	}
+
 	program, err := e.env.Program(ast)
 	if err != nil {
-		return false, fmt.Errorf("failed to create CEL program: %w", err)
+		return nil, fmt.Errorf("failed to create CEL program: %w", err)
+	}
+
+	e.programCache.Store(expression, program)
+	return program, nil
+}
+
+// Evaluate evaluates a CEL expression with the given context
+func (e *CELEngine) Evaluate(expression string, evalCtx *EvaluationContext) (bool, error) {
+	program, err := e.getOrCompileProgram(expression)
+	if err != nil {
+		return false, err
 	}
 
 	// Prepare the evaluation variables
 	vars := make(map[string]interface{})
-	if context.Resource != nil {
-		vars["resource"] = context.Resource
+	if evalCtx.Resource != nil {
+		vars["resource"] = evalCtx.Resource
 	} else {
 		vars["resource"] = map[string]interface{}{}
 	}
-	if context.Subject != nil {
-		vars["subject"] = context.Subject
+	if evalCtx.Subject != nil {
+		vars["subject"] = evalCtx.Subject
 	} else {
 		vars["subject"] = map[string]interface{}{}
 	}
-	if context.Request != nil {
-		vars["request"] = context.Request
+	if evalCtx.Request != nil {
+		vars["request"] = evalCtx.Request
 	} else {
 		vars["request"] = map[string]interface{}{}
 	}
 
-	// Evaluate the expression
-	result, _, err := program.Eval(vars)
-	if err != nil {
+	// Evaluate with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), celEvalTimeout)
+	defer cancel()
+
+	resultCh := make(chan ref.Val, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		result, _, err := program.Eval(vars)
+		if err != nil {
+			errCh <- err
+		} else {
+			resultCh <- result
+		}
+	}()
+
+	select {
+	case result := <-resultCh:
+		boolResult, ok := result.Value().(bool)
+		if !ok {
+			return false, fmt.Errorf("CEL expression did not evaluate to boolean, got: %T", result.Value())
+		}
+		return boolResult, nil
+	case err := <-errCh:
 		return false, fmt.Errorf("failed to evaluate CEL expression: %w", err)
+	case <-ctx.Done():
+		return false, fmt.Errorf("CEL expression evaluation timed out after %v", celEvalTimeout)
 	}
-
-	// Convert result to boolean
-	boolResult, ok := result.Value().(bool)
-	if !ok {
-		return false, fmt.Errorf("CEL expression did not evaluate to boolean, got: %T", result.Value())
-	}
-
-	return boolResult, nil
 }
 
 // ValidateExpression validates a CEL expression without evaluating it

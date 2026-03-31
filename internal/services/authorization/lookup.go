@@ -230,7 +230,9 @@ func (l *Lookup) lookupEntityFallback(ctx context.Context, req *LookupEntityRequ
 			break
 		}
 
+		var lastCandidate string
 		for _, entityID := range candidates {
+			lastCandidate = entityID
 			resp, err := l.checker.Check(ctx, &CheckRequest{
 				TenantID:         req.TenantID,
 				SchemaVersion:    req.SchemaVersion,
@@ -252,11 +254,12 @@ func (l *Lookup) lookupEntityFallback(ctx context.Context, req *LookupEntityRequ
 			}
 		}
 
+		cursor = lastCandidate
+
 		if len(allowedIDs) >= limit {
 			break
 		}
 
-		cursor = candidates[len(candidates)-1]
 		if len(candidates) < batchSize {
 			break
 		}
@@ -264,7 +267,7 @@ func (l *Lookup) lookupEntityFallback(ctx context.Context, req *LookupEntityRequ
 
 	nextPageToken := ""
 	if len(allowedIDs) >= limit {
-		nextPageToken = allowedIDs[len(allowedIDs)-1]
+		nextPageToken = cursor
 	}
 
 	return &LookupEntityResponse{
@@ -296,7 +299,9 @@ func (l *Lookup) lookupSubjectFallback(ctx context.Context, req *LookupSubjectRe
 			break
 		}
 
+		var lastCandidate string
 		for _, subjectID := range candidates {
+			lastCandidate = subjectID
 			resp, err := l.checker.Check(ctx, &CheckRequest{
 				TenantID:         req.TenantID,
 				SchemaVersion:    req.SchemaVersion,
@@ -318,11 +323,12 @@ func (l *Lookup) lookupSubjectFallback(ctx context.Context, req *LookupSubjectRe
 			}
 		}
 
+		cursor = lastCandidate
+
 		if len(allowedIDs) >= limit {
 			break
 		}
 
-		cursor = candidates[len(candidates)-1]
 		if len(candidates) < batchSize {
 			break
 		}
@@ -330,7 +336,7 @@ func (l *Lookup) lookupSubjectFallback(ctx context.Context, req *LookupSubjectRe
 
 	nextPageToken := ""
 	if len(allowedIDs) >= limit {
-		nextPageToken = allowedIDs[len(allowedIDs)-1]
+		nextPageToken = cursor
 	}
 
 	return &LookupSubjectResponse{
@@ -499,6 +505,9 @@ func extractRelationsFromRuleWithContext(
 				hasUnresolvable = true
 			}
 		}
+
+		// Allow other paths to explore the same node
+		delete(visited, key)
 
 	case *entities.ABACRule:
 		hasUnresolvable = true

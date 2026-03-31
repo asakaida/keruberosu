@@ -73,8 +73,9 @@ func NewCheckerWithCache(
 // generateCacheKey generates a cache key for the check request
 func (c *Checker) generateCacheKey(req *CheckRequest, snapshotToken string) string {
 	// Create a key from the request parameters and snapshot token
-	keyData := fmt.Sprintf("%s:%s:%s:%s:%s:%s:%s",
+	keyData := fmt.Sprintf("%s:%s:%s:%s:%s:%s:%s:%s",
 		req.TenantID,
+		req.SchemaVersion,
 		req.EntityType,
 		req.EntityID,
 		req.Permission,
@@ -103,7 +104,6 @@ func (c *Checker) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 
 	if useCache {
 		// Get current snapshot token for cache key
-		var err error
 		if req.SnapshotToken != "" {
 			snapshotToken = req.SnapshotToken
 		} else {
@@ -126,7 +126,6 @@ func (c *Checker) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 				}
 			}
 		}
-		_ = err // suppress unused variable warning
 	}
 
 	// Get parsed schema
@@ -217,9 +216,7 @@ func (c *Checker) CheckMultiple(ctx context.Context, req *CheckRequest, permissi
 
 		resp, err := c.Check(ctx, checkReq)
 		if err != nil {
-			// If permission not found or other error, mark as false
-			results[permission] = false
-			continue
+			return nil, fmt.Errorf("failed to check permission %s: %w", permission, err)
 		}
 
 		results[permission] = resp.Allowed

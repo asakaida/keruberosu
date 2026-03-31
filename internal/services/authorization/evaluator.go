@@ -3,6 +3,7 @@ package authorization
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/asakaida/keruberosu/internal/entities"
@@ -77,7 +78,7 @@ func (e *Evaluator) EvaluateRule(
 	rule entities.PermissionRule,
 ) (bool, error) {
 	// Check depth limit
-	if req.Depth > MaxDepth {
+	if req.Depth >= MaxDepth {
 		return false, fmt.Errorf("maximum recursion depth exceeded (depth: %d)", req.Depth)
 	}
 
@@ -277,7 +278,7 @@ func (e *Evaluator) evaluateHierarchical(
 		if err == nil {
 			return found, nil
 		}
-		// Fall through to recursive evaluation on error
+		log.Printf("WARNING: hierarchical CTE query failed, falling back to recursive evaluation: %v", err)
 	}
 
 	// Get the parent entity(s) via the relation using specialized query

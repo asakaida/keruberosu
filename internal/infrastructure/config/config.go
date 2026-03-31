@@ -188,6 +188,14 @@ func (c *DatabaseConfig) ReplicaConnectionString() string {
 	)
 }
 
+// SafeConnectionString returns a connection string with the password masked, for logging.
+func (c *DatabaseConfig) SafeConnectionString() string {
+	return fmt.Sprintf(
+		"host=%s port=%d user=%s password=***** dbname=%s sslmode=%s",
+		c.Host, c.Port, c.User, c.Database, c.SSLMode,
+	)
+}
+
 // HasReplica returns true if a read replica is configured.
 func (c *DatabaseConfig) HasReplica() bool {
 	return c.ReplicaHost != ""

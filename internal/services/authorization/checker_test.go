@@ -513,13 +513,8 @@ func TestChecker_CheckMultiple_NonexistentPermission(t *testing.T) {
 	}
 
 	permissions := []string{"view", "nonexistent", "delete"}
-	results, err := checker.CheckMultiple(context.Background(), req, permissions)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Nonexistent permission should return false
-	if results["nonexistent"] != false {
-		t.Error("expected nonexistent permission to return false")
+	_, err := checker.CheckMultiple(context.Background(), req, permissions)
+	if err == nil {
+		t.Fatal("expected error for nonexistent permission, got nil")
 	}
 }
