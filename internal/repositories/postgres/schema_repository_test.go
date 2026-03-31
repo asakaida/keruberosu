@@ -298,7 +298,7 @@ func TestSchemaRepository_ListVersions(t *testing.T) {
 		}
 
 		// 全バージョンを取得
-		versions, err := repo.ListVersions(ctx, tenantID, 10, 0)
+		versions, err := repo.ListVersions(ctx, tenantID, 10, "")
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -339,7 +339,7 @@ func TestSchemaRepository_ListVersions(t *testing.T) {
 		}
 
 		// 最初の2つを取得
-		versions, err := repo.ListVersions(ctx, tenantID, 2, 0)
+		versions, err := repo.ListVersions(ctx, tenantID, 2, "")
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -363,13 +363,13 @@ func TestSchemaRepository_ListVersions(t *testing.T) {
 		}
 
 		// 最初の2つを取得
-		page1, err := repo.ListVersions(ctx, tenantID, 2, 0)
+		page1, err := repo.ListVersions(ctx, tenantID, 2, "")
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		// 次の2つを取得
-		page2, err := repo.ListVersions(ctx, tenantID, 2, 2)
+		// 次の2つを取得（カーソルは前ページの最後のバージョン）
+		page2, err := repo.ListVersions(ctx, tenantID, 2, page1[len(page1)-1].Version)
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
@@ -388,7 +388,7 @@ func TestSchemaRepository_ListVersions(t *testing.T) {
 	t.Run("正常系: バージョンが存在しない場合は空配列", func(t *testing.T) {
 		tenantID := "tenant9"
 
-		versions, err := repo.ListVersions(ctx, tenantID, 10, 0)
+		versions, err := repo.ListVersions(ctx, tenantID, 10, "")
 		if err != nil {
 			t.Fatalf("Expected no error, got: %v", err)
 		}

@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/asakaida/keruberosu/internal/entities"
 )
@@ -35,6 +36,9 @@ type RelationRepository interface {
 	// BatchWrite creates multiple relation tuples in a single transaction
 	BatchWrite(ctx context.Context, tenantID string, tuples []*entities.RelationTuple) error
 
+	// BatchWriteInTx creates multiple relation tuples within an existing transaction
+	BatchWriteInTx(ctx context.Context, tx *sql.Tx, tenantID string, tuples []*entities.RelationTuple) error
+
 	// BatchDelete removes multiple relation tuples in a single transaction
 	BatchDelete(ctx context.Context, tenantID string, tuples []*entities.RelationTuple) error
 
@@ -51,9 +55,10 @@ type RelationRepository interface {
 	ExistsWithSubjectRelation(ctx context.Context, tenantID string,
 		entityType, entityID, relation, subjectType, subjectID, subjectRelation string) (bool, error)
 
-	// FindByEntityWithRelation returns tuples for a specific entity and relation
+	// FindByEntityWithRelation returns tuples for a specific entity and relation.
+	// limit controls the maximum number of tuples returned. 0 means no limit.
 	FindByEntityWithRelation(ctx context.Context, tenantID string,
-		entityType, entityID, relation string) ([]*entities.RelationTuple, error)
+		entityType, entityID, relation string, limit int) ([]*entities.RelationTuple, error)
 
 	// LookupAncestorsViaRelation finds all ancestors via closure table
 	LookupAncestorsViaRelation(ctx context.Context, tenantID string,

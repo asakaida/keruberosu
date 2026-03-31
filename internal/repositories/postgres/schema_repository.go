@@ -102,17 +102,28 @@ func (r *PostgresSchemaRepository) GetByVersion(ctx context.Context, tenantID st
 	}, nil
 }
 
-// ListVersions retrieves schema versions for a tenant with pagination
-func (r *PostgresSchemaRepository) ListVersions(ctx context.Context, tenantID string, limit int, offset int) ([]*entities.SchemaVersion, error) {
+// ListVersions retrieves schema versions for a tenant with cursor-based pagination
+func (r *PostgresSchemaRepository) ListVersions(ctx context.Context, tenantID string, limit int, cursor string) ([]*entities.SchemaVersion, error) {
 	query := `
 		SELECT version, created_at
 		FROM schemas
 		WHERE tenant_id = $1
-		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3
 	`
+	args := []interface{}{tenantID}
+	argIdx := 2
+
+	if cursor != "" {
+		query += fmt.Sprintf(" AND version < $%d", argIdx)
+		args = append(args, cursor)
+		argIdx++
+	}
+
+	query += " ORDER BY version DESC"
+	query += fmt.Sprintf(" LIMIT $%d", argIdx)
+	args = append(args, limit)
+
 	db := r.cluster.ReaderFor(tenantID)
-	rows, err := db.QueryContext(ctx, query, tenantID, limit, offset)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list schema versions: %w", err)
 	}

@@ -80,7 +80,7 @@ func (m *mockSchemaRepository) Delete(ctx context.Context, tenantID string) erro
 	return nil
 }
 
-func (m *mockSchemaRepository) ListVersions(ctx context.Context, tenantID string, limit int, offset int) ([]*entities.SchemaVersion, error) {
+func (m *mockSchemaRepository) ListVersions(ctx context.Context, tenantID string, limit int, cursor string) ([]*entities.SchemaVersion, error) {
 	versions, exists := m.schemas[tenantID]
 	if !exists {
 		return []*entities.SchemaVersion{}, nil
@@ -89,23 +89,20 @@ func (m *mockSchemaRepository) ListVersions(ctx context.Context, tenantID string
 	// Collect all versions
 	var result []*entities.SchemaVersion
 	for version := range versions {
+		if cursor != "" && version >= cursor {
+			continue
+		}
 		result = append(result, &entities.SchemaVersion{
 			Version:   version,
 			CreatedAt: versions[version].CreatedAt,
 		})
 	}
 
-	// Apply pagination
-	if offset >= len(result) {
-		return []*entities.SchemaVersion{}, nil
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
 	}
 
-	end := offset + limit
-	if end > len(result) {
-		end = len(result)
-	}
-
-	return result[offset:end], nil
+	return result, nil
 }
 
 func TestSchemaService_WriteSchema_Create(t *testing.T) {

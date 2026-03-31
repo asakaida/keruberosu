@@ -245,12 +245,12 @@ func TestSchemaHandler_List_Success(t *testing.T) {
 
 	mockService := &mockSchemaService{}
 	mockRepo := &mockSchemaRepository{
-		listVersionsFunc: func(ctx context.Context, tenantID string, limit int, offset int) ([]*entities.SchemaVersion, error) {
+		listVersionsFunc: func(ctx context.Context, tenantID string, limit int, cursor string) ([]*entities.SchemaVersion, error) {
 			if tenantID != "default" {
 				t.Errorf("expected tenant ID 'default', got %s", tenantID)
 			}
-			if limit != 10 {
-				t.Errorf("expected limit 10, got %d", limit)
+			if limit != 11 {
+				t.Errorf("expected limit 11 (pageSize+1), got %d", limit)
 			}
 			return []*entities.SchemaVersion{
 				{Version: "01ARZ3NDEKTSV4RRFFQ69G5FC", CreatedAt: createdAt3},
@@ -290,7 +290,7 @@ func TestSchemaHandler_List_Success(t *testing.T) {
 func TestSchemaHandler_List_EmptyResult(t *testing.T) {
 	mockService := &mockSchemaService{}
 	mockRepo := &mockSchemaRepository{
-		listVersionsFunc: func(ctx context.Context, tenantID string, limit int, offset int) ([]*entities.SchemaVersion, error) {
+		listVersionsFunc: func(ctx context.Context, tenantID string, limit int, cursor string) ([]*entities.SchemaVersion, error) {
 			return []*entities.SchemaVersion{}, nil
 		},
 	}
@@ -316,9 +316,9 @@ func TestSchemaHandler_List_EmptyResult(t *testing.T) {
 func TestSchemaHandler_List_DefaultPageSize(t *testing.T) {
 	mockService := &mockSchemaService{}
 	mockRepo := &mockSchemaRepository{
-		listVersionsFunc: func(ctx context.Context, tenantID string, limit int, offset int) ([]*entities.SchemaVersion, error) {
-			if limit != 10 {
-				t.Errorf("expected default limit 10, got %d", limit)
+		listVersionsFunc: func(ctx context.Context, tenantID string, limit int, cursor string) ([]*entities.SchemaVersion, error) {
+			if limit != 11 {
+				t.Errorf("expected default limit 11 (pageSize+1), got %d", limit)
 			}
 			return []*entities.SchemaVersion{}, nil
 		},
@@ -339,9 +339,9 @@ func TestSchemaHandler_List_DefaultPageSize(t *testing.T) {
 func TestSchemaHandler_List_MaxPageSize(t *testing.T) {
 	mockService := &mockSchemaService{}
 	mockRepo := &mockSchemaRepository{
-		listVersionsFunc: func(ctx context.Context, tenantID string, limit int, offset int) ([]*entities.SchemaVersion, error) {
-			if limit != 100 {
-				t.Errorf("expected max limit 100, got %d", limit)
+		listVersionsFunc: func(ctx context.Context, tenantID string, limit int, cursor string) ([]*entities.SchemaVersion, error) {
+			if limit != 101 {
+				t.Errorf("expected max limit 101 (pageSize+1), got %d", limit)
 			}
 			return []*entities.SchemaVersion{}, nil
 		},

@@ -2,6 +2,7 @@ package authorization
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -237,6 +238,14 @@ func ConvertGoValueToCEL(value interface{}) ref.Val {
 			vals[i] = ConvertGoValueToCEL(item)
 		}
 		return types.NewDynamicList(types.DefaultTypeAdapter, vals)
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return types.Int(i)
+		}
+		if f, err := v.Float64(); err == nil {
+			return types.Double(f)
+		}
+		return types.String(string(v))
 	case map[string]interface{}:
 		return types.NewDynamicMap(types.DefaultTypeAdapter, v)
 	default:

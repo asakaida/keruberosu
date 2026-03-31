@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/asakaida/keruberosu/internal/entities"
@@ -51,6 +52,34 @@ func (r *PostgresAttributeRepository) Write(ctx context.Context, tenantID string
 	return nil
 }
 
+// WriteInTx creates or updates an attribute within an existing transaction
+func (r *PostgresAttributeRepository) WriteInTx(ctx context.Context, tx *sql.Tx, tenantID string, attr *entities.Attribute) error {
+	if err := attr.Validate(); err != nil {
+		return fmt.Errorf("invalid attribute: %w", err)
+	}
+
+	valueJSON, err := json.Marshal(attr.Value)
+	if err != nil {
+		return fmt.Errorf("failed to marshal attribute value: %w", err)
+	}
+
+	query := `
+		INSERT INTO attributes (tenant_id, entity_type, entity_id, attribute, value, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (tenant_id, entity_type, entity_id, attribute)
+		DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+	`
+	now := time.Now()
+	_, err = tx.ExecContext(ctx, query,
+		tenantID, attr.EntityType, attr.EntityID, attr.Name, string(valueJSON), now, now,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to write attribute: %w", err)
+	}
+
+	return nil
+}
+
 // Read retrieves all attributes for a specific entity
 func (r *PostgresAttributeRepository) Read(ctx context.Context, tenantID string, entityType string, entityID string) (map[string]interface{}, error) {
 	query := `
@@ -73,7 +102,9 @@ func (r *PostgresAttributeRepository) Read(ctx context.Context, tenantID string,
 		}
 
 		var value interface{}
-		if err := json.Unmarshal([]byte(valueJSON), &value); err != nil {
+		dec := json.NewDecoder(strings.NewReader(valueJSON))
+		dec.UseNumber()
+		if err := dec.Decode(&value); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal attribute value: %w", err)
 		}
 
@@ -120,7 +151,9 @@ func (r *PostgresAttributeRepository) GetValue(ctx context.Context, tenantID str
 	}
 
 	var value interface{}
-	if err := json.Unmarshal([]byte(valueJSON), &value); err != nil {
+	dec := json.NewDecoder(strings.NewReader(valueJSON))
+	dec.UseNumber()
+	if err := dec.Decode(&value); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal attribute value: %w", err)
 	}
 

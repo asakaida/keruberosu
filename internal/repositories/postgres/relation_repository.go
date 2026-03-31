@@ -236,14 +236,19 @@ func (r *PostgresRelationRepository) ExistsWithSubjectRelation(ctx context.Conte
 
 // FindByEntityWithRelation returns tuples for a specific entity and relation
 func (r *PostgresRelationRepository) FindByEntityWithRelation(ctx context.Context, tenantID string,
-	entityType, entityID, relation string) ([]*entities.RelationTuple, error) {
+	entityType, entityID, relation string, limit int) ([]*entities.RelationTuple, error) {
 	query := `
 		SELECT entity_type, entity_id, relation, subject_type, subject_id, subject_relation, created_at
 		FROM relations
 		WHERE tenant_id = $1 AND entity_type = $2 AND entity_id = $3 AND relation = $4
 	`
+	args := []interface{}{tenantID, entityType, entityID, relation}
+	if limit > 0 {
+		query += " LIMIT $5"
+		args = append(args, limit)
+	}
 	db := r.cluster.ReaderFor(tenantID)
-	rows, err := db.QueryContext(ctx, query, tenantID, entityType, entityID, relation)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find relations by entity with relation: %w", err)
 	}
@@ -438,6 +443,41 @@ func (r *PostgresRelationRepository) BatchWrite(ctx context.Context, tenantID st
 	}
 
 	r.cluster.RecordWrite(tenantID)
+	return nil
+}
+
+// BatchWriteInTx creates multiple relation tuples within an existing transaction.
+func (r *PostgresRelationRepository) BatchWriteInTx(ctx context.Context, tx *sql.Tx, tenantID string, tuples []*entities.RelationTuple) error {
+	query := `
+		INSERT INTO relations (
+			tenant_id, entity_type, entity_id, relation,
+			subject_type, subject_id, subject_relation, created_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (tenant_id, entity_type, entity_id, relation, subject_type, subject_id, COALESCE(subject_relation, ''))
+		DO NOTHING
+	`
+	now := time.Now()
+	for _, tuple := range tuples {
+		if err := tuple.Validate(); err != nil {
+			return fmt.Errorf("invalid relation tuple: %w", err)
+		}
+		_, err := tx.ExecContext(ctx, query,
+			tenantID, tuple.EntityType, tuple.EntityID, tuple.Relation,
+			tuple.SubjectType, tuple.SubjectID,
+			sql.NullString{String: tuple.SubjectRelation, Valid: tuple.SubjectRelation != ""},
+			now,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to write relation: %w", err)
+		}
+		if !r.closureExcludedRelations[tuple.Relation] {
+			if err := r.updateClosureOnAdd(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID); err != nil {
+				log.Printf("WARNING: closure table update failed: %v", err)
+			}
+		}
+	}
+
 	return nil
 }
 

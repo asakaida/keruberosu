@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 
 	"github.com/asakaida/keruberosu/internal/entities"
 	"github.com/asakaida/keruberosu/internal/repositories"
@@ -20,7 +22,8 @@ type SchemaServiceInterface interface {
 
 // SchemaService handles schema management operations
 type SchemaService struct {
-	schemaRepo repositories.SchemaRepository
+	schemaRepo  repositories.SchemaRepository
+	schemaCache sync.Map // key: "tenantID:version" -> *entities.Schema
 }
 
 // NewSchemaService creates a new SchemaService
@@ -66,6 +69,7 @@ func (s *SchemaService) WriteSchema(ctx context.Context, tenantID string, schema
 		return "", fmt.Errorf("failed to create schema version: %w", err)
 	}
 
+	s.invalidateCache(tenantID)
 	return version, nil
 }
 
@@ -125,6 +129,7 @@ func (s *SchemaService) DeleteSchema(ctx context.Context, tenantID string) error
 		return fmt.Errorf("failed to delete schema: %w", err)
 	}
 
+	s.invalidateCache(tenantID)
 	return nil
 }
 
@@ -152,6 +157,12 @@ func (s *SchemaService) GetSchemaEntity(ctx context.Context, tenantID string, ve
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}
 
+	// Check cache using actual version from DB
+	cacheKey := tenantID + ":" + dbSchema.Version
+	if cached, ok := s.schemaCache.Load(cacheKey); ok {
+		return cached.(*entities.Schema), nil
+	}
+
 	// Parse DSL to populate Entities field
 	lexer := parser.NewLexer(dbSchema.DSL)
 	p := parser.NewParser(lexer)
@@ -171,5 +182,19 @@ func (s *SchemaService) GetSchemaEntity(ctx context.Context, tenantID string, ve
 	parsedSchema.CreatedAt = dbSchema.CreatedAt
 	parsedSchema.UpdatedAt = dbSchema.UpdatedAt
 
+	// Cache the parsed schema
+	s.schemaCache.Store(cacheKey, parsedSchema)
+
 	return parsedSchema, nil
+}
+
+// invalidateCache removes all cached schemas for a tenant.
+func (s *SchemaService) invalidateCache(tenantID string) {
+	prefix := tenantID + ":"
+	s.schemaCache.Range(func(key, value interface{}) bool {
+		if k, ok := key.(string); ok && strings.HasPrefix(k, prefix) {
+			s.schemaCache.Delete(key)
+		}
+		return true
+	})
 }

@@ -2,6 +2,7 @@ package authorization
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -28,6 +29,8 @@ func extractBaseType(targetType string) string {
 const (
 	// MaxDepth is the maximum recursion depth for hierarchical permission evaluation
 	MaxDepth = 100
+	// MaxTuplesPerQuery is the maximum number of tuples returned per query
+	MaxTuplesPerQuery = 10000
 )
 
 // SchemaServiceInterface defines the interface for schema operations
@@ -136,7 +139,7 @@ func (e *Evaluator) evaluateRelation(
 
 	// Check for subject relations (e.g., team:backend-team#member)
 	// Get all tuples for this entity and relation using specialized query
-	allTuples, err := e.relationRepo.FindByEntityWithRelation(ctx, req.TenantID, req.EntityType, req.EntityID, rule.Relation)
+	allTuples, err := e.relationRepo.FindByEntityWithRelation(ctx, req.TenantID, req.EntityType, req.EntityID, rule.Relation, MaxTuplesPerQuery)
 	if err != nil {
 		return false, fmt.Errorf("failed to find relations by entity with relation: %w", err)
 	}
@@ -282,7 +285,7 @@ func (e *Evaluator) evaluateHierarchical(
 	}
 
 	// Get the parent entity(s) via the relation using specialized query
-	tuples, err := e.relationRepo.FindByEntityWithRelation(ctx, req.TenantID, req.EntityType, req.EntityID, rule.Relation)
+	tuples, err := e.relationRepo.FindByEntityWithRelation(ctx, req.TenantID, req.EntityType, req.EntityID, rule.Relation, MaxTuplesPerQuery)
 	if err != nil {
 		return false, fmt.Errorf("failed to read relations: %w", err)
 	}
@@ -368,12 +371,14 @@ func (e *Evaluator) evaluateABAC(
 	if err != nil {
 		return false, fmt.Errorf("failed to read resource attributes: %w", err)
 	}
+	resourceAttrs = normalizeJSONNumbers(resourceAttrs)
 
 	// Get subject attributes
 	subjectAttrs, err := e.attributeRepo.Read(ctx, req.TenantID, req.SubjectType, req.SubjectID)
 	if err != nil {
 		return false, fmt.Errorf("failed to read subject attributes: %w", err)
 	}
+	subjectAttrs = normalizeJSONNumbers(subjectAttrs)
 
 	// Prepare CEL evaluation context
 	evalContext := &EvaluationContext{
@@ -424,12 +429,14 @@ func (e *Evaluator) evaluateRuleCall(
 	if err != nil {
 		return false, fmt.Errorf("failed to read resource attributes: %w", err)
 	}
+	resourceAttrs = normalizeJSONNumbers(resourceAttrs)
 
 	// Get subject attributes
 	subjectAttrs, err := e.attributeRepo.Read(ctx, req.TenantID, req.SubjectType, req.SubjectID)
 	if err != nil {
 		return false, fmt.Errorf("failed to read subject attributes: %w", err)
 	}
+	subjectAttrs = normalizeJSONNumbers(subjectAttrs)
 
 	// Prepare CEL evaluation context
 	// The rule body uses parameter names (e.g., "resource.public")
@@ -492,6 +499,7 @@ func (e *Evaluator) evaluateHierarchicalRuleCall(
 	if err != nil {
 		return false, fmt.Errorf("failed to read current entity attributes: %w", err)
 	}
+	currentAttrs = normalizeJSONNumbers(currentAttrs)
 
 	for _, tuple := range tuples {
 		// Find rule definition (try namespaced first, then plain)
@@ -509,6 +517,7 @@ func (e *Evaluator) evaluateHierarchicalRuleCall(
 		if err != nil {
 			return false, fmt.Errorf("failed to read parent attributes: %w", err)
 		}
+		parentAttrs = normalizeJSONNumbers(parentAttrs)
 
 		// Build parameter values: map rule parameter names → current entity attribute values
 		paramMap := make(map[string]interface{})
@@ -532,4 +541,40 @@ func (e *Evaluator) evaluateHierarchicalRuleCall(
 	}
 
 	return false, nil
+}
+
+// normalizeJSONNumbers converts json.Number values in a map to int64 or float64.
+// This ensures consistent numeric types for CEL evaluation.
+func normalizeJSONNumbers(m map[string]interface{}) map[string]interface{} {
+	if m == nil {
+		return nil
+	}
+	result := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		result[k] = normalizeValue(v)
+	}
+	return result
+}
+
+func normalizeValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case json.Number:
+		if i, err := val.Int64(); err == nil {
+			return i
+		}
+		if f, err := val.Float64(); err == nil {
+			return f
+		}
+		return string(val)
+	case map[string]interface{}:
+		return normalizeJSONNumbers(val)
+	case []interface{}:
+		result := make([]interface{}, len(val))
+		for i, item := range val {
+			result[i] = normalizeValue(item)
+		}
+		return result
+	default:
+		return v
+	}
 }

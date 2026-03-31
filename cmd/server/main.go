@@ -168,6 +168,7 @@ func runServer(cmd *cobra.Command, args []string) {
 		relationRepo,
 		attributeRepo,
 		tokenGenerator,
+		cluster.PrimaryDB(),
 	)
 	schemaHandler := handlers.NewSchemaHandler(
 		schemaService,

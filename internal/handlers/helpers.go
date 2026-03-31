@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 
 	pb "github.com/asakaida/keruberosu/proto/keruberosu/v1"
@@ -225,6 +226,14 @@ func interfaceToProtoValue(v interface{}) (*structpb.Value, error) {
 	}
 
 	switch val := v.(type) {
+	case json.Number:
+		if i, err := val.Int64(); err == nil {
+			return structpb.NewNumberValue(float64(i)), nil
+		}
+		if f, err := val.Float64(); err == nil {
+			return structpb.NewNumberValue(f), nil
+		}
+		return structpb.NewStringValue(string(val)), nil
 	case bool:
 		return structpb.NewBoolValue(val), nil
 	case int:

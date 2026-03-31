@@ -85,7 +85,6 @@ func (h *SchemaHandler) Read(ctx context.Context, req *pb.SchemaReadRequest) (*p
 func (h *SchemaHandler) List(ctx context.Context, req *pb.SchemaListRequest) (*pb.SchemaListResponse, error) {
 	tenantID := "default"
 
-	// Set default page size if not specified
 	pageSize := req.PageSize
 	if pageSize <= 0 {
 		pageSize = 10
@@ -94,24 +93,27 @@ func (h *SchemaHandler) List(ctx context.Context, req *pb.SchemaListRequest) (*p
 		pageSize = 100
 	}
 
-	// For now, we'll use a simple offset-based pagination
-	// In production, you might want to implement cursor-based pagination
-	offset := 0
-	// TODO: Parse continuous_token to get offset if needed
+	cursor := req.ContinuousToken
 
-	// Get versions from repository
-	versions, err := h.schemaRepo.ListVersions(ctx, tenantID, int(pageSize), offset)
+	// Fetch one extra to determine if there's a next page
+	versions, err := h.schemaRepo.ListVersions(ctx, tenantID, int(pageSize)+1, cursor)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list schema versions: %v", err)
 	}
 
-	// Get the latest version (head)
+	// Determine next page token
+	var continuousToken string
+	if len(versions) > int(pageSize) {
+		continuousToken = versions[pageSize-1].Version
+		versions = versions[:pageSize]
+	}
+
+	// Head is the latest version (only meaningful on first page)
 	var head string
-	if len(versions) > 0 {
+	if len(versions) > 0 && cursor == "" {
 		head = versions[0].Version
 	}
 
-	// Convert to proto format
 	schemaItems := make([]*pb.SchemaListItem, len(versions))
 	for i, v := range versions {
 		schemaItems[i] = &pb.SchemaListItem{
@@ -121,9 +123,8 @@ func (h *SchemaHandler) List(ctx context.Context, req *pb.SchemaListRequest) (*p
 	}
 
 	return &pb.SchemaListResponse{
-		Head:    head,
-		Schemas: schemaItems,
-		// TODO: Implement continuous_token for pagination
-		ContinuousToken: "",
+		Head:            head,
+		Schemas:         schemaItems,
+		ContinuousToken: continuousToken,
 	}, nil
 }

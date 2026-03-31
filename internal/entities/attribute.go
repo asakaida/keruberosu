@@ -3,6 +3,7 @@ package entities
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -52,8 +53,7 @@ func (a *Attribute) MarshalValue() (string, error) {
 
 // UnmarshalValue deserializes the JSON string to attribute value
 func (a *Attribute) UnmarshalValue(data string) error {
-	if err := json.Unmarshal([]byte(data), &a.Value); err != nil {
-		return fmt.Errorf("failed to unmarshal attribute value: %w", err)
-	}
-	return nil
+	dec := json.NewDecoder(strings.NewReader(data))
+	dec.UseNumber()
+	return dec.Decode(&a.Value)
 }

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/asakaida/keruberosu/internal/entities"
 	"github.com/asakaida/keruberosu/internal/repositories"
@@ -73,6 +74,10 @@ func (m *mockRelationRepository) BatchWrite(ctx context.Context, tenantID string
 	return nil
 }
 
+func (m *mockRelationRepository) BatchWriteInTx(ctx context.Context, tx *sql.Tx, tenantID string, tuples []*entities.RelationTuple) error {
+	return nil
+}
+
 func (m *mockRelationRepository) BatchDelete(ctx context.Context, tenantID string, tuples []*entities.RelationTuple) error {
 	if m.batchDeleteFunc != nil {
 		return m.batchDeleteFunc(ctx, tenantID, tuples)
@@ -96,7 +101,7 @@ func (m *mockRelationRepository) ExistsWithSubjectRelation(ctx context.Context, 
 	return false, nil
 }
 
-func (m *mockRelationRepository) FindByEntityWithRelation(ctx context.Context, tenantID string, entityType, entityID, relation string) ([]*entities.RelationTuple, error) {
+func (m *mockRelationRepository) FindByEntityWithRelation(ctx context.Context, tenantID string, entityType, entityID, relation string, limit int) ([]*entities.RelationTuple, error) {
 	return nil, nil
 }
 
@@ -152,6 +157,10 @@ func (m *mockAttributeRepository) GetValue(ctx context.Context, tenantID string,
 	return nil, nil
 }
 
+func (m *mockAttributeRepository) WriteInTx(ctx context.Context, tx *sql.Tx, tenantID string, attr *entities.Attribute) error {
+	return nil
+}
+
 // Mock Checker - implements authorization.CheckerInterface
 type mockChecker struct {
 	checkFunc func(ctx context.Context, req *authorization.CheckRequest) (*authorization.CheckResponse, error)
@@ -204,7 +213,7 @@ func (m *mockLookup) LookupSubject(ctx context.Context, req *authorization.Looku
 type mockSchemaRepository struct {
 	getLatestVersionFunc func(ctx context.Context, tenantID string) (*entities.Schema, error)
 	getByVersionFunc     func(ctx context.Context, tenantID string, version string) (*entities.Schema, error)
-	listVersionsFunc     func(ctx context.Context, tenantID string, limit int, offset int) ([]*entities.SchemaVersion, error)
+	listVersionsFunc     func(ctx context.Context, tenantID string, limit int, cursor string) ([]*entities.SchemaVersion, error)
 }
 
 func (m *mockSchemaRepository) Create(ctx context.Context, tenantID string, schemaDSL string) (string, error) {
@@ -225,9 +234,9 @@ func (m *mockSchemaRepository) GetByVersion(ctx context.Context, tenantID string
 	return nil, nil
 }
 
-func (m *mockSchemaRepository) ListVersions(ctx context.Context, tenantID string, limit int, offset int) ([]*entities.SchemaVersion, error) {
+func (m *mockSchemaRepository) ListVersions(ctx context.Context, tenantID string, limit int, cursor string) ([]*entities.SchemaVersion, error) {
 	if m.listVersionsFunc != nil {
-		return m.listVersionsFunc(ctx, tenantID, limit, offset)
+		return m.listVersionsFunc(ctx, tenantID, limit, cursor)
 	}
 	return nil, nil
 }

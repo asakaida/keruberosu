@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/asakaida/keruberosu/internal/entities"
 	"github.com/asakaida/keruberosu/internal/repositories"
@@ -22,6 +23,7 @@ type DataHandler struct {
 	relationRepo   repositories.RelationRepository
 	attributeRepo  repositories.AttributeRepository
 	tokenGenerator SnapTokenGenerator // Optional: generates snapshot tokens for write responses
+	db             *sql.DB            // Optional: for transactional writes
 }
 
 // NewDataHandler creates a new DataHandler
@@ -40,11 +42,13 @@ func NewDataHandlerWithTokenGenerator(
 	relationRepo repositories.RelationRepository,
 	attributeRepo repositories.AttributeRepository,
 	tokenGenerator SnapTokenGenerator,
+	db *sql.DB,
 ) *DataHandler {
 	return &DataHandler{
 		relationRepo:   relationRepo,
 		attributeRepo:  attributeRepo,
 		tokenGenerator: tokenGenerator,
+		db:             db,
 	}
 }
 
@@ -52,9 +56,13 @@ func NewDataHandlerWithTokenGenerator(
 func (h *DataHandler) Write(ctx context.Context, req *pb.DataWriteRequest) (*pb.DataWriteResponse, error) {
 	tenantID := "default"
 
-	// Write tuples if provided
-	if len(req.Tuples) > 0 {
-		tuples := make([]*entities.RelationTuple, 0, len(req.Tuples))
+	hasTuples := len(req.Tuples) > 0
+	hasAttributes := len(req.Attributes) > 0
+
+	// Validate all inputs first
+	var tuples []*entities.RelationTuple
+	if hasTuples {
+		tuples = make([]*entities.RelationTuple, 0, len(req.Tuples))
 		for i, protoTuple := range req.Tuples {
 			tuple, err := protoToRelationTuple(protoTuple)
 			if err != nil {
@@ -62,22 +70,53 @@ func (h *DataHandler) Write(ctx context.Context, req *pb.DataWriteRequest) (*pb.
 			}
 			tuples = append(tuples, tuple)
 		}
-
-		if err := h.relationRepo.BatchWrite(ctx, tenantID, tuples); err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to write relations: %v", err)
-		}
 	}
 
-	// Write attributes if provided
-	if len(req.Attributes) > 0 {
+	var attrs []*entities.Attribute
+	if hasAttributes {
+		attrs = make([]*entities.Attribute, 0, len(req.Attributes))
 		for i, protoAttr := range req.Attributes {
 			attr, err := protoToAttribute(protoAttr)
 			if err != nil {
 				return nil, status.Errorf(codes.InvalidArgument, "invalid attribute at index %d: %v", i, err)
 			}
+			attrs = append(attrs, attr)
+		}
+	}
 
-			if err := h.attributeRepo.Write(ctx, tenantID, attr); err != nil {
+	// Use transaction when writing both tuples and attributes atomically
+	if hasTuples && hasAttributes && h.db != nil {
+		tx, err := h.db.BeginTx(ctx, nil)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
+		}
+		defer tx.Rollback()
+
+		if err := h.relationRepo.BatchWriteInTx(ctx, tx, tenantID, tuples); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to write relations: %v", err)
+		}
+
+		for _, attr := range attrs {
+			if err := h.attributeRepo.WriteInTx(ctx, tx, tenantID, attr); err != nil {
 				return nil, status.Errorf(codes.Internal, "failed to write attribute: %v", err)
+			}
+		}
+
+		if err := tx.Commit(); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
+		}
+	} else {
+		if hasTuples {
+			if err := h.relationRepo.BatchWrite(ctx, tenantID, tuples); err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to write relations: %v", err)
+			}
+		}
+
+		if hasAttributes {
+			for _, attr := range attrs {
+				if err := h.attributeRepo.Write(ctx, tenantID, attr); err != nil {
+					return nil, status.Errorf(codes.Internal, "failed to write attribute: %v", err)
+				}
 			}
 		}
 	}
@@ -89,7 +128,6 @@ func (h *DataHandler) Write(ctx context.Context, req *pb.DataWriteRequest) (*pb.
 		if err == nil {
 			snapToken = token
 		}
-		// Ignore errors - snapshot token is optional for backward compatibility
 	}
 
 	return &pb.DataWriteResponse{

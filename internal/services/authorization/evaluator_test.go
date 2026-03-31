@@ -2,6 +2,7 @@ package authorization
 
 import (
 	"context"
+	"database/sql"
 	"sort"
 	"testing"
 
@@ -113,7 +114,7 @@ func (m *mockRelationRepository) ExistsWithSubjectRelation(ctx context.Context, 
 	return false, nil
 }
 
-func (m *mockRelationRepository) FindByEntityWithRelation(ctx context.Context, tenantID string, entityType, entityID, relation string) ([]*entities.RelationTuple, error) {
+func (m *mockRelationRepository) FindByEntityWithRelation(ctx context.Context, tenantID string, entityType, entityID, relation string, limit int) ([]*entities.RelationTuple, error) {
 	return m.Read(ctx, tenantID, &repositories.RelationFilter{
 		EntityType: entityType,
 		EntityID:   entityID,
@@ -199,6 +200,11 @@ func (m *mockRelationRepository) LookupAccessibleSubjectsComplex(ctx context.Con
 	return nil, nil
 }
 
+func (m *mockRelationRepository) BatchWriteInTx(ctx context.Context, tx *sql.Tx, tenantID string, tuples []*entities.RelationTuple) error {
+	m.tuples = append(m.tuples, tuples...)
+	return nil
+}
+
 type mockAttributeRepository struct {
 	attributes map[string]map[string]interface{} // key: entityType:entityID, value: attributes
 }
@@ -240,6 +246,10 @@ func (m *mockAttributeRepository) GetValue(ctx context.Context, tenantID string,
 		return nil, nil
 	}
 	return m.attributes[key][attrName], nil
+}
+
+func (m *mockAttributeRepository) WriteInTx(ctx context.Context, tx *sql.Tx, tenantID string, attr *entities.Attribute) error {
+	return m.Write(ctx, tenantID, attr)
 }
 
 // Test helper functions

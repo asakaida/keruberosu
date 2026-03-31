@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/asakaida/keruberosu/internal/entities"
 )
@@ -20,4 +21,7 @@ type AttributeRepository interface {
 
 	// GetValue retrieves a specific attribute value for an entity
 	GetValue(ctx context.Context, tenantID string, entityType string, entityID string, attrName string) (interface{}, error)
+
+	// WriteInTx creates or updates an attribute within an existing transaction
+	WriteInTx(ctx context.Context, tx *sql.Tx, tenantID string, attr *entities.Attribute) error
 }

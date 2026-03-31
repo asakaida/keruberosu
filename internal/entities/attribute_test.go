@@ -1,6 +1,7 @@
 package entities
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -216,7 +217,7 @@ func TestAttribute_UnmarshalValue(t *testing.T) {
 		{
 			name:    "number value",
 			data:    "42",
-			want:    float64(42), // JSON numbers unmarshal to float64
+			want:    json.Number("42"), // JSON numbers unmarshal to json.Number with UseNumber
 			wantErr: false,
 		},
 		{
@@ -324,11 +325,16 @@ func TestAttribute_MarshalUnmarshal_RoundTrip(t *testing.T) {
 		t.Fatalf("UnmarshalValue() got type %T, want map[string]interface{}", attr2.Value)
 	}
 
-	want := attr.Value.(map[string]interface{})
-	if len(got) != len(want) {
-		t.Errorf("Round trip got %d fields, want %d", len(got), len(want))
+	// After round-trip with UseNumber, numbers become json.Number
+	expected := map[string]interface{}{
+		"author":  "Alice",
+		"version": json.Number("2"),
+		"public":  true,
 	}
-	for k, v := range want {
+	if len(got) != len(expected) {
+		t.Errorf("Round trip got %d fields, want %d", len(got), len(expected))
+	}
+	for k, v := range expected {
 		if got[k] != v {
 			t.Errorf("Round trip field %s = %v, want %v", k, got[k], v)
 		}
