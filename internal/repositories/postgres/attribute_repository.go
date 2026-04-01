@@ -108,7 +108,7 @@ func (r *PostgresAttributeRepository) Read(ctx context.Context, tenantID string,
 			return nil, fmt.Errorf("failed to unmarshal attribute value: %w", err)
 		}
 
-		attributes[name] = value
+		attributes[name] = normalizeJSONValue(value)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -157,7 +157,37 @@ func (r *PostgresAttributeRepository) GetValue(ctx context.Context, tenantID str
 		return nil, fmt.Errorf("failed to unmarshal attribute value: %w", err)
 	}
 
-	return value, nil
+	return normalizeJSONValue(value), nil
+}
+
+// normalizeJSONValue converts json.Number to int64 or float64 recursively.
+// This ensures callers receive standard Go types instead of json.Number,
+// which is an implementation detail of UseNumber()-based JSON decoding.
+func normalizeJSONValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case json.Number:
+		if i, err := val.Int64(); err == nil {
+			return i
+		}
+		if f, err := val.Float64(); err == nil {
+			return f
+		}
+		return string(val)
+	case map[string]interface{}:
+		result := make(map[string]interface{}, len(val))
+		for k, item := range val {
+			result[k] = normalizeJSONValue(item)
+		}
+		return result
+	case []interface{}:
+		result := make([]interface{}, len(val))
+		for i, item := range val {
+			result[i] = normalizeJSONValue(item)
+		}
+		return result
+	default:
+		return v
+	}
 }
 
 // ensure interface compliance

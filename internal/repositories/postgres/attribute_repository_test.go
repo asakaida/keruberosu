@@ -144,7 +144,7 @@ func TestAttributeRepository_Read(t *testing.T) {
 	attributes := []*entities.Attribute{
 		{EntityType: "document", EntityID: "doc1", Name: "title", Value: "My Document"},
 		{EntityType: "document", EntityID: "doc1", Name: "public", Value: true},
-		{EntityType: "document", EntityID: "doc1", Name: "version", Value: float64(1)}, // JSONでは数値はfloat64になる
+		{EntityType: "document", EntityID: "doc1", Name: "version", Value: float64(1)},
 		{EntityType: "document", EntityID: "doc2", Name: "title", Value: "Another Doc"},
 	}
 
@@ -170,8 +170,8 @@ func TestAttributeRepository_Read(t *testing.T) {
 		if attrs["public"] != true {
 			t.Errorf("Expected public true, got %v", attrs["public"])
 		}
-		if attrs["version"] != float64(1) {
-			t.Errorf("Expected version 1, got %v", attrs["version"])
+		if attrs["version"] != int64(1) {
+			t.Errorf("Expected version 1, got %v (type: %T)", attrs["version"], attrs["version"])
 		}
 	})
 
@@ -348,8 +348,8 @@ func TestAttributeRepository_ComplexTypes(t *testing.T) {
 		if metadata["author"] != "Alice" {
 			t.Errorf("Expected author 'Alice', got %v", metadata["author"])
 		}
-		if metadata["year"] != float64(2025) {
-			t.Errorf("Expected year 2025, got %v", metadata["year"])
+		if metadata["year"] != int64(2025) {
+			t.Errorf("Expected year 2025, got %v (type: %T)", metadata["year"], metadata["year"])
 		}
 	})
 
