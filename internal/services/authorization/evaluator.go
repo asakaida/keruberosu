@@ -420,10 +420,6 @@ func (e *Evaluator) evaluateRuleCall(
 			rule.RuleName, len(ruleDef.Parameters), len(rule.Arguments))
 	}
 
-	// The rule body is a CEL expression that uses parameter names
-	// The arguments specify which context variables to use (e.g., "resource", "subject")
-	// We evaluate the rule body using the same context as ABAC rules
-
 	// Get resource attributes
 	resourceAttrs, err := e.attributeRepo.Read(ctx, req.TenantID, req.EntityType, req.EntityID)
 	if err != nil {
@@ -438,22 +434,25 @@ func (e *Evaluator) evaluateRuleCall(
 	}
 	subjectAttrs = normalizeJSONNumbers(subjectAttrs)
 
-	// Prepare CEL evaluation context
-	// The rule body uses parameter names (e.g., "resource.public")
-	// The arguments tell us which variables to map those parameters to
-	evalContext := &EvaluationContext{
-		Resource: resourceAttrs,
-		Subject:  subjectAttrs,
-		Request:  map[string]interface{}{}, // Can be extended with request metadata
+	// Map argument names to their context data
+	argContexts := map[string]map[string]interface{}{
+		"resource": resourceAttrs,
+		"subject":  subjectAttrs,
+		"request":  {},
 	}
 
-	// Note: For now, we assume the standard mapping where:
-	// - "resource" parameter maps to resource attributes
-	// - "subject" parameter maps to subject attributes
-	// In the future, we could support more flexible parameter-to-context mapping
+	// Build parameter-to-context mapping: each parameter name gets the context
+	// specified by its corresponding argument.
+	// Example: rule check(doc, user) called as check(resource, subject)
+	//   → parameter "doc" gets resource context, parameter "user" gets subject context
+	paramContexts := make(map[string]map[string]interface{}, len(ruleDef.Parameters))
+	for i, paramName := range ruleDef.Parameters {
+		argName := rule.Arguments[i]
+		paramContexts[paramName] = argContexts[argName]
+	}
 
 	// Evaluate the CEL expression from the rule body
-	result, err := e.celEngine.Evaluate(ruleDef.Body, evalContext)
+	result, err := e.celEngine.EvaluateRule(ruleDef.Body, paramContexts)
 	if err != nil {
 		return false, fmt.Errorf("failed to evaluate rule %s: %w", rule.RuleName, err)
 	}

@@ -710,3 +710,61 @@ func TestCELEngine_MultipleContextVariables(t *testing.T) {
 		})
 	}
 }
+
+func TestCELEngine_EvaluateRule_StandardParams(t *testing.T) {
+	engine, err := NewCELEngine()
+	if err != nil {
+		t.Fatalf("failed to create CEL engine: %v", err)
+	}
+
+	paramContexts := map[string]map[string]interface{}{
+		"resource": {"public": true},
+		"subject":  {"role": "admin"},
+	}
+	result, err := engine.EvaluateRule(`resource.public == true && subject.role == "admin"`, paramContexts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result {
+		t.Error("expected true, got false")
+	}
+}
+
+func TestCELEngine_EvaluateRule_NonStandardParams(t *testing.T) {
+	engine, err := NewCELEngine()
+	if err != nil {
+		t.Fatalf("failed to create CEL engine: %v", err)
+	}
+
+	paramContexts := map[string]map[string]interface{}{
+		"doc":  {"public": true, "level": int64(3)},
+		"user": {"level": int64(5)},
+	}
+	result, err := engine.EvaluateRule("doc.public == true && user.level >= doc.level", paramContexts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result {
+		t.Error("expected true, got false")
+	}
+}
+
+func TestCELEngine_EvaluateRule_RemappedContexts(t *testing.T) {
+	engine, err := NewCELEngine()
+	if err != nil {
+		t.Fatalf("failed to create CEL engine: %v", err)
+	}
+
+	// Simulate swapped arguments: "resource" param gets subject data, "subject" param gets resource data
+	paramContexts := map[string]map[string]interface{}{
+		"resource": {"level": int64(5)}, // subject's data mapped to "resource" param
+		"subject":  {"level": int64(2)}, // resource's data mapped to "subject" param
+	}
+	result, err := engine.EvaluateRule("resource.level > subject.level", paramContexts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result {
+		t.Error("expected true (5 > 2), got false")
+	}
+}

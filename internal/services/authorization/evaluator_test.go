@@ -823,3 +823,245 @@ func TestEvaluator_ComplexRule(t *testing.T) {
 		})
 	}
 }
+
+func TestEvaluator_RuleCallRule_StandardParams(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Rules: []*entities.RuleDefinition{
+			{
+				Name:       "is_public",
+				Parameters: []string{"resource"},
+				Body:       "resource.public == true",
+			},
+		},
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.RuleCallRule{
+							RuleName:  "is_public",
+							Arguments: []string{"resource"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+
+	attributeRepo.Write(context.Background(), "test-tenant", &entities.Attribute{
+		EntityType: "document", EntityID: "doc1", Name: "public", Value: true,
+	})
+	attributeRepo.Write(context.Background(), "test-tenant", &entities.Attribute{
+		EntityType: "document", EntityID: "doc2", Name: "public", Value: false,
+	})
+
+	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
+
+	tests := []struct {
+		name     string
+		entityID string
+		expected bool
+	}{
+		{"public doc - allowed", "doc1", true},
+		{"private doc - denied", "doc2", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &EvaluationRequest{
+				TenantID: "test-tenant", EntityType: "document", EntityID: tt.entityID,
+				SubjectType: "user", SubjectID: "alice",
+			}
+			result, err := evaluator.EvaluateRule(context.Background(), req, schema.Entities[1].Permissions[0].Rule)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestEvaluator_RuleCallRule_NonStandardParamNames(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Rules: []*entities.RuleDefinition{
+			{
+				Name:       "check_public",
+				Parameters: []string{"doc"},
+				Body:       "doc.public == true",
+			},
+		},
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.RuleCallRule{
+							RuleName:  "check_public",
+							Arguments: []string{"resource"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+
+	attributeRepo.Write(context.Background(), "test-tenant", &entities.Attribute{
+		EntityType: "document", EntityID: "doc1", Name: "public", Value: true,
+	})
+
+	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
+
+	req := &EvaluationRequest{
+		TenantID: "test-tenant", EntityType: "document", EntityID: "doc1",
+		SubjectType: "user", SubjectID: "alice",
+	}
+	result, err := evaluator.EvaluateRule(context.Background(), req, schema.Entities[1].Permissions[0].Rule)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result {
+		t.Error("expected true (doc1 is public), got false")
+	}
+}
+
+func TestEvaluator_RuleCallRule_SwappedArguments(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Rules: []*entities.RuleDefinition{
+			{
+				Name:       "level_check",
+				Parameters: []string{"resource", "subject"},
+				Body:       "resource.level > subject.level",
+			},
+		},
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Permissions: []*entities.Permission{
+					{
+						Name: "special",
+						Rule: &entities.RuleCallRule{
+							RuleName:  "level_check",
+							Arguments: []string{"subject", "resource"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+
+	attributeRepo.Write(context.Background(), "test-tenant", &entities.Attribute{
+		EntityType: "document", EntityID: "doc1", Name: "level", Value: int64(2),
+	})
+	attributeRepo.Write(context.Background(), "test-tenant", &entities.Attribute{
+		EntityType: "user", EntityID: "alice", Name: "level", Value: int64(5),
+	})
+
+	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
+
+	req := &EvaluationRequest{
+		TenantID: "test-tenant", EntityType: "document", EntityID: "doc1",
+		SubjectType: "user", SubjectID: "alice",
+	}
+	// Arguments: ["subject", "resource"]
+	// Parameter "resource" <- argument "subject" (user alice, level=5)
+	// Parameter "subject"  <- argument "resource" (document doc1, level=2)
+	// Body: resource.level > subject.level => 5 > 2 => true
+	result, err := evaluator.EvaluateRule(context.Background(), req, schema.Entities[1].Permissions[0].Rule)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result {
+		t.Error("expected true (5 > 2 with swapped arguments), got false")
+	}
+}
+
+func TestEvaluator_RuleCallRule_TwoParamsNonStandard(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Rules: []*entities.RuleDefinition{
+			{
+				Name:       "dept_match",
+				Parameters: []string{"doc", "usr"},
+				Body:       "doc.department == usr.department",
+			},
+		},
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.RuleCallRule{
+							RuleName:  "dept_match",
+							Arguments: []string{"resource", "subject"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+
+	attributeRepo.Write(context.Background(), "test-tenant", &entities.Attribute{
+		EntityType: "document", EntityID: "doc1", Name: "department", Value: "engineering",
+	})
+	attributeRepo.Write(context.Background(), "test-tenant", &entities.Attribute{
+		EntityType: "user", EntityID: "alice", Name: "department", Value: "engineering",
+	})
+	attributeRepo.Write(context.Background(), "test-tenant", &entities.Attribute{
+		EntityType: "user", EntityID: "bob", Name: "department", Value: "marketing",
+	})
+
+	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
+
+	tests := []struct {
+		name      string
+		subjectID string
+		expected  bool
+	}{
+		{"same department - allowed", "alice", true},
+		{"different department - denied", "bob", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &EvaluationRequest{
+				TenantID: "test-tenant", EntityType: "document", EntityID: "doc1",
+				SubjectType: "user", SubjectID: tt.subjectID,
+			}
+			result, err := evaluator.EvaluateRule(context.Background(), req, schema.Entities[1].Permissions[0].Rule)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}

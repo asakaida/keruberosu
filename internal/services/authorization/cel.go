@@ -166,6 +166,72 @@ func (e *CELEngine) GetAvailableFunctions() []string {
 	}
 }
 
+// EvaluateRule evaluates a CEL expression for a rule call where parameter names
+// may differ from the standard "resource"/"subject"/"request" variables.
+// paramContexts maps each parameter name to its context data (a map of attributes).
+// If all parameter names are standard, the cached standard environment is used for performance.
+func (e *CELEngine) EvaluateRule(expression string, paramContexts map[string]map[string]interface{}) (bool, error) {
+	// Check if all parameter names are standard CEL variables
+	allStandard := true
+	for paramName := range paramContexts {
+		if paramName != "resource" && paramName != "subject" && paramName != "request" {
+			allStandard = false
+			break
+		}
+	}
+
+	if allStandard {
+		evalCtx := &EvaluationContext{
+			Resource: paramContexts["resource"],
+			Subject:  paramContexts["subject"],
+			Request:  paramContexts["request"],
+		}
+		return e.Evaluate(expression, evalCtx)
+	}
+
+	// Non-standard parameter names: create a dynamic CEL environment
+	envOpts := make([]cel.EnvOption, 0, len(paramContexts))
+	for paramName := range paramContexts {
+		envOpts = append(envOpts, cel.Variable(paramName, cel.MapType(cel.StringType, cel.DynType)))
+	}
+
+	env, err := cel.NewEnv(envOpts...)
+	if err != nil {
+		return false, fmt.Errorf("failed to create CEL environment for rule: %w", err)
+	}
+
+	ast, issues := env.Compile(expression)
+	if issues != nil && issues.Err() != nil {
+		return false, fmt.Errorf("failed to compile CEL expression: %w", issues.Err())
+	}
+
+	program, err := env.Program(ast)
+	if err != nil {
+		return false, fmt.Errorf("failed to create CEL program: %w", err)
+	}
+
+	vars := make(map[string]interface{}, len(paramContexts))
+	for k, v := range paramContexts {
+		if v == nil {
+			vars[k] = map[string]interface{}{}
+		} else {
+			vars[k] = v
+		}
+	}
+
+	result, _, err := program.Eval(vars)
+	if err != nil {
+		return false, fmt.Errorf("failed to evaluate CEL expression: %w", err)
+	}
+
+	boolResult, ok := result.Value().(bool)
+	if !ok {
+		return false, fmt.Errorf("CEL expression did not evaluate to boolean, got: %T", result.Value())
+	}
+
+	return boolResult, nil
+}
+
 // EvaluateWithParams evaluates a CEL expression with "this" (parent attributes)
 // and dynamically named parameters. Used for HierarchicalRuleCallRule evaluation.
 func (e *CELEngine) EvaluateWithParams(expression string, thisAttrs map[string]interface{}, params map[string]interface{}) (bool, error) {
