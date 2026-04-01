@@ -337,7 +337,10 @@ func (r *PostgresRelationRepository) FindHierarchicalWithSubject(ctx context.Con
 	return exists, nil
 }
 
-// RebuildClosure rebuilds the closure table for a tenant from scratch
+// RebuildClosure rebuilds the closure table for a tenant from scratch.
+// Uses a fixed-point iteration: repeatedly applies updateClosureOnAdd for all
+// relations until no new closure entries are created. This makes the result
+// independent of the order in which relations are processed.
 func (r *PostgresRelationRepository) RebuildClosure(ctx context.Context, tenantID string) error {
 	tx, err := r.cluster.PrimaryDB().BeginTx(ctx, nil)
 	if err != nil {
@@ -376,14 +379,41 @@ func (r *PostgresRelationRepository) RebuildClosure(ctx context.Context, tenantI
 		return fmt.Errorf("error iterating relations: %w", err)
 	}
 
-	// Rebuild closure entries for non-excluded relations
+	// Filter to non-excluded relations
+	var filteredRels []rel
 	for _, rl := range rels {
-		if r.closureExcludedRelations[rl.relation] {
-			continue
+		if !r.closureExcludedRelations[rl.relation] {
+			filteredRels = append(filteredRels, rl)
 		}
-		if err := r.updateClosureOnAdd(ctx, tx, tenantID, rl.entityType, rl.entityID, rl.subjectType, rl.subjectID); err != nil {
-			return fmt.Errorf("failed to rebuild closure for %s:%s -> %s:%s: %w",
-				rl.entityType, rl.entityID, rl.subjectType, rl.subjectID, err)
+	}
+
+	// Fixed-point iteration: repeat until no new entries are created.
+	// Each pass may discover new transitive paths via entries created in previous passes.
+	const maxIterations = 100
+	for iter := 0; iter < maxIterations; iter++ {
+		var countBefore int
+		err := tx.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM entity_closure WHERE tenant_id = $1", tenantID).Scan(&countBefore)
+		if err != nil {
+			return fmt.Errorf("failed to count closure entries: %w", err)
+		}
+
+		for _, rl := range filteredRels {
+			if err := r.updateClosureOnAdd(ctx, tx, tenantID, rl.entityType, rl.entityID, rl.subjectType, rl.subjectID); err != nil {
+				return fmt.Errorf("failed to rebuild closure for %s:%s -> %s:%s: %w",
+					rl.entityType, rl.entityID, rl.subjectType, rl.subjectID, err)
+			}
+		}
+
+		var countAfter int
+		err = tx.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM entity_closure WHERE tenant_id = $1", tenantID).Scan(&countAfter)
+		if err != nil {
+			return fmt.Errorf("failed to count closure entries: %w", err)
+		}
+
+		if countAfter == countBefore {
+			break // Fixed point reached
 		}
 	}
 
@@ -910,11 +940,17 @@ type ClosureEntry struct {
 }
 
 // updateClosureOnAdd updates the entity_closure table when a new relation is added.
+// When adding edge entity→subject, four sets of entries are created:
+//  1. Direct entry: entity→subject at depth 1
+//  2. Entity to subject's ancestors: entity→A for each ancestor A of subject
+//  3. Entity's descendants to subject: D→subject for each descendant D of entity
+//  4. Entity's descendants to subject's ancestors: D→A (cross product)
 func (r *PostgresRelationRepository) updateClosureOnAdd(
 	ctx context.Context,
 	tx *sql.Tx,
 	tenantID, entityType, entityID, subjectType, subjectID string,
 ) error {
+	// Step 1: Direct entry (entity→subject, depth=1)
 	directQuery := `
 		INSERT INTO entity_closure (tenant_id, descendant_type, descendant_id, ancestor_type, ancestor_id, depth)
 		VALUES ($1, $2, $3, $4, $5, 1)
@@ -925,46 +961,141 @@ func (r *PostgresRelationRepository) updateClosureOnAdd(
 		return fmt.Errorf("failed to insert direct closure: %w", err)
 	}
 
-	transitiveQuery := `
+	// Step 2: Entity to subject's ancestors (entity→A, depth=A.depth+1)
+	entityToAncestorsQuery := `
 		INSERT INTO entity_closure (tenant_id, descendant_type, descendant_id, ancestor_type, ancestor_id, depth)
 		SELECT $1, $2, $3, ancestor_type, ancestor_id, depth + 1
 		FROM entity_closure
 		WHERE tenant_id = $1 AND descendant_type = $4 AND descendant_id = $5
 		ON CONFLICT DO NOTHING
 	`
-	_, err = tx.ExecContext(ctx, transitiveQuery, tenantID, entityType, entityID, subjectType, subjectID)
+	_, err = tx.ExecContext(ctx, entityToAncestorsQuery, tenantID, entityType, entityID, subjectType, subjectID)
 	if err != nil {
-		return fmt.Errorf("failed to insert transitive closures: %w", err)
+		return fmt.Errorf("failed to insert entity-to-ancestor closures: %w", err)
+	}
+
+	// Step 3: Entity's descendants to subject (D→subject, depth=D.depth+1)
+	descendantsToSubjectQuery := `
+		INSERT INTO entity_closure (tenant_id, descendant_type, descendant_id, ancestor_type, ancestor_id, depth)
+		SELECT $1, descendant_type, descendant_id, $4, $5, depth + 1
+		FROM entity_closure
+		WHERE tenant_id = $1 AND ancestor_type = $2 AND ancestor_id = $3
+		ON CONFLICT DO NOTHING
+	`
+	_, err = tx.ExecContext(ctx, descendantsToSubjectQuery, tenantID, entityType, entityID, subjectType, subjectID)
+	if err != nil {
+		return fmt.Errorf("failed to insert descendant-to-subject closures: %w", err)
+	}
+
+	// Step 4: Entity's descendants to subject's ancestors (D→A, depth=D.depth+A.depth+1)
+	crossQuery := `
+		INSERT INTO entity_closure (tenant_id, descendant_type, descendant_id, ancestor_type, ancestor_id, depth)
+		SELECT $1, d.descendant_type, d.descendant_id, a.ancestor_type, a.ancestor_id, d.depth + a.depth + 1
+		FROM entity_closure d
+		CROSS JOIN entity_closure a
+		WHERE d.tenant_id = $1 AND d.ancestor_type = $2 AND d.ancestor_id = $3
+		  AND a.tenant_id = $1 AND a.descendant_type = $4 AND a.descendant_id = $5
+		ON CONFLICT DO NOTHING
+	`
+	_, err = tx.ExecContext(ctx, crossQuery, tenantID, entityType, entityID, subjectType, subjectID)
+	if err != nil {
+		return fmt.Errorf("failed to insert cross closures: %w", err)
 	}
 
 	return nil
 }
 
 // updateClosureOnDelete updates the entity_closure table when a relation is deleted.
-// Deletes the direct entry and all transitive entries that were reachable only through this edge.
+// Uses a partial rebuild strategy:
+//  1. Collect all affected descendants (entity itself + its descendants in the closure table)
+//  2. Delete ALL closure entries where those descendants are the descendant side
+//  3. Rebuild closure entries for those descendants from the remaining relations
+//
+// This approach correctly handles DAGs (multiple paths) and descendant cleanup.
 func (r *PostgresRelationRepository) updateClosureOnDelete(
 	ctx context.Context,
 	tx *sql.Tx,
 	tenantID, entityType, entityID, subjectType, subjectID string,
 ) error {
-	// Delete the direct entry AND all transitive entries where an ancestor of the
-	// subject was connected to this entity through the subject.
-	query := `
-		DELETE FROM entity_closure
-		WHERE tenant_id = $1
-		  AND descendant_type = $2 AND descendant_id = $3
-		  AND (
-		    (ancestor_type = $4 AND ancestor_id = $5)
-		    OR
-		    (ancestor_type, ancestor_id) IN (
-		      SELECT ancestor_type, ancestor_id FROM entity_closure
-		      WHERE tenant_id = $1 AND descendant_type = $4 AND descendant_id = $5
-		    )
-		  )
-	`
-	_, err := tx.ExecContext(ctx, query, tenantID, entityType, entityID, subjectType, subjectID)
+	// Step 1: Collect all affected descendants (entity itself + entities that have entity as ancestor)
+	type descEntry struct {
+		descType string
+		descID   string
+	}
+	affectedDescendants := []descEntry{{entityType, entityID}}
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT descendant_type, descendant_id
+		FROM entity_closure
+		WHERE tenant_id = $1 AND ancestor_type = $2 AND ancestor_id = $3
+	`, tenantID, entityType, entityID)
 	if err != nil {
-		return fmt.Errorf("failed to delete closure: %w", err)
+		return fmt.Errorf("failed to query descendants: %w", err)
+	}
+	for rows.Next() {
+		var d descEntry
+		if err := rows.Scan(&d.descType, &d.descID); err != nil {
+			rows.Close()
+			return fmt.Errorf("failed to scan descendant: %w", err)
+		}
+		affectedDescendants = append(affectedDescendants, d)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating descendants: %w", err)
+	}
+
+	// Step 2: Delete ALL closure entries for affected descendants
+	for _, d := range affectedDescendants {
+		_, err := tx.ExecContext(ctx, `
+			DELETE FROM entity_closure
+			WHERE tenant_id = $1 AND descendant_type = $2 AND descendant_id = $3
+		`, tenantID, d.descType, d.descID)
+		if err != nil {
+			return fmt.Errorf("failed to delete closure for %s:%s: %w", d.descType, d.descID, err)
+		}
+	}
+
+	// Step 3: Rebuild closure entries for affected descendants from remaining relations
+	for _, d := range affectedDescendants {
+		relRows, err := tx.QueryContext(ctx, `
+			SELECT subject_type, subject_id FROM relations
+			WHERE tenant_id = $1 AND entity_type = $2 AND entity_id = $3
+			  AND COALESCE(subject_relation, '') = ''
+		`, tenantID, d.descType, d.descID)
+		if err != nil {
+			return fmt.Errorf("failed to query relations for rebuild: %w", err)
+		}
+
+		type subj struct {
+			subjectType string
+			subjectID   string
+		}
+		var subjects []subj
+		for relRows.Next() {
+			var s subj
+			if err := relRows.Scan(&s.subjectType, &s.subjectID); err != nil {
+				relRows.Close()
+				return fmt.Errorf("failed to scan relation: %w", err)
+			}
+			subjects = append(subjects, s)
+		}
+		relRows.Close()
+		if err := relRows.Err(); err != nil {
+			return fmt.Errorf("error iterating relations: %w", err)
+		}
+
+		for _, s := range subjects {
+			// Skip the just-deleted relation
+			if d.descType == entityType && d.descID == entityID &&
+				s.subjectType == subjectType && s.subjectID == subjectID {
+				continue
+			}
+			if err := r.updateClosureOnAdd(ctx, tx, tenantID, d.descType, d.descID, s.subjectType, s.subjectID); err != nil {
+				return fmt.Errorf("failed to rebuild closure for %s:%s -> %s:%s: %w",
+					d.descType, d.descID, s.subjectType, s.subjectID, err)
+			}
+		}
 	}
 
 	return nil
