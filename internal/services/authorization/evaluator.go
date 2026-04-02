@@ -135,6 +135,11 @@ func (e *Evaluator) evaluateRelation(
 	req *EvaluationRequest,
 	rule *entities.RelationRule,
 ) (bool, error) {
+	// Check depth limit to prevent infinite recursion from cyclic computed usersets
+	if req.Depth >= MaxDepth {
+		return false, fmt.Errorf("maximum recursion depth exceeded (depth: %d)", req.Depth)
+	}
+
 	// Check if the relation name actually refers to a permission in the same entity.
 	// This supports permission composition like "permission manage = edit"
 	// where "edit" is another permission.

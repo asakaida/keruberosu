@@ -5,12 +5,18 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/asakaida/keruberosu/internal/entities"
 	"github.com/asakaida/keruberosu/internal/infrastructure/database"
 	"github.com/asakaida/keruberosu/internal/repositories"
 	"github.com/oklog/ulid/v2"
+)
+
+var (
+	ulidEntropy     = ulid.Monotonic(rand.Reader, 0)
+	ulidEntropyMu   sync.Mutex
 )
 
 // PostgresSchemaRepository implements SchemaRepository using PostgreSQL
@@ -25,7 +31,9 @@ func NewPostgresSchemaRepository(cluster *database.DBCluster) repositories.Schem
 
 // Create creates a new schema version for a tenant and returns the version ID
 func (r *PostgresSchemaRepository) Create(ctx context.Context, tenantID string, schemaDSL string) (string, error) {
-	id, err := ulid.New(ulid.Timestamp(time.Now()), rand.Reader)
+	ulidEntropyMu.Lock()
+	id, err := ulid.New(ulid.Timestamp(time.Now()), ulidEntropy)
+	ulidEntropyMu.Unlock()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate version ID: %w", err)
 	}
@@ -50,7 +58,7 @@ func (r *PostgresSchemaRepository) GetLatestVersion(ctx context.Context, tenantI
 		SELECT version, schema_dsl, created_at, updated_at
 		FROM schemas
 		WHERE tenant_id = $1
-		ORDER BY created_at DESC
+		ORDER BY version DESC
 		LIMIT 1
 	`
 	var version, schemaDSL string

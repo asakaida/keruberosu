@@ -109,7 +109,7 @@ func (r *PostgresRelationRepository) Delete(ctx context.Context, tenantID string
 		return fmt.Errorf("failed to delete relation: %w", err)
 	}
 
-	if !r.closureExcludedRelations[tuple.Relation] {
+	if !r.closureExcludedRelations[tuple.Relation] && tuple.SubjectRelation == "" {
 		if err := r.updateClosureOnDelete(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID); err != nil {
 			return fmt.Errorf("failed to update closure table: %w", err)
 		}
@@ -557,7 +557,7 @@ func (r *PostgresRelationRepository) BatchDelete(ctx context.Context, tenantID s
 			return fmt.Errorf("failed to delete relation: %w", err)
 		}
 
-		if !r.closureExcludedRelations[tuple.Relation] {
+		if !r.closureExcludedRelations[tuple.Relation] && tuple.SubjectRelation == "" {
 			if err := r.updateClosureOnDelete(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID); err != nil {
 				return fmt.Errorf("failed to update closure table: %w", err)
 			}
@@ -585,7 +585,7 @@ func (r *PostgresRelationRepository) DeleteByFilter(ctx context.Context, tenantI
 	defer tx.Rollback()
 
 	// First, SELECT tuples that will be deleted (for closure table cleanup)
-	selectQuery := `SELECT entity_type, entity_id, relation, subject_type, subject_id FROM relations WHERE tenant_id = $1`
+	selectQuery := `SELECT entity_type, entity_id, relation, subject_type, subject_id, COALESCE(subject_relation, '') FROM relations WHERE tenant_id = $1`
 	deleteQuery := `DELETE FROM relations WHERE tenant_id = $1`
 	args := []interface{}{tenantID}
 	argIdx := 2
@@ -639,12 +639,12 @@ func (r *PostgresRelationRepository) DeleteByFilter(ctx context.Context, tenantI
 		return fmt.Errorf("failed to query relations for closure cleanup: %w", err)
 	}
 	type tupleRef struct {
-		entityType, entityID, relation, subjectType, subjectID string
+		entityType, entityID, relation, subjectType, subjectID, subjectRelation string
 	}
 	var refs []tupleRef
 	for rows.Next() {
 		var ref tupleRef
-		if err := rows.Scan(&ref.entityType, &ref.entityID, &ref.relation, &ref.subjectType, &ref.subjectID); err != nil {
+		if err := rows.Scan(&ref.entityType, &ref.entityID, &ref.relation, &ref.subjectType, &ref.subjectID, &ref.subjectRelation); err != nil {
 			rows.Close()
 			return fmt.Errorf("failed to scan tuple for closure cleanup: %w", err)
 		}
@@ -663,7 +663,7 @@ func (r *PostgresRelationRepository) DeleteByFilter(ctx context.Context, tenantI
 
 	// Update closure table for each deleted tuple
 	for _, ref := range refs {
-		if !r.closureExcludedRelations[ref.relation] {
+		if !r.closureExcludedRelations[ref.relation] && ref.subjectRelation == "" {
 			if err := r.updateClosureOnDelete(ctx, tx, tenantID, ref.entityType, ref.entityID, ref.subjectType, ref.subjectID); err != nil {
 				return fmt.Errorf("failed to update closure table: %w", err)
 			}
@@ -873,7 +873,7 @@ func (r *PostgresRelationRepository) DeleteWithClosure(ctx context.Context, tena
 		return "", fmt.Errorf("failed to delete relation: %w", err)
 	}
 
-	if !r.closureExcludedRelations[tuple.Relation] {
+	if !r.closureExcludedRelations[tuple.Relation] && tuple.SubjectRelation == "" {
 		err = r.updateClosureOnDelete(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID)
 		if err != nil {
 			return "", fmt.Errorf("failed to update closure: %w", err)
@@ -1291,7 +1291,7 @@ func (r *PostgresRelationRepository) LookupAccessibleEntitiesComplex(ctx context
 			// relation name (e.g., "parent") instead of the unfiltered closure table,
 			// ensuring only ancestors reachable through the correct relation are found.
 			subQueries = append(subQueries, fmt.Sprintf(`
-				SELECT DISTINCT hier.ancestor_id AS entity_id
+				SELECT DISTINCT hier.descendant_id AS entity_id
 				FROM (
 				  WITH RECURSIVE hier_walk AS (
 				    SELECT entity_id AS descendant_id, subject_type AS ancestor_type, subject_id AS ancestor_id, 1 AS depth
