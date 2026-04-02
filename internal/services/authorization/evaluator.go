@@ -55,6 +55,7 @@ type EvaluationRequest struct {
 	EntityID         string                    // Resource entity ID
 	SubjectType      string                    // Subject type
 	SubjectID        string                    // Subject ID
+	SubjectRelation  string                    // Optional subject relation for subject set checks
 	ContextualTuples []*entities.RelationTuple // Temporary tuples for this request
 	Depth            int                       // Current recursion depth
 }
@@ -141,6 +142,33 @@ func (e *Evaluator) evaluateRelation(
 		}
 	}
 
+	// If the request includes a SubjectRelation (subject set check), we need to
+	// match tuples where the subject_relation matches exactly. For example,
+	// checking if "team:engineering#member" has permission means finding a tuple
+	// like "document:doc1#viewer@team:engineering#member".
+	if req.SubjectRelation != "" {
+		// Check contextual tuples for subject set match
+		for _, tuple := range req.ContextualTuples {
+			if tuple.EntityType == req.EntityType &&
+				tuple.EntityID == req.EntityID &&
+				tuple.Relation == rule.Relation &&
+				tuple.SubjectType == req.SubjectType &&
+				tuple.SubjectID == req.SubjectID &&
+				tuple.SubjectRelation == req.SubjectRelation {
+				return true, nil
+			}
+		}
+
+		// Check database for subject set match
+		exists, err := e.relationRepo.ExistsWithSubjectRelation(ctx, req.TenantID,
+			req.EntityType, req.EntityID, rule.Relation,
+			req.SubjectType, req.SubjectID, req.SubjectRelation)
+		if err != nil {
+			return false, fmt.Errorf("failed to check relation existence with subject relation: %w", err)
+		}
+		return exists, nil
+	}
+
 	// Check in contextual tuples first for direct match
 	for _, tuple := range req.ContextualTuples {
 		if tuple.EntityType == req.EntityType &&
@@ -155,9 +183,9 @@ func (e *Evaluator) evaluateRelation(
 
 	// Check in database for direct match using Exists (more efficient than Read)
 	exists, err := e.relationRepo.Exists(ctx, req.TenantID, &entities.RelationTuple{
-		EntityType: req.EntityType,
-		EntityID:   req.EntityID,
-		Relation:   rule.Relation,
+		EntityType:  req.EntityType,
+		EntityID:    req.EntityID,
+		Relation:    rule.Relation,
 		SubjectType: req.SubjectType,
 		SubjectID:   req.SubjectID,
 	})

@@ -439,3 +439,104 @@ func TestPermissionHandler_Check_CheckerError(t *testing.T) {
 		t.Errorf("expected Internal error, got %v", st.Code())
 	}
 }
+
+func TestPermissionHandler_Check_WithSubjectRelation(t *testing.T) {
+	mockChecker := &mockChecker{
+		checkFunc: func(ctx context.Context, req *authorization.CheckRequest) (*authorization.CheckResponse, error) {
+			if req.SubjectRelation != "member" {
+				t.Errorf("expected SubjectRelation 'member', got %q", req.SubjectRelation)
+			}
+			return &authorization.CheckResponse{Allowed: true}, nil
+		},
+	}
+
+	handler := NewPermissionHandler(
+		mockChecker,
+		&mockExpander{},
+		&mockLookup{},
+		&mockSchemaService{},
+	)
+
+	req := &pb.PermissionCheckRequest{
+		Entity:     &pb.Entity{Type: "document", Id: "1"},
+		Permission: "view",
+		Subject:    &pb.Subject{Type: "team", Id: "engineering", Relation: "member"},
+	}
+
+	resp, err := handler.Check(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.Can != pb.CheckResult_CHECK_RESULT_ALLOWED {
+		t.Errorf("expected ALLOWED, got %v", resp.Can)
+	}
+}
+
+func TestPermissionHandler_SubjectPermission_IncludesRelations(t *testing.T) {
+	mockChecker := &mockChecker{
+		checkFunc: func(ctx context.Context, req *authorization.CheckRequest) (*authorization.CheckResponse, error) {
+			switch req.Permission {
+			case "owner", "view", "edit":
+				return &authorization.CheckResponse{Allowed: true}, nil
+			case "editor":
+				return &authorization.CheckResponse{Allowed: false}, nil
+			default:
+				return &authorization.CheckResponse{Allowed: false}, nil
+			}
+		},
+	}
+
+	mockSchemaService := &mockSchemaService{
+		getSchemaEntityFunc: func(ctx context.Context, tenantID string, version string) (*entities.Schema, error) {
+			return &entities.Schema{
+				TenantID: tenantID,
+				Entities: []*entities.Entity{
+					{
+						Name: "document",
+						Relations: []*entities.Relation{
+							{Name: "owner"},
+							{Name: "editor"},
+						},
+						Permissions: []*entities.Permission{
+							{Name: "view"},
+							{Name: "edit"},
+						},
+					},
+				},
+			}, nil
+		},
+	}
+
+	handler := NewPermissionHandler(
+		mockChecker,
+		&mockExpander{},
+		&mockLookup{},
+		mockSchemaService,
+	)
+
+	req := &pb.PermissionSubjectPermissionRequest{
+		Entity:  &pb.Entity{Type: "document", Id: "1"},
+		Subject: &pb.Subject{Type: "user", Id: "alice"},
+	}
+
+	resp, err := handler.SubjectPermission(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(resp.Results) != 4 {
+		t.Errorf("expected 4 results (2 relations + 2 permissions), got %d", len(resp.Results))
+	}
+
+	expectedAllowed := []string{"owner", "view", "edit"}
+	for _, name := range expectedAllowed {
+		if resp.Results[name] != pb.CheckResult_CHECK_RESULT_ALLOWED {
+			t.Errorf("expected %s to be ALLOWED, got %v", name, resp.Results[name])
+		}
+	}
+
+	if resp.Results["editor"] != pb.CheckResult_CHECK_RESULT_DENIED {
+		t.Errorf("expected editor to be DENIED, got %v", resp.Results["editor"])
+	}
+}

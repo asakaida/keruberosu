@@ -71,6 +71,7 @@ func (h *PermissionHandler) Check(ctx context.Context, req *pb.PermissionCheckRe
 		Permission:       req.Permission,
 		SubjectType:      req.Subject.Type,
 		SubjectID:        req.Subject.Id,
+		SubjectRelation:  req.Subject.GetRelation(),
 		ContextualTuples: contextualTuples,
 	}
 
@@ -275,6 +276,8 @@ func (h *PermissionHandler) SubjectPermission(ctx context.Context, req *pb.Permi
 	}
 
 	results := make(map[string]pb.CheckResult)
+
+	// Check all permissions defined in the schema
 	for _, permission := range entity.Permissions {
 		checkReq := &authorization.CheckRequest{
 			TenantID:         tenantID,
@@ -284,6 +287,7 @@ func (h *PermissionHandler) SubjectPermission(ctx context.Context, req *pb.Permi
 			Permission:       permission.Name,
 			SubjectType:      req.Subject.Type,
 			SubjectID:        req.Subject.Id,
+			SubjectRelation:  req.Subject.GetRelation(),
 			ContextualTuples: contextualTuples,
 		}
 
@@ -296,6 +300,33 @@ func (h *PermissionHandler) SubjectPermission(ctx context.Context, req *pb.Permi
 			results[permission.Name] = pb.CheckResult_CHECK_RESULT_ALLOWED
 		} else {
 			results[permission.Name] = pb.CheckResult_CHECK_RESULT_DENIED
+		}
+	}
+
+	// Also check all relations (e.g., "owner", "editor") since they represent
+	// direct access grants that clients may want to know about.
+	for _, relation := range entity.Relations {
+		checkReq := &authorization.CheckRequest{
+			TenantID:         tenantID,
+			SchemaVersion:    schemaVersion,
+			EntityType:       req.Entity.Type,
+			EntityID:         req.Entity.Id,
+			Permission:       relation.Name,
+			SubjectType:      req.Subject.Type,
+			SubjectID:        req.Subject.Id,
+			SubjectRelation:  req.Subject.GetRelation(),
+			ContextualTuples: contextualTuples,
+		}
+
+		checkResp, err := h.checker.Check(ctx, checkReq)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to check relation %s: %v", relation.Name, err)
+		}
+
+		if checkResp.Allowed {
+			results[relation.Name] = pb.CheckResult_CHECK_RESULT_ALLOWED
+		} else {
+			results[relation.Name] = pb.CheckResult_CHECK_RESULT_DENIED
 		}
 	}
 

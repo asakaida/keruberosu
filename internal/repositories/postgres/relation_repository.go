@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -63,7 +62,7 @@ func (r *PostgresRelationRepository) Write(ctx context.Context, tenantID string,
 
 	if !r.closureExcludedRelations[tuple.Relation] {
 		if err := r.updateClosureOnAdd(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID); err != nil {
-			log.Printf("WARNING: closure table update failed: %v", err)
+			return fmt.Errorf("failed to update closure table: %w", err)
 		}
 	}
 
@@ -107,7 +106,7 @@ func (r *PostgresRelationRepository) Delete(ctx context.Context, tenantID string
 
 	if !r.closureExcludedRelations[tuple.Relation] {
 		if err := r.updateClosureOnDelete(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID); err != nil {
-			log.Printf("WARNING: closure table update failed: %v", err)
+			return fmt.Errorf("failed to update closure table: %w", err)
 		}
 	}
 
@@ -463,7 +462,7 @@ func (r *PostgresRelationRepository) BatchWrite(ctx context.Context, tenantID st
 
 		if !r.closureExcludedRelations[tuple.Relation] {
 			if err := r.updateClosureOnAdd(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID); err != nil {
-				log.Printf("WARNING: closure table update failed: %v", err)
+				return fmt.Errorf("failed to update closure table: %w", err)
 			}
 		}
 	}
@@ -503,7 +502,7 @@ func (r *PostgresRelationRepository) BatchWriteInTx(ctx context.Context, tx *sql
 		}
 		if !r.closureExcludedRelations[tuple.Relation] {
 			if err := r.updateClosureOnAdd(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID); err != nil {
-				log.Printf("WARNING: closure table update failed: %v", err)
+				return fmt.Errorf("failed to update closure table: %w", err)
 			}
 		}
 	}
@@ -554,7 +553,7 @@ func (r *PostgresRelationRepository) BatchDelete(ctx context.Context, tenantID s
 
 		if !r.closureExcludedRelations[tuple.Relation] {
 			if err := r.updateClosureOnDelete(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID); err != nil {
-				log.Printf("WARNING: closure table update failed: %v", err)
+				return fmt.Errorf("failed to update closure table: %w", err)
 			}
 		}
 	}
@@ -660,7 +659,7 @@ func (r *PostgresRelationRepository) DeleteByFilter(ctx context.Context, tenantI
 	for _, ref := range refs {
 		if !r.closureExcludedRelations[ref.relation] {
 			if err := r.updateClosureOnDelete(ctx, tx, tenantID, ref.entityType, ref.entityID, ref.subjectType, ref.subjectID); err != nil {
-				log.Printf("WARNING: closure table update failed during filter delete: %v", err)
+				return fmt.Errorf("failed to update closure table: %w", err)
 			}
 		}
 	}
@@ -954,7 +953,8 @@ func (r *PostgresRelationRepository) updateClosureOnAdd(
 	directQuery := `
 		INSERT INTO entity_closure (tenant_id, descendant_type, descendant_id, ancestor_type, ancestor_id, depth)
 		VALUES ($1, $2, $3, $4, $5, 1)
-		ON CONFLICT DO NOTHING
+		ON CONFLICT (tenant_id, descendant_type, descendant_id, ancestor_type, ancestor_id)
+		DO UPDATE SET depth = LEAST(entity_closure.depth, EXCLUDED.depth)
 	`
 	_, err := tx.ExecContext(ctx, directQuery, tenantID, entityType, entityID, subjectType, subjectID)
 	if err != nil {
@@ -967,7 +967,8 @@ func (r *PostgresRelationRepository) updateClosureOnAdd(
 		SELECT $1, $2, $3, ancestor_type, ancestor_id, depth + 1
 		FROM entity_closure
 		WHERE tenant_id = $1 AND descendant_type = $4 AND descendant_id = $5
-		ON CONFLICT DO NOTHING
+		ON CONFLICT (tenant_id, descendant_type, descendant_id, ancestor_type, ancestor_id)
+		DO UPDATE SET depth = LEAST(entity_closure.depth, EXCLUDED.depth)
 	`
 	_, err = tx.ExecContext(ctx, entityToAncestorsQuery, tenantID, entityType, entityID, subjectType, subjectID)
 	if err != nil {
@@ -980,7 +981,8 @@ func (r *PostgresRelationRepository) updateClosureOnAdd(
 		SELECT $1, descendant_type, descendant_id, $4, $5, depth + 1
 		FROM entity_closure
 		WHERE tenant_id = $1 AND ancestor_type = $2 AND ancestor_id = $3
-		ON CONFLICT DO NOTHING
+		ON CONFLICT (tenant_id, descendant_type, descendant_id, ancestor_type, ancestor_id)
+		DO UPDATE SET depth = LEAST(entity_closure.depth, EXCLUDED.depth)
 	`
 	_, err = tx.ExecContext(ctx, descendantsToSubjectQuery, tenantID, entityType, entityID, subjectType, subjectID)
 	if err != nil {
@@ -995,7 +997,8 @@ func (r *PostgresRelationRepository) updateClosureOnAdd(
 		CROSS JOIN entity_closure a
 		WHERE d.tenant_id = $1 AND d.ancestor_type = $2 AND d.ancestor_id = $3
 		  AND a.tenant_id = $1 AND a.descendant_type = $4 AND a.descendant_id = $5
-		ON CONFLICT DO NOTHING
+		ON CONFLICT (tenant_id, descendant_type, descendant_id, ancestor_type, ancestor_id)
+		DO UPDATE SET depth = LEAST(entity_closure.depth, EXCLUDED.depth)
 	`
 	_, err = tx.ExecContext(ctx, crossQuery, tenantID, entityType, entityID, subjectType, subjectID)
 	if err != nil {

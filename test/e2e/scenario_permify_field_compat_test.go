@@ -148,14 +148,19 @@ entity document {
 	if err != nil {
 		t.Fatalf("SubjectPermission failed: %v", err)
 	}
-	if len(subjPermResp.Results) != 2 {
-		t.Errorf("Expected 2 permissions (view, edit), got %d", len(subjPermResp.Results))
+	// SubjectPermission now returns both permissions and relations:
+	// permissions: view=ALLOWED, edit=ALLOWED; relations: owner=ALLOWED, viewer=DENIED
+	if len(subjPermResp.Results) != 4 {
+		t.Errorf("Expected 4 results (2 permissions + 2 relations), got %d", len(subjPermResp.Results))
 	}
 	if subjPermResp.Results["view"] != pb.CheckResult_CHECK_RESULT_ALLOWED {
 		t.Error("alice should have view permission")
 	}
 	if subjPermResp.Results["edit"] != pb.CheckResult_CHECK_RESULT_ALLOWED {
 		t.Error("alice should have edit permission")
+	}
+	if subjPermResp.Results["owner"] != pb.CheckResult_CHECK_RESULT_ALLOWED {
+		t.Error("alice should have owner relation")
 	}
 	t.Log("✓ SubjectPermission with tenant_id works correctly")
 

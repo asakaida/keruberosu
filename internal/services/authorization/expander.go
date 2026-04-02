@@ -195,6 +195,9 @@ func (e *Expander) expandRelation(
 
 	for _, tuple := range tuples {
 		subjectRef := fmt.Sprintf("%s:%s", tuple.SubjectType, tuple.SubjectID)
+		if tuple.SubjectRelation != "" {
+			subjectRef += "#" + tuple.SubjectRelation
+		}
 		node.Children = append(node.Children, &ExpandNode{
 			Type:     "leaf",
 			Entity:   entityRef,
@@ -289,20 +292,30 @@ func (e *Expander) expandHierarchical(
 	}
 
 	for _, tuple := range tuples {
-		// Get the parent permission definition
-		parentPermission := schema.GetPermission(tuple.SubjectType, rule.Permission)
-		if parentPermission == nil {
-			continue // Permission not found in parent entity, skip
-		}
-
-		// Recursively expand the parent permission
 		parentRef := fmt.Sprintf("%s:%s", tuple.SubjectType, tuple.SubjectID)
-		parentNode, err := e.expandRule(ctx, tenantID, schema, parentRef, parentPermission.Rule, depth+1)
-		if err != nil {
-			return nil, fmt.Errorf("failed to expand hierarchical permission: %w", err)
+
+		// First, check if it's a permission on the parent entity
+		parentPermission := schema.GetPermission(tuple.SubjectType, rule.Permission)
+		if parentPermission != nil {
+			// Recursively expand the parent permission
+			parentNode, err := e.expandRule(ctx, tenantID, schema, parentRef, parentPermission.Rule, depth+1)
+			if err != nil {
+				return nil, fmt.Errorf("failed to expand hierarchical permission: %w", err)
+			}
+			node.Children = append(node.Children, parentNode)
+			continue
 		}
 
-		node.Children = append(node.Children, parentNode)
+		// If not a permission, check if it's a relation on the parent entity
+		parentEntity := schema.GetEntity(tuple.SubjectType)
+		if parentEntity != nil && parentEntity.GetRelation(rule.Permission) != nil {
+			relationNode, err := e.expandRelation(ctx, tenantID, schema, parentRef,
+				&entities.RelationRule{Relation: rule.Permission}, depth+1)
+			if err != nil {
+				return nil, fmt.Errorf("failed to expand hierarchical relation: %w", err)
+			}
+			node.Children = append(node.Children, relationNode)
+		}
 	}
 
 	return node, nil

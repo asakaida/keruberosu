@@ -451,6 +451,13 @@ func extractRelationsFromRuleWithContext(
 		relations = append(relations, r.Relation)
 
 	case *entities.LogicalRule:
+		// Only "or" can be resolved via SQL UNION. "and" and "not" require
+		// semantic evaluation (intersection/exclusion), so they must fall back
+		// to the Check loop.
+		if r.Operator == "and" || r.Operator == "not" {
+			hasUnresolvable = true
+			return
+		}
 		lr, lp, lu := extractRelationsFromRuleWithContext(schema, entityType, r.Left, visited)
 		relations = append(relations, lr...)
 		parentRelations = append(parentRelations, lp...)

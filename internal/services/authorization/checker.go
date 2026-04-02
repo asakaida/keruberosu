@@ -36,6 +36,7 @@ type CheckRequest struct {
 	Permission       string                    // Permission to check (e.g., "view", "edit")
 	SubjectType      string                    // Subject type (e.g., "user")
 	SubjectID        string                    // Subject ID (e.g., "alice")
+	SubjectRelation  string                    // Optional subject relation (e.g., "member" for subject set checks)
 	ContextualTuples []*entities.RelationTuple // Temporary relation tuples for this check
 	SnapshotToken    string                    // Optional snapshot token for cache consistency
 }
@@ -73,7 +74,7 @@ func NewCheckerWithCache(
 // generateCacheKey generates a cache key for the check request
 func (c *Checker) generateCacheKey(req *CheckRequest, snapshotToken string) string {
 	// Create a key from the request parameters and snapshot token
-	keyData := fmt.Sprintf("%s:%s:%s:%s:%s:%s:%s:%s",
+	keyData := fmt.Sprintf("%s:%s:%s:%s:%s:%s:%s:%s:%s",
 		req.TenantID,
 		req.SchemaVersion,
 		req.EntityType,
@@ -81,6 +82,7 @@ func (c *Checker) generateCacheKey(req *CheckRequest, snapshotToken string) stri
 		req.Permission,
 		req.SubjectType,
 		req.SubjectID,
+		req.SubjectRelation,
 		snapshotToken,
 	)
 	// Hash the key to keep it short
@@ -140,10 +142,20 @@ func (c *Checker) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 		return nil, fmt.Errorf("entity type %s not found in schema", req.EntityType)
 	}
 
-	// Get permission definition
+	// Get permission definition.
+	// If no permission is found, check if it's a relation name and evaluate
+	// as a direct relation check. This supports SubjectPermission reporting
+	// on both permissions and relations.
 	permission := entity.GetPermission(req.Permission)
 	if permission == nil {
-		return nil, fmt.Errorf("permission %s not found in entity %s", req.Permission, req.EntityType)
+		if entity.GetRelation(req.Permission) != nil {
+			permission = &entities.Permission{
+				Name: req.Permission,
+				Rule: &entities.RelationRule{Relation: req.Permission},
+			}
+		} else {
+			return nil, fmt.Errorf("permission %s not found in entity %s", req.Permission, req.EntityType)
+		}
 	}
 
 	// Create evaluation request
@@ -154,6 +166,7 @@ func (c *Checker) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 		EntityID:         req.EntityID,
 		SubjectType:      req.SubjectType,
 		SubjectID:        req.SubjectID,
+		SubjectRelation:  req.SubjectRelation,
 		ContextualTuples: req.ContextualTuples,
 		Depth:            0, // Start at depth 0
 	}
@@ -211,7 +224,9 @@ func (c *Checker) CheckMultiple(ctx context.Context, req *CheckRequest, permissi
 			Permission:       permission,
 			SubjectType:      req.SubjectType,
 			SubjectID:        req.SubjectID,
+			SubjectRelation:  req.SubjectRelation,
 			ContextualTuples: req.ContextualTuples,
+			SnapshotToken:    req.SnapshotToken,
 		}
 
 		resp, err := c.Check(ctx, checkReq)

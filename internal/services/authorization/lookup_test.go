@@ -1069,3 +1069,218 @@ func TestLookup_LookupSubject_LogicalPermission(t *testing.T) {
 		}
 	}
 }
+
+// --- Bug 1: Lookup optimized path and/not fallback ---
+
+func TestExtractRelationsFromRuleWithContext_LogicalAND(t *testing.T) {
+	// permission access = member and approved → hasUnresolvable=true
+	schema := &entities.Schema{
+		Entities: []*entities.Entity{
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "member", TargetType: "user"},
+					{Name: "approved", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "access",
+						Rule: &entities.LogicalRule{
+							Operator: "and",
+							Left:     &entities.RelationRule{Relation: "member"},
+							Right:    &entities.RelationRule{Relation: "approved"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	entity := schema.GetEntity("document")
+	permission := entity.GetPermission("access")
+
+	visited := make(map[string]bool)
+	relations, parentRelations, hasUnresolvable := extractRelationsFromRuleWithContext(
+		schema, "document", permission.Rule, visited)
+
+	if len(relations) != 0 {
+		t.Errorf("expected no relations for AND operator, got %v", relations)
+	}
+	if len(parentRelations) != 0 {
+		t.Errorf("expected no parentRelations, got %v", parentRelations)
+	}
+	if !hasUnresolvable {
+		t.Error("expected hasUnresolvable=true for AND operator, got false")
+	}
+}
+
+func TestExtractRelationsFromRuleWithContext_LogicalNOT(t *testing.T) {
+	// permission restricted = not blocked → hasUnresolvable=true
+	schema := &entities.Schema{
+		Entities: []*entities.Entity{
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "blocked", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "restricted",
+						Rule: &entities.LogicalRule{
+							Operator: "not",
+							Left:     &entities.RelationRule{Relation: "blocked"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	entity := schema.GetEntity("document")
+	permission := entity.GetPermission("restricted")
+
+	visited := make(map[string]bool)
+	relations, parentRelations, hasUnresolvable := extractRelationsFromRuleWithContext(
+		schema, "document", permission.Rule, visited)
+
+	if len(relations) != 0 {
+		t.Errorf("expected no relations for NOT operator, got %v", relations)
+	}
+	if len(parentRelations) != 0 {
+		t.Errorf("expected no parentRelations, got %v", parentRelations)
+	}
+	if !hasUnresolvable {
+		t.Error("expected hasUnresolvable=true for NOT operator, got false")
+	}
+}
+
+func TestExtractRelationsFromRuleWithContext_NestedANDinOR(t *testing.T) {
+	// permission view = owner or (member and approved) → hasUnresolvable=true
+	// The nested AND makes it unresolvable even though the top-level is OR
+	schema := &entities.Schema{
+		Entities: []*entities.Entity{
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "owner", TargetType: "user"},
+					{Name: "member", TargetType: "user"},
+					{Name: "approved", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.LogicalRule{
+							Operator: "or",
+							Left:     &entities.RelationRule{Relation: "owner"},
+							Right: &entities.LogicalRule{
+								Operator: "and",
+								Left:     &entities.RelationRule{Relation: "member"},
+								Right:    &entities.RelationRule{Relation: "approved"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	entity := schema.GetEntity("document")
+	permission := entity.GetPermission("view")
+
+	visited := make(map[string]bool)
+	relations, _, hasUnresolvable := extractRelationsFromRuleWithContext(
+		schema, "document", permission.Rule, visited)
+
+	// The OR's left side ("owner") is collected, but the right side (AND) sets unresolvable
+	if len(relations) != 1 || relations[0] != "owner" {
+		t.Errorf("expected relations=[\"owner\"], got %v", relations)
+	}
+	if !hasUnresolvable {
+		t.Error("expected hasUnresolvable=true due to nested AND in OR, got false")
+	}
+}
+
+func TestLookup_LookupEntity_ANDPermission_FallbackPath(t *testing.T) {
+	// Integration test: AND permission forces fallback path.
+	// permission access = member and approved
+	// alice has both member and approved → should be returned
+	// bob has only member → should NOT be returned
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "member", TargetType: "user"},
+					{Name: "approved", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "access",
+						Rule: &entities.LogicalRule{
+							Operator: "and",
+							Left:     &entities.RelationRule{Relation: "member"},
+							Right:    &entities.RelationRule{Relation: "approved"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			// alice has both member and approved
+			{EntityType: "document", EntityID: "doc1", Relation: "member", SubjectType: "user", SubjectID: "alice"},
+			{EntityType: "document", EntityID: "doc1", Relation: "approved", SubjectType: "user", SubjectID: "alice"},
+			// bob has only member
+			{EntityType: "document", EntityID: "doc1", Relation: "member", SubjectType: "user", SubjectID: "bob"},
+		},
+	}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo)
+
+	// Check alice: should have access (both member and approved)
+	reqAlice := &LookupEntityRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		Permission:  "access",
+		SubjectType: "user",
+		SubjectID:   "alice",
+	}
+
+	respAlice, err := lookup.LookupEntity(context.Background(), reqAlice)
+	if err != nil {
+		t.Fatalf("unexpected error for alice: %v", err)
+	}
+
+	if len(respAlice.EntityIDs) != 1 {
+		t.Errorf("expected 1 entity for alice, got %d: %v", len(respAlice.EntityIDs), respAlice.EntityIDs)
+	} else if respAlice.EntityIDs[0] != "doc1" {
+		t.Errorf("expected entity doc1 for alice, got %s", respAlice.EntityIDs[0])
+	}
+
+	// Check bob: should NOT have access (only member, not approved)
+	reqBob := &LookupEntityRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		Permission:  "access",
+		SubjectType: "user",
+		SubjectID:   "bob",
+	}
+
+	respBob, err := lookup.LookupEntity(context.Background(), reqBob)
+	if err != nil {
+		t.Fatalf("unexpected error for bob: %v", err)
+	}
+
+	if len(respBob.EntityIDs) != 0 {
+		t.Errorf("expected 0 entities for bob (only has member, not approved), got %d: %v",
+			len(respBob.EntityIDs), respBob.EntityIDs)
+	}
+}

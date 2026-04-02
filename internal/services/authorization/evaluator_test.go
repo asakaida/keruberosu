@@ -111,6 +111,16 @@ func (m *mockRelationRepository) Exists(ctx context.Context, tenantID string, tu
 }
 
 func (m *mockRelationRepository) ExistsWithSubjectRelation(ctx context.Context, tenantID string, entityType, entityID, relation, subjectType, subjectID, subjectRelation string) (bool, error) {
+	for _, tuple := range m.tuples {
+		if tuple.EntityType == entityType &&
+			tuple.EntityID == entityID &&
+			tuple.Relation == relation &&
+			tuple.SubjectType == subjectType &&
+			tuple.SubjectID == subjectID &&
+			tuple.SubjectRelation == subjectRelation {
+			return true, nil
+		}
+	}
 	return false, nil
 }
 
@@ -1177,5 +1187,119 @@ func TestEvaluator_PermissionChainThreeLevels(t *testing.T) {
 				t.Errorf("expected ALLOWED for %s (via owner chain), got DENIED", perm)
 			}
 		})
+	}
+}
+
+func TestEvaluator_EvaluateRelation_SubjectRelation(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "team"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "viewer", TargetType: "team"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.RelationRule{Relation: "viewer"},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{
+				EntityType:      "document",
+				EntityID:        "doc1",
+				Relation:        "viewer",
+				SubjectType:     "team",
+				SubjectID:       "engineering",
+				SubjectRelation: "member",
+			},
+		},
+	}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+
+	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
+
+	req := &EvaluationRequest{
+		TenantID:        "test-tenant",
+		EntityType:      "document",
+		EntityID:        "doc1",
+		SubjectType:     "team",
+		SubjectID:       "engineering",
+		SubjectRelation: "member",
+	}
+
+	rule := &entities.RelationRule{Relation: "viewer"}
+
+	result, err := evaluator.EvaluateRule(context.Background(), req, rule)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result {
+		t.Error("expected true (subject set with matching relation), got false")
+	}
+}
+
+func TestEvaluator_EvaluateRelation_SubjectRelation_NoMatch(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "team"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "viewer", TargetType: "team"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.RelationRule{Relation: "viewer"},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{
+				EntityType:      "document",
+				EntityID:        "doc1",
+				Relation:        "viewer",
+				SubjectType:     "team",
+				SubjectID:       "engineering",
+				SubjectRelation: "member",
+			},
+		},
+	}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+
+	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
+
+	req := &EvaluationRequest{
+		TenantID:        "test-tenant",
+		EntityType:      "document",
+		EntityID:        "doc1",
+		SubjectType:     "team",
+		SubjectID:       "engineering",
+		SubjectRelation: "admin",
+	}
+
+	rule := &entities.RelationRule{Relation: "viewer"}
+
+	result, err := evaluator.EvaluateRule(context.Background(), req, rule)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result {
+		t.Error("expected false (subject relation 'admin' does not match 'member'), got true")
 	}
 }

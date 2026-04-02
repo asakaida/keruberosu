@@ -757,3 +757,182 @@ func indexOfSubstring(s, substr string) int {
 	}
 	return -1
 }
+
+func TestExpander_Expand_HierarchicalRelation(t *testing.T) {
+	// Bug 4: When a hierarchical rule references a RELATION (not a permission)
+	// on the parent entity, the expander should correctly expand it.
+	// document: permission view = parent.owner
+	// folder: owner is a RELATION (not a permission)
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "folder",
+				Relations: []*entities.Relation{
+					{Name: "owner", TargetType: "user"},
+				},
+			},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "parent", TargetType: "folder"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.HierarchicalRule{
+							Relation:   "parent",
+							Permission: "owner",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			// doc1 parent is folder1
+			{
+				EntityType:  "document",
+				EntityID:    "doc1",
+				Relation:    "parent",
+				SubjectType: "folder",
+				SubjectID:   "folder1",
+			},
+			// alice is owner of folder1
+			{
+				EntityType:  "folder",
+				EntityID:    "folder1",
+				Relation:    "owner",
+				SubjectType: "user",
+				SubjectID:   "alice",
+			},
+		},
+	}
+
+	schemaService := &mockSchemaRepository{schema}
+	expander := NewExpander(schemaService, relationRepo)
+
+	req := &ExpandRequest{
+		TenantID:   "test-tenant",
+		EntityType: "document",
+		EntityID:   "doc1",
+		Permission: "view",
+	}
+
+	resp, err := expander.Expand(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should be a union node for the hierarchical rule
+	if resp.Tree.Type != "union" {
+		t.Errorf("expected union node, got %s", resp.Tree.Type)
+	}
+	if resp.Tree.Relation != "parent.owner" {
+		t.Errorf("expected relation 'parent.owner', got %s", resp.Tree.Relation)
+	}
+
+	// Should have one child (the folder1 owner expansion)
+	if len(resp.Tree.Children) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(resp.Tree.Children))
+	}
+
+	// The child should be the relation expansion of folder1's owner
+	childNode := resp.Tree.Children[0]
+	if childNode.Type != "union" {
+		t.Errorf("expected child to be union node, got %s", childNode.Type)
+	}
+	if childNode.Relation != "owner" {
+		t.Errorf("expected child relation 'owner', got %s", childNode.Relation)
+	}
+	if childNode.Entity != "folder:folder1" {
+		t.Errorf("expected child entity 'folder:folder1', got %s", childNode.Entity)
+	}
+
+	// Verify alice appears as a leaf
+	if len(childNode.Children) != 1 {
+		t.Fatalf("expected 1 leaf child, got %d", len(childNode.Children))
+	}
+	if childNode.Children[0].Subject != "user:alice" {
+		t.Errorf("expected subject 'user:alice', got %s", childNode.Children[0].Subject)
+	}
+}
+
+func TestExpander_Expand_SubjectRelation(t *testing.T) {
+	// Bug 5: When tuples have SubjectRelation set, the expanded tree should
+	// show the full subject reference including the #relation suffix.
+	// e.g., document:doc1#viewer@team:engineering#member should render as
+	// "team:engineering#member" not just "team:engineering"
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{Name: "team"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "viewer", TargetType: "team"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.RelationRule{Relation: "viewer"},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{
+				EntityType:      "document",
+				EntityID:        "doc1",
+				Relation:        "viewer",
+				SubjectType:     "team",
+				SubjectID:       "engineering",
+				SubjectRelation: "member",
+			},
+		},
+	}
+
+	schemaService := &mockSchemaRepository{schema}
+	expander := NewExpander(schemaService, relationRepo)
+
+	req := &ExpandRequest{
+		TenantID:   "test-tenant",
+		EntityType: "document",
+		EntityID:   "doc1",
+		Permission: "view",
+	}
+
+	resp, err := expander.Expand(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.Tree.Type != "union" {
+		t.Errorf("expected union node, got %s", resp.Tree.Type)
+	}
+	if resp.Tree.Relation != "viewer" {
+		t.Errorf("expected relation 'viewer', got %s", resp.Tree.Relation)
+	}
+
+	if len(resp.Tree.Children) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(resp.Tree.Children))
+	}
+
+	child := resp.Tree.Children[0]
+	if child.Type != "leaf" {
+		t.Errorf("expected leaf node, got %s", child.Type)
+	}
+
+	// The key assertion: subject should include the #member suffix
+	expectedSubject := "team:engineering#member"
+	if child.Subject != expectedSubject {
+		t.Errorf("expected subject '%s', got '%s'", expectedSubject, child.Subject)
+	}
+}
