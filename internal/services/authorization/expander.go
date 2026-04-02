@@ -107,7 +107,7 @@ func (e *Expander) expandRule(
 
 	switch r := rule.(type) {
 	case *entities.RelationRule:
-		return e.expandRelation(ctx, tenantID, entityRef, r)
+		return e.expandRelation(ctx, tenantID, schema, entityRef, r, depth)
 
 	case *entities.LogicalRule:
 		return e.expandLogical(ctx, tenantID, schema, entityRef, r, depth)
@@ -146,17 +146,31 @@ func (e *Expander) expandRule(
 	}
 }
 
-// expandRelation expands a relation-based rule by finding all subjects with that relation
+// expandRelation expands a relation-based rule by finding all subjects with that relation.
+// If the relation name refers to another permission, it expands that permission recursively.
 func (e *Expander) expandRelation(
 	ctx context.Context,
 	tenantID string,
+	schema *entities.Schema,
 	entityRef string,
 	rule *entities.RelationRule,
+	depth int,
 ) (*ExpandNode, error) {
 	// Parse entity reference
 	entityType, entityID, err := parseEntityRef(entityRef)
 	if err != nil {
 		return nil, err
+	}
+
+	// Check if the relation name refers to a permission (permission composition)
+	entity := schema.GetEntity(entityType)
+	if entity != nil {
+		isRelation := entity.GetRelation(rule.Relation) != nil
+		if !isRelation {
+			if perm := entity.GetPermission(rule.Relation); perm != nil {
+				return e.expandRule(ctx, tenantID, schema, entityRef, perm.Rule, depth+1)
+			}
+		}
 	}
 
 	// Query all tuples with this relation

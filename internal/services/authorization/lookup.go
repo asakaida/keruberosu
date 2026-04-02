@@ -433,6 +433,21 @@ func extractRelationsFromRuleWithContext(
 ) (relations []string, parentRelations []string, hasUnresolvable bool) {
 	switch r := rule.(type) {
 	case *entities.RelationRule:
+		// Check if the relation name refers to a permission (permission composition).
+		// If so, recursively expand the referenced permission's rule.
+		entity := schema.GetEntity(entityType)
+		if entity != nil {
+			isRelation := entity.GetRelation(r.Relation) != nil
+			if !isRelation {
+				if perm := entity.GetPermission(r.Relation); perm != nil {
+					pr, pp, pu := extractRelationsFromRuleWithContext(schema, entityType, perm.Rule, visited)
+					relations = append(relations, pr...)
+					parentRelations = append(parentRelations, pp...)
+					hasUnresolvable = hasUnresolvable || pu
+					return
+				}
+			}
+		}
 		relations = append(relations, r.Relation)
 
 	case *entities.LogicalRule:

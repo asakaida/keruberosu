@@ -103,13 +103,44 @@ func (e *Evaluator) EvaluateRule(
 	}
 }
 
-// evaluateRelation evaluates a relation-based rule
-// Returns true if there exists a relation tuple matching the rule
+// evaluateRelation evaluates a relation-based rule.
+// If the rule's relation name refers to another permission in the same entity,
+// it recursively evaluates that permission (permission composition).
+// Otherwise, it checks for relation tuples matching the rule.
 func (e *Evaluator) evaluateRelation(
 	ctx context.Context,
 	req *EvaluationRequest,
 	rule *entities.RelationRule,
 ) (bool, error) {
+	// Check if the relation name actually refers to a permission in the same entity.
+	// This supports permission composition like "permission manage = edit"
+	// where "edit" is another permission.
+	schema, err := e.schemaService.GetSchemaEntity(ctx, req.TenantID, req.SchemaVersion)
+	if err != nil {
+		return false, fmt.Errorf("failed to get schema: %w", err)
+	}
+	entity := schema.GetEntity(req.EntityType)
+	if entity != nil {
+		// Only treat as permission reference if there's NO relation with this name
+		// (relations take precedence over permissions with the same name, though
+		// the validator prevents name conflicts)
+		isRelation := entity.GetRelation(rule.Relation) != nil
+		if !isRelation {
+			if perm := entity.GetPermission(rule.Relation); perm != nil {
+				return e.EvaluateRule(ctx, &EvaluationRequest{
+					TenantID:         req.TenantID,
+					SchemaVersion:    req.SchemaVersion,
+					EntityType:       req.EntityType,
+					EntityID:         req.EntityID,
+					SubjectType:      req.SubjectType,
+					SubjectID:        req.SubjectID,
+					ContextualTuples: req.ContextualTuples,
+					Depth:            req.Depth + 1,
+				}, perm.Rule)
+			}
+		}
+	}
+
 	// Check in contextual tuples first for direct match
 	for _, tuple := range req.ContextualTuples {
 		if tuple.EntityType == req.EntityType &&

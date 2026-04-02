@@ -1065,3 +1065,117 @@ func TestEvaluator_RuleCallRule_TwoParamsNonStandard(t *testing.T) {
 		})
 	}
 }
+
+func TestEvaluator_PermissionReferencesPermission(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "owner", TargetType: "user"},
+					{Name: "editor", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "edit",
+						Rule: &entities.LogicalRule{
+							Operator: "or",
+							Left:     &entities.RelationRule{Relation: "owner"},
+							Right:    &entities.RelationRule{Relation: "editor"},
+						},
+					},
+					{
+						Name: "manage",
+						Rule: &entities.RelationRule{Relation: "edit"},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{EntityType: "document", EntityID: "doc1", Relation: "editor", SubjectType: "user", SubjectID: "alice"},
+		},
+	}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
+
+	tests := []struct {
+		name       string
+		permission string
+		subjectID  string
+		expected   bool
+	}{
+		{"editor has edit", "edit", "alice", true},
+		{"non-editor denied edit", "edit", "bob", false},
+		{"editor has manage (via edit)", "manage", "alice", true},
+		{"non-editor denied manage", "manage", "bob", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			perm := schema.Entities[1].GetPermission(tt.permission)
+			req := &EvaluationRequest{
+				TenantID: "test-tenant", EntityType: "document", EntityID: "doc1",
+				SubjectType: "user", SubjectID: tt.subjectID,
+			}
+			result, err := evaluator.EvaluateRule(context.Background(), req, perm.Rule)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestEvaluator_PermissionChainThreeLevels(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "owner", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{Name: "view", Rule: &entities.RelationRule{Relation: "owner"}},
+					{Name: "edit", Rule: &entities.RelationRule{Relation: "view"}},
+					{Name: "admin", Rule: &entities.RelationRule{Relation: "edit"}},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{EntityType: "document", EntityID: "doc1", Relation: "owner", SubjectType: "user", SubjectID: "alice"},
+		},
+	}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
+
+	for _, perm := range []string{"view", "edit", "admin"} {
+		t.Run(perm, func(t *testing.T) {
+			p := schema.Entities[1].GetPermission(perm)
+			req := &EvaluationRequest{
+				TenantID: "test-tenant", EntityType: "document", EntityID: "doc1",
+				SubjectType: "user", SubjectID: "alice",
+			}
+			result, err := evaluator.EvaluateRule(context.Background(), req, p.Rule)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !result {
+				t.Errorf("expected ALLOWED for %s (via owner chain), got DENIED", perm)
+			}
+		})
+	}
+}
