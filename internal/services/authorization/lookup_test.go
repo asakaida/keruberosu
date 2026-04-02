@@ -1520,3 +1520,320 @@ func TestMergeSortedUnique(t *testing.T) {
 		})
 	}
 }
+
+// --- filterIDsAfterCursor tests ---
+
+func TestFilterIDsAfterCursor(t *testing.T) {
+	tests := []struct {
+		name     string
+		ids      []string
+		cursor   string
+		expected []string
+	}{
+		{
+			name:     "filter from middle",
+			ids:      []string{"a", "b", "c", "d", "e"},
+			cursor:   "b",
+			expected: []string{"c", "d", "e"},
+		},
+		{
+			name:     "cursor before all",
+			ids:      []string{"b", "c", "d"},
+			cursor:   "a",
+			expected: []string{"b", "c", "d"},
+		},
+		{
+			name:     "cursor after all",
+			ids:      []string{"a", "b", "c"},
+			cursor:   "d",
+			expected: nil,
+		},
+		{
+			name:     "cursor at last element",
+			ids:      []string{"a", "b", "c"},
+			cursor:   "c",
+			expected: nil,
+		},
+		{
+			name:     "empty ids",
+			ids:      []string{},
+			cursor:   "a",
+			expected: nil,
+		},
+		{
+			name:     "cursor matches element exactly",
+			ids:      []string{"a", "b", "c"},
+			cursor:   "a",
+			expected: []string{"b", "c"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := filterIDsAfterCursor(tt.ids, tt.cursor)
+			if len(result) != len(tt.expected) {
+				t.Fatalf("expected %d elements, got %d: %v", len(tt.expected), len(result), result)
+			}
+			for i, v := range result {
+				if v != tt.expected[i] {
+					t.Errorf("element %d: expected %s, got %s", i, tt.expected[i], v)
+				}
+			}
+		})
+	}
+}
+
+// --- extractAllBaseTypes tests ---
+
+func TestExtractAllBaseTypes(t *testing.T) {
+	tests := []struct {
+		name       string
+		targetType string
+		expected   []string
+	}{
+		{
+			name:       "single type",
+			targetType: "folder",
+			expected:   []string{"folder"},
+		},
+		{
+			name:       "multiple types",
+			targetType: "folder organization",
+			expected:   []string{"folder", "organization"},
+		},
+		{
+			name:       "with subject relation",
+			targetType: "user team#member",
+			expected:   []string{"user", "team"},
+		},
+		{
+			name:       "mixed with and without subject relation",
+			targetType: "folder organization#admin user",
+			expected:   []string{"folder", "organization", "user"},
+		},
+		{
+			name:       "duplicate types deduplicated",
+			targetType: "folder folder#member",
+			expected:   []string{"folder"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractAllBaseTypes(tt.targetType)
+			if len(result) != len(tt.expected) {
+				t.Fatalf("expected %d types, got %d: %v", len(tt.expected), len(result), result)
+			}
+			for i, v := range result {
+				if v != tt.expected[i] {
+					t.Errorf("type %d: expected %s, got %s", i, tt.expected[i], v)
+				}
+			}
+		})
+	}
+}
+
+// --- Multi-type hierarchical relation extraction test ---
+
+func TestExtractRelationsFromRuleWithContext_HierarchicalMultiType(t *testing.T) {
+	// document.view = parent.view where parent → @folder @organization
+	// folder.view = owner, organization.view = admin
+	// Should extract parentRelations = ["parent.owner", "parent.admin"]
+	schema := &entities.Schema{
+		Entities: []*entities.Entity{
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "parent", TargetType: "folder organization"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.HierarchicalRule{Relation: "parent", Permission: "view"},
+					},
+				},
+			},
+			{
+				Name: "folder",
+				Relations: []*entities.Relation{
+					{Name: "owner", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.RelationRule{Relation: "owner"},
+					},
+				},
+			},
+			{
+				Name: "organization",
+				Relations: []*entities.Relation{
+					{Name: "admin", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.RelationRule{Relation: "admin"},
+					},
+				},
+			},
+		},
+	}
+
+	entity := schema.GetEntity("document")
+	permission := entity.GetPermission("view")
+
+	visited := make(map[string]bool)
+	relations, parentRelations, hasUnresolvable := extractRelationsFromRuleWithContext(
+		schema, "document", permission.Rule, visited)
+
+	if len(relations) != 0 {
+		t.Errorf("expected no direct relations, got %v", relations)
+	}
+	if hasUnresolvable {
+		t.Error("expected hasUnresolvable=false, got true")
+	}
+
+	sort.Strings(parentRelations)
+	if len(parentRelations) != 2 {
+		t.Fatalf("expected 2 parentRelations, got %d: %v", len(parentRelations), parentRelations)
+	}
+	if parentRelations[0] != "parent.admin" || parentRelations[1] != "parent.owner" {
+		t.Errorf("expected [parent.admin, parent.owner], got %v", parentRelations)
+	}
+}
+
+// --- LookupEntity/LookupSubject with relation name (not permission name) ---
+
+func TestLookup_LookupEntity_WithRelationName(t *testing.T) {
+	// Use ABAC to force fallback path so the mock Check loop runs
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "owner", TargetType: "user"},
+					{Name: "editor", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "edit",
+						Rule: &entities.LogicalRule{
+							Operator: "or",
+							Left:     &entities.RelationRule{Relation: "owner"},
+							Right:    &entities.ABACRule{Expression: "resource.public == true"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{EntityType: "document", EntityID: "doc1", Relation: "owner", SubjectType: "user", SubjectID: "alice"},
+		},
+		lookupAccessibleEntitiesComplexFunc: func(ctx context.Context, tenantID string, entityType string, relations []string, parentRelations []string, subjectType string, subjectID string, maxDepth int, cursor string, limit int) ([]string, error) {
+			// Return doc1 for alice's owner relation
+			if subjectID == "alice" {
+				return []string{"doc1"}, nil
+			}
+			return nil, nil
+		},
+	}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo)
+
+	// Use relation name "owner" instead of permission name "edit".
+	// The "owner" relation is used as a synthetic permission via fallback.
+	req := &LookupEntityRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		Permission:  "owner",
+		SubjectType: "user",
+		SubjectID:   "alice",
+	}
+
+	resp, err := lookup.LookupEntity(context.Background(), req)
+	if err != nil {
+		t.Fatalf("LookupEntity with relation name should not error: %v", err)
+	}
+
+	found := false
+	for _, id := range resp.EntityIDs {
+		if id == "doc1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected doc1 in results when using relation name 'owner', got %v", resp.EntityIDs)
+	}
+}
+
+func TestLookup_LookupSubject_WithRelationName(t *testing.T) {
+	// Use ABAC to force fallback path
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "owner", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "edit",
+						Rule: &entities.LogicalRule{
+							Operator: "or",
+							Left:     &entities.RelationRule{Relation: "owner"},
+							Right:    &entities.ABACRule{Expression: "resource.public == true"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{EntityType: "document", EntityID: "doc1", Relation: "owner", SubjectType: "user", SubjectID: "alice"},
+		},
+		lookupAccessibleSubjectsComplexFunc: func(ctx context.Context, tenantID string, entityType string, entityID string, relations []string, parentRelations []string, subjectType string, maxDepth int, cursor string, limit int) ([]string, error) {
+			if entityID == "doc1" {
+				return []string{"alice"}, nil
+			}
+			return nil, nil
+		},
+	}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo)
+
+	// Use relation name "owner" directly
+	req := &LookupSubjectRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		EntityID:    "doc1",
+		Permission:  "owner",
+		SubjectType: "user",
+	}
+
+	resp, err := lookup.LookupSubject(context.Background(), req)
+	if err != nil {
+		t.Fatalf("LookupSubject with relation name should not error: %v", err)
+	}
+
+	if len(resp.SubjectIDs) != 1 || resp.SubjectIDs[0] != "alice" {
+		t.Errorf("expected [alice] for relation name 'owner', got %v", resp.SubjectIDs)
+	}
+}

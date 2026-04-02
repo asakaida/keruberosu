@@ -73,10 +73,18 @@ func (e *Expander) Expand(ctx context.Context, req *ExpandRequest) (*ExpandRespo
 		return nil, fmt.Errorf("entity type %s not found in schema", req.EntityType)
 	}
 
-	// Get permission definition
+	// Get permission definition.
+	// If no permission is found, check if it's a relation name (consistency with Check API).
 	permission := entity.GetPermission(req.Permission)
 	if permission == nil {
-		return nil, fmt.Errorf("permission %s not found in entity %s", req.Permission, req.EntityType)
+		if entity.GetRelation(req.Permission) != nil {
+			permission = &entities.Permission{
+				Name: req.Permission,
+				Rule: &entities.RelationRule{Relation: req.Permission},
+			}
+		} else {
+			return nil, fmt.Errorf("permission %s not found in entity %s", req.Permission, req.EntityType)
+		}
 	}
 
 	// Build the tree

@@ -936,3 +936,61 @@ func TestExpander_Expand_SubjectRelation(t *testing.T) {
 		t.Errorf("expected subject '%s', got '%s'", expectedSubject, child.Subject)
 	}
 }
+
+// TestExpander_Expand_WithRelationName tests that Expand accepts relation names
+// (not just permission names) for consistency with Check API.
+func TestExpander_Expand_WithRelationName(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "owner", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "edit",
+						Rule: &entities.RelationRule{Relation: "owner"},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{EntityType: "document", EntityID: "doc1", Relation: "owner", SubjectType: "user", SubjectID: "alice"},
+		},
+	}
+
+	schemaService := &mockSchemaRepository{schema}
+	expander := NewExpander(schemaService, relationRepo)
+
+	// Use relation name "owner" instead of permission name "edit"
+	req := &ExpandRequest{
+		TenantID:   "test-tenant",
+		EntityType: "document",
+		EntityID:   "doc1",
+		Permission: "owner",
+	}
+
+	resp, err := expander.Expand(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Expand with relation name should not error: %v", err)
+	}
+
+	if resp.Tree == nil {
+		t.Fatal("expected non-nil tree")
+	}
+	if resp.Tree.Type != "union" {
+		t.Errorf("expected union node, got %s", resp.Tree.Type)
+	}
+	if len(resp.Tree.Children) != 1 {
+		t.Fatalf("expected 1 child (alice), got %d", len(resp.Tree.Children))
+	}
+	if resp.Tree.Children[0].Subject != "user:alice" {
+		t.Errorf("expected subject 'user:alice', got '%s'", resp.Tree.Children[0].Subject)
+	}
+}

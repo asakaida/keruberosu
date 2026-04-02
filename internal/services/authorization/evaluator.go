@@ -26,6 +26,25 @@ func extractBaseType(targetType string) string {
 	return targetType
 }
 
+// extractAllBaseTypes extracts all base entity types from a relation target type.
+// Handles formats like "folder organization", "user team#member" → returns all base types.
+func extractAllBaseTypes(targetType string) []string {
+	parts := strings.Fields(targetType)
+	seen := make(map[string]bool, len(parts))
+	var result []string
+	for _, part := range parts {
+		base := part
+		if idx := strings.Index(base, "#"); idx >= 0 {
+			base = base[:idx]
+		}
+		if base != "" && !seen[base] {
+			seen[base] = true
+			result = append(result, base)
+		}
+	}
+	return result
+}
+
 const (
 	// MaxDepth is the maximum recursion depth for hierarchical permission evaluation
 	MaxDepth = 100
@@ -549,6 +568,11 @@ func (e *Evaluator) evaluateHierarchicalRuleCall(
 	currentAttrs = normalizeJSONNumbers(currentAttrs)
 
 	for _, tuple := range tuples {
+		// Skip subject set tuples (e.g., @team#member) - they reference a subject set,
+		// not a direct parent entity whose attributes can be evaluated.
+		if tuple.SubjectRelation != "" {
+			continue
+		}
 		// Find rule definition (try namespaced first, then plain)
 		namespacedName := tuple.SubjectType + "." + rule.RuleName
 		ruleDef := schema.GetRule(namespacedName)

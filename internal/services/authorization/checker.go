@@ -164,10 +164,12 @@ func (c *Checker) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 		}
 	}
 
-	// Create evaluation request
+	// Create evaluation request.
+	// Use the resolved schema version (not the requested one, which may be empty)
+	// to ensure consistent schema usage throughout the evaluation.
 	evalReq := &EvaluationRequest{
 		TenantID:         req.TenantID,
-		SchemaVersion:    req.SchemaVersion,
+		SchemaVersion:    schema.Version,
 		EntityType:       req.EntityType,
 		EntityID:         req.EntityID,
 		SubjectType:      req.SubjectType,

@@ -593,3 +593,88 @@ func TestChecker_CheckMultiple_SnapshotTokenPropagation(t *testing.T) {
 		t.Error("expected edit=false for bob")
 	}
 }
+
+// TestChecker_Check_UsesResolvedSchemaVersion verifies that the checker passes
+// the resolved schema version (not the empty requested one) to the evaluator.
+func TestChecker_Check_UsesResolvedSchemaVersion(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Version:  "01HWRESOLVED",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "owner", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.RelationRule{Relation: "owner"},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{EntityType: "document", EntityID: "doc1", Relation: "owner", SubjectType: "user", SubjectID: "alice"},
+		},
+	}
+
+	var capturedVersions []string
+	schemaService := &mockSchemaServiceCapture{
+		schema: schema,
+		onGetSchemaEntity: func(tenantID, version string) {
+			capturedVersions = append(capturedVersions, version)
+		},
+	}
+
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+
+	// Request with empty SchemaVersion (should resolve to latest)
+	req := &CheckRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		EntityID:    "doc1",
+		Permission:  "view",
+		SubjectType: "user",
+		SubjectID:   "alice",
+	}
+
+	resp, err := checker.Check(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Allowed {
+		t.Error("expected allowed=true")
+	}
+
+	// First call from checker uses "" (original request), second from evaluator
+	// should use the resolved version "01HWRESOLVED"
+	if len(capturedVersions) < 2 {
+		t.Fatalf("expected at least 2 GetSchemaEntity calls, got %d", len(capturedVersions))
+	}
+	// The evaluator's call should use the resolved version
+	evalVersion := capturedVersions[1]
+	if evalVersion != schema.Version {
+		t.Errorf("evaluator used schema version %q, expected resolved version %q", evalVersion, schema.Version)
+	}
+}
+
+// mockSchemaServiceCapture captures GetSchemaEntity calls for testing.
+type mockSchemaServiceCapture struct {
+	schema            *entities.Schema
+	onGetSchemaEntity func(tenantID, version string)
+}
+
+func (m *mockSchemaServiceCapture) GetSchemaEntity(_ context.Context, tenantID string, version string) (*entities.Schema, error) {
+	if m.onGetSchemaEntity != nil {
+		m.onGetSchemaEntity(tenantID, version)
+	}
+	return m.schema, nil
+}

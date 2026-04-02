@@ -109,7 +109,15 @@ func (l *Lookup) LookupEntity(ctx context.Context, req *LookupEntityRequest) (*L
 
 	permission := entity.GetPermission(req.Permission)
 	if permission == nil {
-		return nil, fmt.Errorf("permission %s not found in entity %s", req.Permission, req.EntityType)
+		// Fall back to relation name (consistency with Check API)
+		if entity.GetRelation(req.Permission) != nil {
+			permission = &entities.Permission{
+				Name: req.Permission,
+				Rule: &entities.RelationRule{Relation: req.Permission},
+			}
+		} else {
+			return nil, fmt.Errorf("permission %s not found in entity %s", req.Permission, req.EntityType)
+		}
 	}
 
 	limit := req.PageSize
@@ -134,9 +142,13 @@ func (l *Lookup) LookupEntity(ctx context.Context, req *LookupEntityRequest) (*L
 		}
 
 		// If contextual tuples present, merge candidates from contextual tuples
-		// and verify each result with Check
+		// and verify each result with Check.
+		// Filter contextual tuple IDs by page cursor to prevent duplicates across pages.
 		if len(req.ContextualTuples) > 0 {
 			ctxIDs := extractEntityIDsFromContextualTuples(req.ContextualTuples, req.EntityType)
+			if req.PageToken != "" {
+				ctxIDs = filterIDsAfterCursor(ctxIDs, req.PageToken)
+			}
 			merged := mergeSortedUnique(entityIDs, ctxIDs, len(entityIDs)+len(ctxIDs))
 			return l.verifyEntitiesAndPaginate(ctx, req, merged, limit)
 		}
@@ -176,7 +188,15 @@ func (l *Lookup) LookupSubject(ctx context.Context, req *LookupSubjectRequest) (
 
 	permission := entity.GetPermission(req.Permission)
 	if permission == nil {
-		return nil, fmt.Errorf("permission %s not found in entity %s", req.Permission, req.EntityType)
+		// Fall back to relation name (consistency with Check API)
+		if entity.GetRelation(req.Permission) != nil {
+			permission = &entities.Permission{
+				Name: req.Permission,
+				Rule: &entities.RelationRule{Relation: req.Permission},
+			}
+		} else {
+			return nil, fmt.Errorf("permission %s not found in entity %s", req.Permission, req.EntityType)
+		}
 	}
 
 	limit := req.PageSize
@@ -204,6 +224,9 @@ func (l *Lookup) LookupSubject(ctx context.Context, req *LookupSubjectRequest) (
 
 		if len(req.ContextualTuples) > 0 {
 			ctxIDs := extractSubjectIDsFromContextualTuples(req.ContextualTuples, req.EntityType, req.EntityID, req.SubjectType)
+			if req.PageToken != "" {
+				ctxIDs = filterIDsAfterCursor(ctxIDs, req.PageToken)
+			}
 			merged := mergeSortedUnique(subjectIDs, ctxIDs, len(subjectIDs)+len(ctxIDs))
 			return l.verifySubjectsAndPaginate(ctx, req, merged, limit)
 		}
@@ -315,7 +338,9 @@ func (l *Lookup) getMergedEntityCandidates(ctx context.Context, tenantID, entity
 	return mergeSortedUnique(relCandidates, attrCandidates, batchSize)
 }
 
-// lookupSubjectFallback uses batched GetSortedSubjectIDs + Check loop
+// lookupSubjectFallback uses batched sorted subject IDs + Check loop.
+// Merges candidates from both relations and attributes tables to ensure
+// subjects accessible only through attributes (ABAC) are also found.
 func (l *Lookup) lookupSubjectFallback(ctx context.Context, req *LookupSubjectRequest, limit int) (*LookupSubjectResponse, error) {
 	batchSize := limit * 3
 	if batchSize < defaultBatchSize {
@@ -329,10 +354,7 @@ func (l *Lookup) lookupSubjectFallback(ctx context.Context, req *LookupSubjectRe
 	var allowedIDs []string
 
 	for {
-		candidates, err := l.relationRepo.GetSortedSubjectIDs(ctx, req.TenantID, req.SubjectType, cursor, batchSize)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get sorted subject IDs: %w", err)
-		}
+		candidates := l.getMergedSubjectCandidates(ctx, req.TenantID, req.SubjectType, cursor, batchSize)
 
 		if len(candidates) == 0 {
 			break
@@ -384,6 +406,28 @@ func (l *Lookup) lookupSubjectFallback(ctx context.Context, req *LookupSubjectRe
 		SubjectIDs:    allowedIDs,
 		NextPageToken: nextPageToken,
 	}, nil
+}
+
+// getMergedSubjectCandidates returns sorted unique subject IDs from both
+// relations and attributes tables.
+func (l *Lookup) getMergedSubjectCandidates(ctx context.Context, tenantID, subjectType, cursor string, batchSize int) []string {
+	relCandidates, err := l.relationRepo.GetSortedSubjectIDs(ctx, tenantID, subjectType, cursor, batchSize)
+	if err != nil {
+		log.Printf("WARNING: failed to get subject IDs from relations: %v", err)
+		relCandidates = nil
+	}
+
+	if l.attributeRepo == nil {
+		return relCandidates
+	}
+
+	attrCandidates, err := l.attributeRepo.GetSortedEntityIDs(ctx, tenantID, subjectType, cursor, batchSize)
+	if err != nil {
+		log.Printf("WARNING: failed to get subject IDs from attributes: %v", err)
+		attrCandidates = nil
+	}
+
+	return mergeSortedUnique(relCandidates, attrCandidates, batchSize)
 }
 
 // verifyEntitiesAndPaginate verifies candidate entity IDs with Check and applies pagination
@@ -512,7 +556,9 @@ func extractRelationsFromRuleWithContext(
 		}
 
 	case *entities.HierarchicalRule:
-		// Resolve the target entity type from the relation definition
+		// Resolve the target entity types from the relation definition.
+		// A relation may have multiple target types (e.g., "@folder @organization"),
+		// so we expand each type's permission to collect all resolvable relations.
 		entity := schema.GetEntity(entityType)
 		if entity == nil {
 			hasUnresolvable = true
@@ -524,54 +570,64 @@ func extractRelationsFromRuleWithContext(
 			return
 		}
 
-		targetType := extractBaseType(relation.TargetType)
-
-		// Cycle detection key
-		key := targetType + "." + r.Permission
-		if visited[key] {
-			// Self-referential cycle (e.g., folder.view = parent.view where parent is folder)
-			// The closure table handles transitive ancestry, so emit as parentRelation
-			parentRelations = append(parentRelations, r.Relation+"."+r.Permission)
+		// Extract all target types (e.g., "folder organization" → ["folder", "organization"])
+		targetTypes := extractAllBaseTypes(relation.TargetType)
+		if len(targetTypes) == 0 {
+			hasUnresolvable = true
 			return
 		}
-		visited[key] = true
 
-		// Look up the permission on the target entity type
-		targetPermission := schema.GetPermission(targetType, r.Permission)
-		if targetPermission != nil {
-			// Recursively expand the target permission
-			childRels, childParentRels, childUnresolvable := extractRelationsFromRuleWithContext(
-				schema, targetType, targetPermission.Rule, visited)
-
-			// Direct relations on the target become parent relations for us
-			for _, rel := range childRels {
-				parentRelations = append(parentRelations, r.Relation+"."+rel)
-			}
-
-			// Multi-hop parent relations (target has its own hierarchical rules)
-			// These require multi-level closure traversal which our SQL supports
-			// since closure table stores transitive ancestors
-			for _, pr := range childParentRels {
-				// pr is like "parent.owner" on the target entity
-				// We can't directly use multi-hop in a single closure query,
-				// so fall back for nested hierarchies beyond one level
-				_ = pr
-				hasUnresolvable = true
-			}
-
-			hasUnresolvable = hasUnresolvable || childUnresolvable
-		} else {
-			// Not a permission, check if it's a relation on the target entity
-			targetEntity := schema.GetEntity(targetType)
-			if targetEntity != nil && targetEntity.GetRelation(r.Permission) != nil {
+		resolvedAny := false
+		for _, targetType := range targetTypes {
+			// Cycle detection key
+			key := targetType + "." + r.Permission
+			if visited[key] {
+				// Self-referential cycle (e.g., folder.view = parent.view where parent is folder)
+				// The closure table handles transitive ancestry, so emit as parentRelation
 				parentRelations = append(parentRelations, r.Relation+"."+r.Permission)
-			} else {
-				hasUnresolvable = true
+				resolvedAny = true
+				continue
 			}
+			visited[key] = true
+
+			// Look up the permission on the target entity type
+			targetPermission := schema.GetPermission(targetType, r.Permission)
+			if targetPermission != nil {
+				// Recursively expand the target permission
+				childRels, childParentRels, childUnresolvable := extractRelationsFromRuleWithContext(
+					schema, targetType, targetPermission.Rule, visited)
+
+				// Direct relations on the target become parent relations for us
+				for _, rel := range childRels {
+					parentRelations = append(parentRelations, r.Relation+"."+rel)
+				}
+
+				// Multi-hop parent relations (target has its own hierarchical rules)
+				for _, pr := range childParentRels {
+					_ = pr
+					hasUnresolvable = true
+				}
+
+				hasUnresolvable = hasUnresolvable || childUnresolvable
+				resolvedAny = true
+			} else {
+				// Not a permission, check if it's a relation on the target entity
+				targetEntity := schema.GetEntity(targetType)
+				if targetEntity != nil && targetEntity.GetRelation(r.Permission) != nil {
+					parentRelations = append(parentRelations, r.Relation+"."+r.Permission)
+					resolvedAny = true
+				}
+				// If this target type doesn't have the permission/relation,
+				// skip it (other target types may have it)
+			}
+
+			// Allow other paths to explore the same node
+			delete(visited, key)
 		}
 
-		// Allow other paths to explore the same node
-		delete(visited, key)
+		if !resolvedAny {
+			hasUnresolvable = true
+		}
 
 	case *entities.ABACRule:
 		hasUnresolvable = true
@@ -681,6 +737,21 @@ func extractSubjectIDsFromContextualTuples(tuples []*entities.RelationTuple, ent
 	}
 	sort.Strings(ids)
 	return ids
+}
+
+// filterIDsAfterCursor returns only the IDs that are strictly greater than cursor.
+// The input must be sorted in ascending order.
+func filterIDsAfterCursor(ids []string, cursor string) []string {
+	// Use binary search to find the insertion point
+	idx := sort.SearchStrings(ids, cursor)
+	// Skip the cursor value itself if it's present
+	for idx < len(ids) && ids[idx] <= cursor {
+		idx++
+	}
+	if idx >= len(ids) {
+		return nil
+	}
+	return ids[idx:]
 }
 
 // extractBaseType is defined in evaluator.go - reused via package scope.
