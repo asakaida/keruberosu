@@ -296,6 +296,109 @@ func TestGenerator_Generate_ComplexSchema(t *testing.T) {
 	}
 }
 
+func TestGenerator_RuleDefinition(t *testing.T) {
+	ast := &SchemaAST{
+		Rules: []*RuleDefinitionAST{
+			{
+				Name:       "check_level",
+				Parameters: []string{"resource", "subject"},
+				Body:       "subject.level >= resource.required_level",
+			},
+		},
+		Entities: []*EntityAST{
+			{
+				Name: "document",
+				Attributes: []*AttributeAST{
+					{Name: "required_level", Type: "integer"},
+				},
+				Permissions: []*PermissionAST{
+					{
+						Name: "view",
+						Rule: &RuleCallPermissionAST{
+							RuleName:  "check_level",
+							Arguments: []string{"resource", "subject"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	gen := NewGenerator()
+	result := gen.Generate(ast)
+
+	// Check rule definition is generated correctly
+	if !strings.Contains(result, "rule check_level(resource, subject) {") {
+		t.Errorf("generated DSL should contain rule definition header, got:\n%s", result)
+	}
+	if !strings.Contains(result, "subject.level >= resource.required_level") {
+		t.Errorf("generated DSL should contain rule body, got:\n%s", result)
+	}
+
+	// Check blank line between rules and entities
+	if !strings.Contains(result, "}\n\nentity") {
+		t.Errorf("generated DSL should have blank line between rules and entities, got:\n%s", result)
+	}
+
+	// Check that the rule call is generated correctly in the permission
+	if !strings.Contains(result, "permission view = check_level(resource, subject)") {
+		t.Errorf("generated DSL should contain permission with rule call, got:\n%s", result)
+	}
+}
+
+func TestGenerator_HierarchicalRuleCall(t *testing.T) {
+	ast := &SchemaAST{
+		Entities: []*EntityAST{
+			{
+				Name: "document",
+				Relations: []*RelationAST{
+					{Name: "parent", TargetType: "folder"},
+				},
+				Attributes: []*AttributeAST{
+					{Name: "authority", Type: "string"},
+				},
+				Permissions: []*PermissionAST{
+					{
+						Name: "view",
+						Rule: &HierarchicalRuleCallPermissionAST{
+							Relation:  "parent",
+							RuleName:  "check_access",
+							Arguments: []string{"authority"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	gen := NewGenerator()
+	result := gen.Generate(ast)
+
+	if !strings.Contains(result, "permission view = parent.check_access(authority)") {
+		t.Errorf("generated DSL should contain 'permission view = parent.check_access(authority)', got:\n%s", result)
+	}
+}
+
+func TestGenerator_MultiTypeRelation(t *testing.T) {
+	ast := &SchemaAST{
+		Entities: []*EntityAST{
+			{
+				Name: "document",
+				Relations: []*RelationAST{
+					{Name: "viewer", TargetType: "user team#member"},
+				},
+			},
+		},
+	}
+
+	gen := NewGenerator()
+	result := gen.Generate(ast)
+
+	if !strings.Contains(result, "relation viewer @user @team#member") {
+		t.Errorf("generated DSL should contain 'relation viewer @user @team#member', got:\n%s", result)
+	}
+}
+
 func TestGenerator_RoundTrip_ParseAndGenerate(t *testing.T) {
 	originalDSL := `entity user {
 }

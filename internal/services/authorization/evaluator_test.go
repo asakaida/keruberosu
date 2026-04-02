@@ -1587,3 +1587,285 @@ func TestBugfix_HierarchicalRelationExpandsComputedUsersets(t *testing.T) {
 		t.Error("expected false: user:bob is not a member of group:eng")
 	}
 }
+
+// TestEvaluateRelation_CyclicComputedUserset tests that cyclic computed usersets
+// return an error instead of causing infinite recursion / stack overflow.
+func TestEvaluateRelation_CyclicComputedUserset(t *testing.T) {
+	schema := &entities.Schema{
+		Entities: []*entities.Entity{
+			{
+				Name: "team",
+				Relations: []*entities.Relation{
+					{Name: "member", TargetType: "team#member user"},
+				},
+			},
+			{
+				Name: "user",
+			},
+		},
+	}
+
+	mockSchemaService := &mockSchemaRepository{schema: schema}
+
+	// Cyclic tuples: team:A#member@team:B#member and team:B#member@team:A#member
+	mockRelRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{EntityType: "team", EntityID: "A", Relation: "member", SubjectType: "team", SubjectID: "B", SubjectRelation: "member"},
+			{EntityType: "team", EntityID: "B", Relation: "member", SubjectType: "team", SubjectID: "A", SubjectRelation: "member"},
+		},
+	}
+	mockAttrRepo := &mockAttributeRepository{}
+	celEngine, _ := NewCELEngine()
+
+	evaluator := NewEvaluator(mockSchemaService, mockRelRepo, mockAttrRepo, celEngine)
+
+	req := &EvaluationRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "team",
+		EntityID:    "A",
+		SubjectType: "user",
+		SubjectID:   "alice",
+	}
+
+	_, err := evaluator.EvaluateRule(context.Background(), req,
+		&entities.RelationRule{Relation: "member"})
+
+	if err == nil {
+		t.Fatal("expected error for cyclic computed userset, got nil")
+	}
+	t.Logf("correctly returned error: %v", err)
+}
+
+// TestEvaluateHierarchical_MultipleParentTypes verifies that hierarchical permission
+// evaluation works when a relation targets multiple parent types (e.g., "relation parent @folder @organization").
+// Permissions should resolve correctly through each parent type independently.
+func TestEvaluateHierarchical_MultipleParentTypes(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "folder",
+				Relations: []*entities.Relation{
+					{Name: "viewer", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.RelationRule{Relation: "viewer"},
+					},
+				},
+			},
+			{
+				Name: "organization",
+				Relations: []*entities.Relation{
+					{Name: "member", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.RelationRule{Relation: "member"},
+					},
+				},
+			},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "parent", TargetType: "folder organization"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.HierarchicalRule{Relation: "parent", Permission: "view"},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			// doc1 has folder parent
+			{EntityType: "document", EntityID: "doc1", Relation: "parent", SubjectType: "folder", SubjectID: "f1"},
+			{EntityType: "folder", EntityID: "f1", Relation: "viewer", SubjectType: "user", SubjectID: "alice"},
+			// doc2 has organization parent
+			{EntityType: "document", EntityID: "doc2", Relation: "parent", SubjectType: "organization", SubjectID: "org1"},
+			{EntityType: "organization", EntityID: "org1", Relation: "member", SubjectType: "user", SubjectID: "bob"},
+		},
+	}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
+
+	tests := []struct {
+		name      string
+		entityID  string
+		subjectID string
+		expected  bool
+	}{
+		{"alice has view on doc1 via folder parent", "doc1", "alice", true},
+		{"bob has no view on doc1 (not in folder)", "doc1", "bob", false},
+		{"bob has view on doc2 via org parent", "doc2", "bob", true},
+		{"alice has no view on doc2 (not in org)", "doc2", "alice", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &EvaluationRequest{
+				TenantID:    "test-tenant",
+				EntityType:  "document",
+				EntityID:    tt.entityID,
+				SubjectType: "user",
+				SubjectID:   tt.subjectID,
+			}
+			result, err := evaluator.EvaluateRule(context.Background(), req,
+				schema.GetPermission("document", "view").Rule)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestEvaluateABAC_WithContextualAttributes verifies that contextual attributes
+// override database attributes during ABAC evaluation.
+func TestEvaluateABAC_WithContextualAttributes(t *testing.T) {
+	schema := createTestSchema()
+	relationRepo := &mockRelationRepository{}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+
+	// Set up DB attributes: doc1 is NOT public
+	attributeRepo.Write(context.Background(), "test-tenant", &entities.Attribute{
+		EntityType: "document",
+		EntityID:   "doc1",
+		Name:       "public",
+		Value:      false,
+	})
+
+	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
+
+	rule := &entities.ABACRule{
+		Expression: "resource.public == true",
+	}
+
+	// Without contextual attributes: should be denied (public=false in DB)
+	reqDenied := &EvaluationRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		EntityID:    "doc1",
+		SubjectType: "user",
+		SubjectID:   "alice",
+	}
+	result, err := evaluator.EvaluateRule(context.Background(), reqDenied, rule)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result {
+		t.Error("expected false without contextual attributes (DB has public=false), got true")
+	}
+
+	// With contextual attributes overriding public=true: should be allowed
+	reqAllowed := &EvaluationRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		EntityID:    "doc1",
+		SubjectType: "user",
+		SubjectID:   "alice",
+		ContextualAttributes: []*entities.Attribute{
+			{
+				EntityType: "document",
+				EntityID:   "doc1",
+				Name:       "public",
+				Value:      true,
+			},
+		},
+	}
+	result, err = evaluator.EvaluateRule(context.Background(), reqAllowed, rule)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result {
+		t.Error("expected true with contextual attribute override (public=true), got false")
+	}
+}
+
+// TestEvaluateRelation_PermissionCompositionChain verifies that a 4-level permission
+// composition chain correctly propagates access: super_admin = admin, admin = manage,
+// manage = edit, edit = viewer.
+func TestEvaluateRelation_PermissionCompositionChain(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "viewer", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{Name: "edit", Rule: &entities.RelationRule{Relation: "viewer"}},
+					{Name: "manage", Rule: &entities.RelationRule{Relation: "edit"}},
+					{Name: "admin", Rule: &entities.RelationRule{Relation: "manage"}},
+					{Name: "super_admin", Rule: &entities.RelationRule{Relation: "admin"}},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{EntityType: "document", EntityID: "doc1", Relation: "viewer", SubjectType: "user", SubjectID: "alice"},
+		},
+	}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
+
+	for _, perm := range []string{"edit", "manage", "admin", "super_admin"} {
+		t.Run(perm, func(t *testing.T) {
+			p := schema.Entities[1].GetPermission(perm)
+			if p == nil {
+				t.Fatalf("permission %s not found", perm)
+			}
+			req := &EvaluationRequest{
+				TenantID:    "test-tenant",
+				EntityType:  "document",
+				EntityID:    "doc1",
+				SubjectType: "user",
+				SubjectID:   "alice",
+			}
+			result, err := evaluator.EvaluateRule(context.Background(), req, p.Rule)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !result {
+				t.Errorf("expected ALLOWED for %s (via 4-level chain from viewer), got DENIED", perm)
+			}
+		})
+	}
+
+	// Verify non-viewer is denied at all levels
+	for _, perm := range []string{"edit", "manage", "admin", "super_admin"} {
+		t.Run("denied_"+perm, func(t *testing.T) {
+			p := schema.Entities[1].GetPermission(perm)
+			req := &EvaluationRequest{
+				TenantID:    "test-tenant",
+				EntityType:  "document",
+				EntityID:    "doc1",
+				SubjectType: "user",
+				SubjectID:   "bob",
+			}
+			result, err := evaluator.EvaluateRule(context.Background(), req, p.Rule)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result {
+				t.Errorf("expected DENIED for %s (bob is not a viewer), got ALLOWED", perm)
+			}
+		})
+	}
+}

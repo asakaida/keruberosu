@@ -47,8 +47,9 @@ func (m *mockSchemaService) GetSchemaEntity(ctx context.Context, tenantID string
 
 // Mock RelationRepository
 type mockRelationRepository struct {
-	batchWriteFunc  func(ctx context.Context, tenantID string, tuples []*entities.RelationTuple) error
-	batchDeleteFunc func(ctx context.Context, tenantID string, tuples []*entities.RelationTuple) error
+	batchWriteFunc   func(ctx context.Context, tenantID string, tuples []*entities.RelationTuple) error
+	batchDeleteFunc  func(ctx context.Context, tenantID string, tuples []*entities.RelationTuple) error
+	readByFilterFunc func(ctx context.Context, tenantID string, filter *repositories.RelationFilter, pageSize int, pageToken string) ([]*entities.RelationTuple, string, error)
 }
 
 func (m *mockRelationRepository) Write(ctx context.Context, tenantID string, tuple *entities.RelationTuple) error {
@@ -90,6 +91,9 @@ func (m *mockRelationRepository) DeleteByFilter(ctx context.Context, tenantID st
 }
 
 func (m *mockRelationRepository) ReadByFilter(ctx context.Context, tenantID string, filter *repositories.RelationFilter, pageSize int, pageToken string) ([]*entities.RelationTuple, string, error) {
+	if m.readByFilterFunc != nil {
+		return m.readByFilterFunc(ctx, tenantID, filter, pageSize, pageToken)
+	}
 	return nil, "", nil
 }
 
@@ -136,6 +140,7 @@ func (m *mockRelationRepository) LookupAccessibleSubjectsComplex(ctx context.Con
 // Mock AttributeRepository
 type mockAttributeRepository struct {
 	writeFunc func(ctx context.Context, tenantID string, attr *entities.Attribute) error
+	readFunc  func(ctx context.Context, tenantID string, entityType string, entityID string) (map[string]interface{}, error)
 }
 
 func (m *mockAttributeRepository) Write(ctx context.Context, tenantID string, attr *entities.Attribute) error {
@@ -146,6 +151,9 @@ func (m *mockAttributeRepository) Write(ctx context.Context, tenantID string, at
 }
 
 func (m *mockAttributeRepository) Read(ctx context.Context, tenantID string, entityType string, entityID string) (map[string]interface{}, error) {
+	if m.readFunc != nil {
+		return m.readFunc(ctx, tenantID, entityType, entityID)
+	}
 	return nil, nil
 }
 

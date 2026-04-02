@@ -1635,6 +1635,263 @@ func TestExtractAllBaseTypes(t *testing.T) {
 
 // --- Multi-type hierarchical relation extraction test ---
 
+// TestLookupEntity_EmptyResult verifies that LookupEntity returns an empty list
+// and no error when no matching entities exist.
+func TestLookupEntity_EmptyResult(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "owner", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.LogicalRule{
+							Operator: "or",
+							Left:     &entities.RelationRule{Relation: "owner"},
+							Right:    &entities.ABACRule{Expression: "resource.public == true"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Empty repository - no tuples at all
+	relationRepo := &mockRelationRepository{}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo)
+
+	req := &LookupEntityRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		Permission:  "view",
+		SubjectType: "user",
+		SubjectID:   "alice",
+	}
+
+	resp, err := lookup.LookupEntity(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(resp.EntityIDs) != 0 {
+		t.Errorf("expected 0 entities, got %d: %v", len(resp.EntityIDs), resp.EntityIDs)
+	}
+	if resp.NextPageToken != "" {
+		t.Errorf("expected empty next page token, got %q", resp.NextPageToken)
+	}
+}
+
+// TestLookupEntity_PaginationBoundary verifies that when exactly `limit` results
+// are available, the response has a next page token (since fallback uses cursor-based
+// pagination and cannot know in advance if more results exist), and a second page
+// returns no additional results.
+func TestLookupEntity_PaginationBoundary(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "owner", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.LogicalRule{
+							Operator: "or",
+							Left:     &entities.RelationRule{Relation: "owner"},
+							Right:    &entities.ABACRule{Expression: "resource.public == true"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Exactly 3 entities, all owned by alice
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{EntityType: "document", EntityID: "doc1", Relation: "owner", SubjectType: "user", SubjectID: "alice"},
+			{EntityType: "document", EntityID: "doc2", Relation: "owner", SubjectType: "user", SubjectID: "alice"},
+			{EntityType: "document", EntityID: "doc3", Relation: "owner", SubjectType: "user", SubjectID: "alice"},
+		},
+	}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo)
+
+	// Request with PageSize = 3 (exactly matching available results)
+	req := &LookupEntityRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		Permission:  "view",
+		SubjectType: "user",
+		SubjectID:   "alice",
+		PageSize:    3,
+	}
+
+	resp, err := lookup.LookupEntity(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(resp.EntityIDs) != 3 {
+		t.Errorf("expected 3 entities, got %d: %v", len(resp.EntityIDs), resp.EntityIDs)
+	}
+
+	// If there is a next page token, the second page should return no results
+	if resp.NextPageToken != "" {
+		req2 := &LookupEntityRequest{
+			TenantID:    "test-tenant",
+			EntityType:  "document",
+			Permission:  "view",
+			SubjectType: "user",
+			SubjectID:   "alice",
+			PageSize:    3,
+			PageToken:   resp.NextPageToken,
+		}
+		resp2, err := lookup.LookupEntity(context.Background(), req2)
+		if err != nil {
+			t.Fatalf("unexpected error on second page: %v", err)
+		}
+		if len(resp2.EntityIDs) != 0 {
+			t.Errorf("expected 0 entities on second page (boundary), got %d: %v", len(resp2.EntityIDs), resp2.EntityIDs)
+		}
+	}
+}
+
+// TestLookupSubject_FallbackPath verifies that a permission with an AND operator
+// forces the fallback path and still returns correct results.
+func TestLookupSubject_FallbackPath(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "member", TargetType: "user"},
+					{Name: "approved", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "access",
+						Rule: &entities.LogicalRule{
+							Operator: "and",
+							Left:     &entities.RelationRule{Relation: "member"},
+							Right:    &entities.RelationRule{Relation: "approved"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			// alice has both member and approved
+			{EntityType: "document", EntityID: "doc1", Relation: "member", SubjectType: "user", SubjectID: "alice"},
+			{EntityType: "document", EntityID: "doc1", Relation: "approved", SubjectType: "user", SubjectID: "alice"},
+			// bob has only member
+			{EntityType: "document", EntityID: "doc1", Relation: "member", SubjectType: "user", SubjectID: "bob"},
+		},
+	}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo)
+
+	req := &LookupSubjectRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		EntityID:    "doc1",
+		Permission:  "access",
+		SubjectType: "user",
+	}
+
+	resp, err := lookup.LookupSubject(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only alice should be returned (has both member AND approved)
+	if len(resp.SubjectIDs) != 1 {
+		t.Errorf("expected 1 subject, got %d: %v", len(resp.SubjectIDs), resp.SubjectIDs)
+	} else if resp.SubjectIDs[0] != "alice" {
+		t.Errorf("expected subject 'alice', got %s", resp.SubjectIDs[0])
+	}
+}
+
+// TestExtractRelationsFromRuleWithContext_PermissionComposition verifies that
+// extractRelationsFromRuleWithContext recursively expands a RelationRule that
+// refers to a permission (not a relation) in the schema.
+func TestExtractRelationsFromRuleWithContext_PermissionComposition(t *testing.T) {
+	// manage = edit, edit = owner or editor (permission composition)
+	schema := &entities.Schema{
+		Entities: []*entities.Entity{
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "owner", TargetType: "user"},
+					{Name: "editor", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "edit",
+						Rule: &entities.LogicalRule{
+							Operator: "or",
+							Left:     &entities.RelationRule{Relation: "owner"},
+							Right:    &entities.RelationRule{Relation: "editor"},
+						},
+					},
+					{
+						Name: "manage",
+						Rule: &entities.RelationRule{Relation: "edit"}, // references permission, not relation
+					},
+				},
+			},
+		},
+	}
+
+	entity := schema.GetEntity("document")
+	permission := entity.GetPermission("manage")
+
+	visited := make(map[string]bool)
+	relations, parentRelations, hasUnresolvable := extractRelationsFromRuleWithContext(
+		schema, "document", permission.Rule, visited)
+
+	// manage → edit → (owner or editor), so relations should be ["owner", "editor"]
+	sort.Strings(relations)
+	if len(relations) != 2 {
+		t.Fatalf("expected 2 relations, got %d: %v", len(relations), relations)
+	}
+	if relations[0] != "editor" || relations[1] != "owner" {
+		t.Errorf("expected relations=[\"editor\",\"owner\"], got %v", relations)
+	}
+	if len(parentRelations) != 0 {
+		t.Errorf("expected no parentRelations, got %v", parentRelations)
+	}
+	if hasUnresolvable {
+		t.Error("expected hasUnresolvable=false, got true")
+	}
+}
+
 func TestExtractRelationsFromRuleWithContext_HierarchicalMultiType(t *testing.T) {
 	// document.view = parent.view where parent → @folder @organization
 	// folder.view = owner, organization.view = admin

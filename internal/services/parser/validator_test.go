@@ -649,3 +649,254 @@ entity document {
 		t.Errorf("expected valid schema with multiple rules, got error: %v", err)
 	}
 }
+
+func TestValidator_HierarchicalCircularReference(t *testing.T) {
+	// Cross-entity hierarchical circular reference through different entity types:
+	// entity A { relation parent @B; permission view = parent.view }
+	// entity B { relation parent @A; permission view = parent.view }
+	// This creates a cycle: A.view -> B.view -> A.view
+	input := `entity user {}
+
+entity entity_a {
+  relation parent @entity_b
+  relation owner @user
+  permission view = parent.view
+}
+
+entity entity_b {
+  relation parent @entity_a
+  relation owner @user
+  permission view = parent.view
+}`
+
+	lexer := NewLexer(input)
+	parser := NewParser(lexer)
+	schema, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	validator := NewValidator(schema)
+	err = validator.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for cross-entity circular hierarchical reference")
+	}
+
+	if !strings.Contains(err.Error(), "circular permission reference") {
+		t.Errorf("expected circular permission reference error, got: %v", err)
+	}
+}
+
+func TestValidator_HierarchicalRuleCallValidation(t *testing.T) {
+	t.Run("valid hierarchical rule call", func(t *testing.T) {
+		input := `rule check_confidentiality(resource) {
+  resource.level >= 3
+}
+
+entity user {}
+
+entity folder {
+  relation owner @user
+  attribute level integer
+  permission view = owner
+}
+
+entity document {
+  relation parent @folder
+  attribute authority string
+  permission view = parent.check_confidentiality(authority)
+}`
+
+		lexer := NewLexer(input)
+		parser := NewParser(lexer)
+		schema, err := parser.Parse()
+		if err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		validator := NewValidator(schema)
+		err = validator.Validate()
+		if err != nil {
+			t.Errorf("expected valid schema with hierarchical rule call, got error: %v", err)
+		}
+	})
+
+	t.Run("undefined relation in hierarchical rule call", func(t *testing.T) {
+		input := `rule check_confidentiality(resource) {
+  resource.level >= 3
+}
+
+entity document {
+  attribute authority string
+  permission view = parent.check_confidentiality(authority)
+}`
+
+		lexer := NewLexer(input)
+		parser := NewParser(lexer)
+		schema, err := parser.Parse()
+		if err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		validator := NewValidator(schema)
+		err = validator.Validate()
+		if err == nil {
+			t.Fatal("expected validation error for undefined relation in hierarchical rule call")
+		}
+
+		if !strings.Contains(err.Error(), "references undefined relation: parent") {
+			t.Errorf("expected undefined relation error, got: %v", err)
+		}
+	})
+
+	t.Run("undefined rule in hierarchical rule call", func(t *testing.T) {
+		input := `entity user {}
+
+entity folder {
+  relation owner @user
+}
+
+entity document {
+  relation parent @folder
+  attribute authority string
+  permission view = parent.undefined_rule(authority)
+}`
+
+		lexer := NewLexer(input)
+		parser := NewParser(lexer)
+		schema, err := parser.Parse()
+		if err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		validator := NewValidator(schema)
+		err = validator.Validate()
+		if err == nil {
+			t.Fatal("expected validation error for undefined rule in hierarchical rule call")
+		}
+
+		if !strings.Contains(err.Error(), "calls undefined rule: undefined_rule") {
+			t.Errorf("expected undefined rule error, got: %v", err)
+		}
+	})
+
+	t.Run("argument count mismatch in hierarchical rule call", func(t *testing.T) {
+		input := `rule check_confidentiality(resource) {
+  resource.level >= 3
+}
+
+entity user {}
+
+entity folder {
+  relation owner @user
+}
+
+entity document {
+  relation parent @folder
+  attribute authority string
+  attribute level integer
+  permission view = parent.check_confidentiality(authority, level)
+}`
+
+		lexer := NewLexer(input)
+		parser := NewParser(lexer)
+		schema, err := parser.Parse()
+		if err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		validator := NewValidator(schema)
+		err = validator.Validate()
+		if err == nil {
+			t.Fatal("expected validation error for argument count mismatch")
+		}
+
+		if !strings.Contains(err.Error(), "with 2 arguments, expected 1") {
+			t.Errorf("expected argument count mismatch error, got: %v", err)
+		}
+	})
+}
+
+func TestValidator_MultiTypeRelationTarget(t *testing.T) {
+	t.Run("valid multi-type relation with subject relation", func(t *testing.T) {
+		input := `entity user {}
+
+entity team {
+  relation member @user
+}
+
+entity document {
+  relation viewer @user @team#member
+  permission view = viewer
+}`
+
+		lexer := NewLexer(input)
+		parser := NewParser(lexer)
+		schema, err := parser.Parse()
+		if err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		validator := NewValidator(schema)
+		err = validator.Validate()
+		if err != nil {
+			t.Errorf("expected valid schema with multi-type relation, got error: %v", err)
+		}
+	})
+
+	t.Run("multi-type relation with undefined subject relation", func(t *testing.T) {
+		input := `entity user {}
+
+entity team {
+  relation admin @user
+}
+
+entity document {
+  relation viewer @user @team#member
+  permission view = viewer
+}`
+
+		lexer := NewLexer(input)
+		parser := NewParser(lexer)
+		schema, err := parser.Parse()
+		if err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		validator := NewValidator(schema)
+		err = validator.Validate()
+		if err == nil {
+			t.Fatal("expected validation error for undefined subject relation")
+		}
+
+		if !strings.Contains(err.Error(), "references undefined relation member in entity team") {
+			t.Errorf("expected undefined subject relation error, got: %v", err)
+		}
+	})
+
+	t.Run("multi-type relation with undefined entity in subject relation", func(t *testing.T) {
+		input := `entity user {}
+
+entity document {
+  relation viewer @user @team#member
+  permission view = viewer
+}`
+
+		lexer := NewLexer(input)
+		parser := NewParser(lexer)
+		schema, err := parser.Parse()
+		if err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		validator := NewValidator(schema)
+		err = validator.Validate()
+		if err == nil {
+			t.Fatal("expected validation error for undefined entity in subject relation")
+		}
+
+		if !strings.Contains(err.Error(), "references undefined entity: team") {
+			t.Errorf("expected undefined entity error, got: %v", err)
+		}
+	})
+}

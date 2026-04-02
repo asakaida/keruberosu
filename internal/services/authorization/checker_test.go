@@ -678,3 +678,168 @@ func (m *mockSchemaServiceCapture) GetSchemaEntity(_ context.Context, tenantID s
 	}
 	return m.schema, nil
 }
+
+// TestChecker_CacheKeyUniqueness verifies that two different check requests
+// produce different cache keys, ensuring no false cache hits.
+func TestChecker_CacheKeyUniqueness(t *testing.T) {
+	schema := createTestSchema()
+	relationRepo := &mockRelationRepository{}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+
+	snapshotToken := "snap-001"
+	schemaVersion := "v1"
+
+	// Two requests differing by subject ID
+	req1 := &CheckRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		EntityID:    "doc1",
+		Permission:  "view",
+		SubjectType: "user",
+		SubjectID:   "alice",
+	}
+	req2 := &CheckRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		EntityID:    "doc1",
+		Permission:  "view",
+		SubjectType: "user",
+		SubjectID:   "bob",
+	}
+
+	key1 := checker.generateCacheKey(req1, snapshotToken, schemaVersion)
+	key2 := checker.generateCacheKey(req2, snapshotToken, schemaVersion)
+
+	if key1 == key2 {
+		t.Errorf("expected different cache keys for different subjects, both got %s", key1)
+	}
+
+	// Two requests differing by permission
+	req3 := &CheckRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		EntityID:    "doc1",
+		Permission:  "edit",
+		SubjectType: "user",
+		SubjectID:   "alice",
+	}
+	key3 := checker.generateCacheKey(req3, snapshotToken, schemaVersion)
+	if key1 == key3 {
+		t.Errorf("expected different cache keys for different permissions, both got %s", key1)
+	}
+
+	// Two requests differing by entity ID
+	req4 := &CheckRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		EntityID:    "doc2",
+		Permission:  "view",
+		SubjectType: "user",
+		SubjectID:   "alice",
+	}
+	key4 := checker.generateCacheKey(req4, snapshotToken, schemaVersion)
+	if key1 == key4 {
+		t.Errorf("expected different cache keys for different entity IDs, both got %s", key1)
+	}
+
+	// Two requests differing by SubjectRelation
+	req5 := &CheckRequest{
+		TenantID:        "test-tenant",
+		EntityType:      "document",
+		EntityID:        "doc1",
+		Permission:      "view",
+		SubjectType:     "user",
+		SubjectID:       "alice",
+		SubjectRelation: "member",
+	}
+	key5 := checker.generateCacheKey(req5, snapshotToken, schemaVersion)
+	if key1 == key5 {
+		t.Errorf("expected different cache keys when SubjectRelation differs, both got %s", key1)
+	}
+
+	// Two requests differing by snapshot token
+	key6 := checker.generateCacheKey(req1, "snap-002", schemaVersion)
+	if key1 == key6 {
+		t.Errorf("expected different cache keys for different snapshot tokens, both got %s", key1)
+	}
+
+	// Same request should produce the same key
+	key1Again := checker.generateCacheKey(req1, snapshotToken, schemaVersion)
+	if key1 != key1Again {
+		t.Errorf("expected same cache key for identical requests, got %s and %s", key1, key1Again)
+	}
+}
+
+// TestChecker_SchemaVersionResolutionFromMetadata verifies that when a CheckRequest
+// specifies an explicit schema version, that version is passed to the schema service.
+func TestChecker_SchemaVersionResolutionFromMetadata(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Version:  "v42",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "owner", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.RelationRule{Relation: "owner"},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{EntityType: "document", EntityID: "doc1", Relation: "owner", SubjectType: "user", SubjectID: "alice"},
+		},
+	}
+
+	var capturedVersions []string
+	schemaService := &mockSchemaServiceCapture{
+		schema: schema,
+		onGetSchemaEntity: func(tenantID, version string) {
+			capturedVersions = append(capturedVersions, version)
+		},
+	}
+
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+
+	// Request with explicit schema version
+	req := &CheckRequest{
+		TenantID:      "test-tenant",
+		SchemaVersion: "v42",
+		EntityType:    "document",
+		EntityID:      "doc1",
+		Permission:    "view",
+		SubjectType:   "user",
+		SubjectID:     "alice",
+	}
+
+	resp, err := checker.Check(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Allowed {
+		t.Error("expected allowed=true")
+	}
+
+	// Verify the checker's first call uses the explicit version
+	if len(capturedVersions) < 1 {
+		t.Fatal("expected at least 1 GetSchemaEntity call")
+	}
+	if capturedVersions[0] != "v42" {
+		t.Errorf("checker's first call used version %q, expected %q", capturedVersions[0], "v42")
+	}
+}

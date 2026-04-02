@@ -994,3 +994,187 @@ func TestExpander_Expand_WithRelationName(t *testing.T) {
 		t.Errorf("expected subject 'user:alice', got '%s'", resp.Tree.Children[0].Subject)
 	}
 }
+
+// TestExpand_ABACRule verifies that expanding a permission consisting of a pure
+// ABAC rule produces a leaf node with relation "abac".
+func TestExpand_ABACRule(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.ABACRule{
+							Expression: "resource.status == \"active\"",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{}
+	schemaService := &mockSchemaRepository{schema}
+	expander := NewExpander(schemaService, relationRepo)
+
+	req := &ExpandRequest{
+		TenantID:   "test-tenant",
+		EntityType: "document",
+		EntityID:   "doc1",
+		Permission: "view",
+	}
+
+	resp, err := expander.Expand(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.Tree.Type != "leaf" {
+		t.Errorf("expected leaf node for ABAC rule, got %s", resp.Tree.Type)
+	}
+	if resp.Tree.Relation != "abac" {
+		t.Errorf("expected relation 'abac', got %s", resp.Tree.Relation)
+	}
+	expectedSubject := "expression:resource.status == \"active\""
+	if resp.Tree.Subject != expectedSubject {
+		t.Errorf("expected subject %q, got %q", expectedSubject, resp.Tree.Subject)
+	}
+}
+
+// TestExpand_RuleCallRule verifies that expanding a permission with a RuleCallRule
+// produces a leaf node with relation containing the rule name and arguments.
+func TestExpand_RuleCallRule(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Rules: []*entities.RuleDefinition{
+			{
+				Name:       "is_public",
+				Parameters: []string{"resource"},
+				Body:       "resource.public == true",
+			},
+		},
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.RuleCallRule{
+							RuleName:  "is_public",
+							Arguments: []string{"resource"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{}
+	schemaService := &mockSchemaRepository{schema}
+	expander := NewExpander(schemaService, relationRepo)
+
+	req := &ExpandRequest{
+		TenantID:   "test-tenant",
+		EntityType: "document",
+		EntityID:   "doc1",
+		Permission: "view",
+	}
+
+	resp, err := expander.Expand(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.Tree.Type != "leaf" {
+		t.Errorf("expected leaf node for RuleCallRule, got %s", resp.Tree.Type)
+	}
+	if resp.Tree.Subject != "rule_call" {
+		t.Errorf("expected subject 'rule_call', got %s", resp.Tree.Subject)
+	}
+	if !contains(resp.Tree.Relation, "is_public") {
+		t.Errorf("expected relation to contain 'is_public', got %s", resp.Tree.Relation)
+	}
+}
+
+// TestExpand_MixedReBACABAC verifies that expanding a permission like
+// "view = viewer or is_public" produces a union node with a relation leaf and an ABAC leaf.
+func TestExpand_MixedReBACABAC(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "viewer", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.LogicalRule{
+							Operator: "or",
+							Left:     &entities.RelationRule{Relation: "viewer"},
+							Right:    &entities.ABACRule{Expression: "resource.is_public == true"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{EntityType: "document", EntityID: "doc1", Relation: "viewer", SubjectType: "user", SubjectID: "alice"},
+		},
+	}
+	schemaService := &mockSchemaRepository{schema}
+	expander := NewExpander(schemaService, relationRepo)
+
+	req := &ExpandRequest{
+		TenantID:   "test-tenant",
+		EntityType: "document",
+		EntityID:   "doc1",
+		Permission: "view",
+	}
+
+	resp, err := expander.Expand(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Root should be a union (OR)
+	if resp.Tree.Type != "union" {
+		t.Errorf("expected union node, got %s", resp.Tree.Type)
+	}
+	if resp.Tree.Relation != "or" {
+		t.Errorf("expected relation 'or', got %s", resp.Tree.Relation)
+	}
+	if len(resp.Tree.Children) != 2 {
+		t.Fatalf("expected 2 children, got %d", len(resp.Tree.Children))
+	}
+
+	// First child: relation expansion (viewer)
+	leftChild := resp.Tree.Children[0]
+	if leftChild.Type != "union" {
+		t.Errorf("expected left child (relation) to be union, got %s", leftChild.Type)
+	}
+	if leftChild.Relation != "viewer" {
+		t.Errorf("expected left child relation 'viewer', got %s", leftChild.Relation)
+	}
+
+	// Second child: ABAC leaf
+	rightChild := resp.Tree.Children[1]
+	if rightChild.Type != "leaf" {
+		t.Errorf("expected right child (ABAC) to be leaf, got %s", rightChild.Type)
+	}
+	if rightChild.Relation != "abac" {
+		t.Errorf("expected right child relation 'abac', got %s", rightChild.Relation)
+	}
+	if rightChild.Subject != "expression:resource.is_public == true" {
+		t.Errorf("expected ABAC subject expression, got %s", rightChild.Subject)
+	}
+}

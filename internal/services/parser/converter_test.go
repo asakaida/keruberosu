@@ -441,6 +441,283 @@ func TestSchemaToAST_RuleCall(t *testing.T) {
 	}
 }
 
+func TestConverter_HierarchicalRuleCallRule(t *testing.T) {
+	// Test ASTToSchema for HierarchicalRuleCallPermissionAST
+	ast := &SchemaAST{
+		Rules: []*RuleDefinitionAST{
+			{
+				Name:       "check_confidentiality",
+				Parameters: []string{"resource"},
+				Body:       "resource.level >= 3",
+			},
+		},
+		Entities: []*EntityAST{
+			{
+				Name: "document",
+				Relations: []*RelationAST{
+					{Name: "parent", TargetType: "folder"},
+				},
+				Attributes: []*AttributeAST{
+					{Name: "authority", Type: "string"},
+				},
+				Permissions: []*PermissionAST{
+					{
+						Name: "view",
+						Rule: &HierarchicalRuleCallPermissionAST{
+							Relation:  "parent",
+							RuleName:  "check_confidentiality",
+							Arguments: []string{"authority"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	schema, err := ASTToSchema("test-tenant", ast)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify the permission was converted correctly
+	permission := schema.Entities[0].Permissions[0]
+	hrcRule, ok := permission.Rule.(*entities.HierarchicalRuleCallRule)
+	if !ok {
+		t.Fatalf("expected HierarchicalRuleCallRule, got %T", permission.Rule)
+	}
+
+	if hrcRule.Relation != "parent" {
+		t.Errorf("expected relation 'parent', got %s", hrcRule.Relation)
+	}
+	if hrcRule.RuleName != "check_confidentiality" {
+		t.Errorf("expected rule name 'check_confidentiality', got %s", hrcRule.RuleName)
+	}
+	if len(hrcRule.Arguments) != 1 || hrcRule.Arguments[0] != "authority" {
+		t.Errorf("expected arguments [authority], got %v", hrcRule.Arguments)
+	}
+
+	// Test SchemaToAST for HierarchicalRuleCallRule
+	resultAST, err := SchemaToAST(schema)
+	if err != nil {
+		t.Fatalf("SchemaToAST failed: %v", err)
+	}
+
+	resultPerm := resultAST.Entities[0].Permissions[0]
+	hrcAST, ok := resultPerm.Rule.(*HierarchicalRuleCallPermissionAST)
+	if !ok {
+		t.Fatalf("expected HierarchicalRuleCallPermissionAST, got %T", resultPerm.Rule)
+	}
+
+	if hrcAST.Relation != "parent" {
+		t.Errorf("expected relation 'parent', got %s", hrcAST.Relation)
+	}
+	if hrcAST.RuleName != "check_confidentiality" {
+		t.Errorf("expected rule name 'check_confidentiality', got %s", hrcAST.RuleName)
+	}
+	if len(hrcAST.Arguments) != 1 || hrcAST.Arguments[0] != "authority" {
+		t.Errorf("expected arguments [authority], got %v", hrcAST.Arguments)
+	}
+}
+
+func TestConverter_ABACRule(t *testing.T) {
+	// ABACRule exists in entities but has no corresponding AST type in the parser.
+	// SchemaToAST should return an error when encountering an ABACRule.
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{
+				Name: "document",
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.ABACRule{
+							Expression: "resource.public == true",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, err := SchemaToAST(schema)
+	if err == nil {
+		t.Fatal("expected error when converting ABACRule to AST, but got nil")
+	}
+}
+
+func TestConverter_RoundTrip_ComplexSchema(t *testing.T) {
+	// Full round-trip (AST -> Schema -> AST) with all supported rule types
+	originalAST := &SchemaAST{
+		Rules: []*RuleDefinitionAST{
+			{
+				Name:       "is_public",
+				Parameters: []string{"resource"},
+				Body:       "resource.public == true",
+			},
+			{
+				Name:       "check_level",
+				Parameters: []string{"resource", "subject"},
+				Body:       "subject.level >= resource.required_level",
+			},
+		},
+		Entities: []*EntityAST{
+			{Name: "user"},
+			{
+				Name: "team",
+				Relations: []*RelationAST{
+					{Name: "member", TargetType: "user"},
+				},
+			},
+			{
+				Name: "folder",
+				Relations: []*RelationAST{
+					{Name: "owner", TargetType: "user"},
+					{Name: "viewer", TargetType: "user team#member"},
+					{Name: "parent", TargetType: "folder"},
+				},
+				Attributes: []*AttributeAST{
+					{Name: "public", Type: "boolean"},
+					{Name: "required_level", Type: "integer"},
+				},
+				Permissions: []*PermissionAST{
+					// RelationPermissionAST
+					{
+						Name: "delete",
+						Rule: &RelationPermissionAST{Relation: "owner"},
+					},
+					// LogicalPermissionAST
+					{
+						Name: "edit",
+						Rule: &LogicalPermissionAST{
+							Operator: "or",
+							Left:     &RelationPermissionAST{Relation: "owner"},
+							Right:    &RelationPermissionAST{Relation: "viewer"},
+						},
+					},
+					// HierarchicalPermissionAST
+					{
+						Name: "view_parent",
+						Rule: &HierarchicalPermissionAST{
+							Relation:   "parent",
+							Permission: "delete",
+						},
+					},
+					// RuleCallPermissionAST
+					{
+						Name: "view_public",
+						Rule: &RuleCallPermissionAST{
+							RuleName:  "is_public",
+							Arguments: []string{"resource"},
+						},
+					},
+					// HierarchicalRuleCallPermissionAST
+					{
+						Name: "view_classified",
+						Rule: &HierarchicalRuleCallPermissionAST{
+							Relation:  "parent",
+							RuleName:  "check_level",
+							Arguments: []string{"resource", "subject"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// AST -> Schema
+	schema, err := ASTToSchema("test-tenant", originalAST)
+	if err != nil {
+		t.Fatalf("ASTToSchema failed: %v", err)
+	}
+
+	// Schema -> AST
+	resultAST, err := SchemaToAST(schema)
+	if err != nil {
+		t.Fatalf("SchemaToAST failed: %v", err)
+	}
+
+	// Verify rules
+	if len(resultAST.Rules) != len(originalAST.Rules) {
+		t.Fatalf("rule count mismatch: got %d, want %d", len(resultAST.Rules), len(originalAST.Rules))
+	}
+	for i, rule := range resultAST.Rules {
+		orig := originalAST.Rules[i]
+		if rule.Name != orig.Name {
+			t.Errorf("rule[%d] name mismatch: got %s, want %s", i, rule.Name, orig.Name)
+		}
+		if rule.Body != orig.Body {
+			t.Errorf("rule[%d] body mismatch: got %s, want %s", i, rule.Body, orig.Body)
+		}
+		if len(rule.Parameters) != len(orig.Parameters) {
+			t.Errorf("rule[%d] parameter count mismatch: got %d, want %d", i, len(rule.Parameters), len(orig.Parameters))
+		}
+	}
+
+	// Verify entities
+	if len(resultAST.Entities) != len(originalAST.Entities) {
+		t.Fatalf("entity count mismatch: got %d, want %d", len(resultAST.Entities), len(originalAST.Entities))
+	}
+
+	// Verify the folder entity in detail (index 2)
+	resultFolder := resultAST.Entities[2]
+	originalFolder := originalAST.Entities[2]
+
+	if resultFolder.Name != originalFolder.Name {
+		t.Errorf("entity name mismatch: got %s, want %s", resultFolder.Name, originalFolder.Name)
+	}
+	if len(resultFolder.Relations) != len(originalFolder.Relations) {
+		t.Errorf("relation count mismatch: got %d, want %d", len(resultFolder.Relations), len(originalFolder.Relations))
+	}
+	for i, rel := range resultFolder.Relations {
+		orig := originalFolder.Relations[i]
+		if rel.Name != orig.Name {
+			t.Errorf("relation[%d] name mismatch: got %s, want %s", i, rel.Name, orig.Name)
+		}
+		if rel.TargetType != orig.TargetType {
+			t.Errorf("relation[%d] target type mismatch: got %s, want %s", i, rel.TargetType, orig.TargetType)
+		}
+	}
+	if len(resultFolder.Attributes) != len(originalFolder.Attributes) {
+		t.Errorf("attribute count mismatch: got %d, want %d", len(resultFolder.Attributes), len(originalFolder.Attributes))
+	}
+	if len(resultFolder.Permissions) != len(originalFolder.Permissions) {
+		t.Fatalf("permission count mismatch: got %d, want %d", len(resultFolder.Permissions), len(originalFolder.Permissions))
+	}
+
+	// Verify each permission rule type survived the round-trip
+	// Permission 0: RelationPermissionAST
+	if _, ok := resultFolder.Permissions[0].Rule.(*RelationPermissionAST); !ok {
+		t.Errorf("permission[0] expected RelationPermissionAST, got %T", resultFolder.Permissions[0].Rule)
+	}
+	// Permission 1: LogicalPermissionAST
+	if _, ok := resultFolder.Permissions[1].Rule.(*LogicalPermissionAST); !ok {
+		t.Errorf("permission[1] expected LogicalPermissionAST, got %T", resultFolder.Permissions[1].Rule)
+	}
+	// Permission 2: HierarchicalPermissionAST
+	if _, ok := resultFolder.Permissions[2].Rule.(*HierarchicalPermissionAST); !ok {
+		t.Errorf("permission[2] expected HierarchicalPermissionAST, got %T", resultFolder.Permissions[2].Rule)
+	}
+	// Permission 3: RuleCallPermissionAST
+	if _, ok := resultFolder.Permissions[3].Rule.(*RuleCallPermissionAST); !ok {
+		t.Errorf("permission[3] expected RuleCallPermissionAST, got %T", resultFolder.Permissions[3].Rule)
+	}
+	// Permission 4: HierarchicalRuleCallPermissionAST
+	hrcResult, ok := resultFolder.Permissions[4].Rule.(*HierarchicalRuleCallPermissionAST)
+	if !ok {
+		t.Errorf("permission[4] expected HierarchicalRuleCallPermissionAST, got %T", resultFolder.Permissions[4].Rule)
+	} else {
+		if hrcResult.Relation != "parent" {
+			t.Errorf("permission[4] relation mismatch: got %s, want parent", hrcResult.Relation)
+		}
+		if hrcResult.RuleName != "check_level" {
+			t.Errorf("permission[4] rule name mismatch: got %s, want check_level", hrcResult.RuleName)
+		}
+		if len(hrcResult.Arguments) != 2 || hrcResult.Arguments[0] != "resource" || hrcResult.Arguments[1] != "subject" {
+			t.Errorf("permission[4] arguments mismatch: got %v, want [resource subject]", hrcResult.Arguments)
+		}
+	}
+}
+
 func TestRoundTrip_ASTToSchemaToAST(t *testing.T) {
 	// Original AST
 	originalAST := &SchemaAST{
