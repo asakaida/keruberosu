@@ -54,7 +54,10 @@ func NewDataHandlerWithTokenGenerator(
 
 // Write handles the Write RPC - writes both tuples and attributes
 func (h *DataHandler) Write(ctx context.Context, req *pb.DataWriteRequest) (*pb.DataWriteResponse, error) {
-	tenantID := "default"
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = "default"
+	}
 
 	hasTuples := len(req.Tuples) > 0
 	hasAttributes := len(req.Attributes) > 0
@@ -154,7 +157,10 @@ func (h *DataHandler) Delete(ctx context.Context, req *pb.DataDeleteRequest) (*p
 		return nil, status.Error(codes.InvalidArgument, "filter must specify at least one of: entity, subject, or relation")
 	}
 
-	tenantID := "default"
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = "default"
+	}
 
 	// Convert filter to repository format
 	filter := &repositories.RelationFilter{
@@ -187,7 +193,20 @@ func (h *DataHandler) Delete(ctx context.Context, req *pb.DataDeleteRequest) (*p
 
 // Read handles the Read RPC
 func (h *DataHandler) Read(ctx context.Context, req *pb.DataReadRequest) (*pb.DataReadResponse, error) {
-	tenantID := "default"
+	if req.Filter == nil {
+		return nil, status.Error(codes.InvalidArgument, "filter is required")
+	}
+	hasEntityFilter := req.Filter.Entity != nil && (req.Filter.Entity.GetType() != "" || len(req.Filter.Entity.GetIds()) > 0)
+	hasSubjectFilter := req.Filter.Subject != nil && (req.Filter.Subject.GetType() != "" || len(req.Filter.Subject.GetIds()) > 0)
+	hasRelationFilter := req.Filter.GetRelation() != ""
+	if !hasEntityFilter && !hasSubjectFilter && !hasRelationFilter {
+		return nil, status.Error(codes.InvalidArgument, "filter must specify at least one of: entity, subject, or relation")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = "default"
+	}
 
 	// Convert filter
 	filter := &repositories.RelationFilter{}
@@ -238,7 +257,10 @@ func (h *DataHandler) Read(ctx context.Context, req *pb.DataReadRequest) (*pb.Da
 
 // ReadAttributes handles the ReadAttributes RPC
 func (h *DataHandler) ReadAttributes(ctx context.Context, req *pb.AttributeReadRequest) (*pb.AttributeReadResponse, error) {
-	tenantID := "default"
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = "default"
+	}
 
 	if req.Filter == nil || req.Filter.Entity == nil {
 		return nil, status.Error(codes.InvalidArgument, "filter with entity is required")

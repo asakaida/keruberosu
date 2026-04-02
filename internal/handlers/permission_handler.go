@@ -60,22 +60,23 @@ func (h *PermissionHandler) Check(ctx context.Context, req *pb.PermissionCheckRe
 		snapToken = req.Metadata.SnapToken
 	}
 
-	contextualTuples, err := protoContextToTuples(req.Context)
+	contextualTuples, contextualAttributes, err := protoContextToTuplesAndAttributes(req.Context)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid context: %v", err)
 	}
 
 	checkReq := &authorization.CheckRequest{
-		TenantID:         tenantID,
-		SchemaVersion:    schemaVersion,
-		EntityType:       req.Entity.Type,
-		EntityID:         req.Entity.Id,
-		Permission:       req.Permission,
-		SubjectType:      req.Subject.Type,
-		SubjectID:        req.Subject.Id,
-		SubjectRelation:  req.Subject.GetRelation(),
-		ContextualTuples: contextualTuples,
-		SnapshotToken:    snapToken,
+		TenantID:             tenantID,
+		SchemaVersion:        schemaVersion,
+		EntityType:           req.Entity.Type,
+		EntityID:             req.Entity.Id,
+		Permission:           req.Permission,
+		SubjectType:          req.Subject.Type,
+		SubjectID:            req.Subject.Id,
+		SubjectRelation:      req.Subject.GetRelation(),
+		ContextualTuples:     contextualTuples,
+		ContextualAttributes: contextualAttributes,
+		SnapshotToken:        snapToken,
 	}
 
 	checkResp, err := h.checker.Check(ctx, checkReq)
@@ -111,16 +112,25 @@ func (h *PermissionHandler) Expand(ctx context.Context, req *pb.PermissionExpand
 	}
 
 	schemaVersion := ""
+	snapToken := ""
 	if req.Metadata != nil {
 		schemaVersion = req.Metadata.SchemaVersion
+		snapToken = req.Metadata.SnapToken
+	}
+
+	contextualTuples, err := protoContextToTuples(req.Context)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid context: %v", err)
 	}
 
 	expandReq := &authorization.ExpandRequest{
-		TenantID:      tenantID,
-		SchemaVersion: schemaVersion,
-		EntityType:    req.Entity.Type,
-		EntityID:      req.Entity.Id,
-		Permission:    req.Permission,
+		TenantID:         tenantID,
+		SchemaVersion:    schemaVersion,
+		EntityType:       req.Entity.Type,
+		EntityID:         req.Entity.Id,
+		Permission:       req.Permission,
+		ContextualTuples: contextualTuples,
+		SnapshotToken:    snapToken,
 	}
 
 	expandResp, err := h.expander.Expand(ctx, expandReq)
@@ -159,22 +169,24 @@ func (h *PermissionHandler) LookupEntity(ctx context.Context, req *pb.Permission
 		snapToken = req.Metadata.SnapToken
 	}
 
-	contextualTuples, err := protoContextToTuples(req.Context)
+	contextualTuples, contextualAttributes, err := protoContextToTuplesAndAttributes(req.Context)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid context: %v", err)
 	}
 
 	lookupReq := &authorization.LookupEntityRequest{
-		TenantID:         tenantID,
-		SchemaVersion:    schemaVersion,
-		EntityType:       req.EntityType,
-		Permission:       req.Permission,
-		SubjectType:      req.Subject.Type,
-		SubjectID:        req.Subject.Id,
-		ContextualTuples: contextualTuples,
-		SnapshotToken:    snapToken,
-		PageSize:         int(req.PageSize),
-		PageToken:        req.ContinuousToken,
+		TenantID:             tenantID,
+		SchemaVersion:        schemaVersion,
+		EntityType:           req.EntityType,
+		Permission:           req.Permission,
+		SubjectType:          req.Subject.Type,
+		SubjectID:            req.Subject.Id,
+		SubjectRelation:      req.Subject.GetRelation(),
+		ContextualTuples:     contextualTuples,
+		ContextualAttributes: contextualAttributes,
+		SnapshotToken:        snapToken,
+		PageSize:             int(req.PageSize),
+		PageToken:            req.ContinuousToken,
 	}
 
 	lookupResp, err := h.lookup.LookupEntity(ctx, lookupReq)
@@ -212,23 +224,24 @@ func (h *PermissionHandler) LookupSubject(ctx context.Context, req *pb.Permissio
 		snapToken = req.Metadata.SnapToken
 	}
 
-	contextualTuples, err := protoContextToTuples(req.Context)
+	contextualTuples, contextualAttributes, err := protoContextToTuplesAndAttributes(req.Context)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid context: %v", err)
 	}
 
 	lookupReq := &authorization.LookupSubjectRequest{
-		TenantID:         tenantID,
-		SchemaVersion:    schemaVersion,
-		EntityType:       req.Entity.Type,
-		EntityID:         req.Entity.Id,
-		Permission:       req.Permission,
-		SubjectType:      req.SubjectReference.Type,
-		SubjectRelation:  req.SubjectReference.Relation,
-		ContextualTuples: contextualTuples,
-		SnapshotToken:    snapToken,
-		PageSize:         int(req.PageSize),
-		PageToken:        req.ContinuousToken,
+		TenantID:             tenantID,
+		SchemaVersion:        schemaVersion,
+		EntityType:           req.Entity.Type,
+		EntityID:             req.Entity.Id,
+		Permission:           req.Permission,
+		SubjectType:          req.SubjectReference.Type,
+		SubjectRelation:      req.SubjectReference.Relation,
+		ContextualTuples:     contextualTuples,
+		ContextualAttributes: contextualAttributes,
+		SnapshotToken:        snapToken,
+		PageSize:             int(req.PageSize),
+		PageToken:            req.ContinuousToken,
 	}
 
 	lookupResp, err := h.lookup.LookupSubject(ctx, lookupReq)
@@ -283,7 +296,7 @@ func (h *PermissionHandler) SubjectPermission(ctx context.Context, req *pb.Permi
 		return nil, status.Errorf(codes.NotFound, "entity type %s not found in schema", req.Entity.Type)
 	}
 
-	contextualTuples, err := protoContextToTuples(req.Context)
+	contextualTuples, contextualAttributes, err := protoContextToTuplesAndAttributes(req.Context)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid context: %v", err)
 	}
@@ -293,16 +306,17 @@ func (h *PermissionHandler) SubjectPermission(ctx context.Context, req *pb.Permi
 	// Check all permissions defined in the schema
 	for _, permission := range entity.Permissions {
 		checkReq := &authorization.CheckRequest{
-			TenantID:         tenantID,
-			SchemaVersion:    schemaVersion,
-			EntityType:       req.Entity.Type,
-			EntityID:         req.Entity.Id,
-			Permission:       permission.Name,
-			SubjectType:      req.Subject.Type,
-			SubjectID:        req.Subject.Id,
-			SubjectRelation:  req.Subject.GetRelation(),
-			ContextualTuples: contextualTuples,
-			SnapshotToken:    snapToken,
+			TenantID:             tenantID,
+			SchemaVersion:        schemaVersion,
+			EntityType:           req.Entity.Type,
+			EntityID:             req.Entity.Id,
+			Permission:           permission.Name,
+			SubjectType:          req.Subject.Type,
+			SubjectID:            req.Subject.Id,
+			SubjectRelation:      req.Subject.GetRelation(),
+			ContextualTuples:     contextualTuples,
+			ContextualAttributes: contextualAttributes,
+			SnapshotToken:        snapToken,
 		}
 
 		checkResp, err := h.checker.Check(ctx, checkReq)
@@ -327,16 +341,17 @@ func (h *PermissionHandler) SubjectPermission(ctx context.Context, req *pb.Permi
 	}
 	for _, relation := range entity.Relations {
 		checkReq := &authorization.CheckRequest{
-			TenantID:         tenantID,
-			SchemaVersion:    schemaVersion,
-			EntityType:       req.Entity.Type,
-			EntityID:         req.Entity.Id,
-			Permission:       relation.Name,
-			SubjectType:      req.Subject.Type,
-			SubjectID:        req.Subject.Id,
-			SubjectRelation:  req.Subject.GetRelation(),
-			ContextualTuples: contextualTuples,
-			SnapshotToken:    snapToken,
+			TenantID:             tenantID,
+			SchemaVersion:        schemaVersion,
+			EntityType:           req.Entity.Type,
+			EntityID:             req.Entity.Id,
+			Permission:           relation.Name,
+			SubjectType:          req.Subject.Type,
+			SubjectID:            req.Subject.Id,
+			SubjectRelation:      req.Subject.GetRelation(),
+			ContextualTuples:     contextualTuples,
+			ContextualAttributes: contextualAttributes,
+			SnapshotToken:        snapToken,
 		}
 
 		checkResp, err := h.checker.Check(ctx, checkReq)

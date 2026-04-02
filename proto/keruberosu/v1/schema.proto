@@ -23,6 +23,7 @@ service Schema {
 // ========================================
 
 message SchemaWriteRequest {
+  string tenant_id = 2;
   string schema = 1 [(buf.validate.field).string.min_len = 1];
 }
 
@@ -31,6 +32,7 @@ message SchemaWriteResponse {
 }
 
 message SchemaReadRequest {
+  string tenant_id = 2;
   PermissionCheckMetadata metadata = 1;  // schema_versionを指定可能
 }
 
@@ -40,6 +42,7 @@ message SchemaReadResponse {
 }
 
 message SchemaListRequest {
+  string tenant_id = 3;
   int32 page_size = 1;          // 取得するバージョン数（1-100）
   string continuous_token = 2;   // ページネーション用トークン
 }

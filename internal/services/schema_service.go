@@ -157,6 +157,10 @@ func (s *SchemaService) GetSchemaEntity(ctx context.Context, tenantID string, ve
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}
 
+	if dbSchema == nil {
+		return nil, fmt.Errorf("schema not found for tenant: %s", tenantID)
+	}
+
 	// Check cache using actual version from DB
 	cacheKey := tenantID + ":" + dbSchema.Version
 	if cached, ok := s.schemaCache.Load(cacheKey); ok {

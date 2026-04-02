@@ -14,21 +14,41 @@ import (
 
 // === Shared Helper Functions for all handlers ===
 
-func protoContextToTuples(ctx *pb.Context) ([]*entities.RelationTuple, error) {
-	if ctx == nil || len(ctx.Tuples) == 0 {
-		return nil, nil
+func protoContextToTuplesAndAttributes(ctx *pb.Context) ([]*entities.RelationTuple, []*entities.Attribute, error) {
+	if ctx == nil {
+		return nil, nil, nil
 	}
 
-	tuples := make([]*entities.RelationTuple, 0, len(ctx.Tuples))
-	for i, protoTuple := range ctx.Tuples {
-		tuple, err := protoToRelationTuple(protoTuple)
-		if err != nil {
-			return nil, fmt.Errorf("invalid tuple at index %d: %v", i, err)
+	var tuples []*entities.RelationTuple
+	if len(ctx.Tuples) > 0 {
+		tuples = make([]*entities.RelationTuple, 0, len(ctx.Tuples))
+		for i, protoTuple := range ctx.Tuples {
+			tuple, err := protoToRelationTuple(protoTuple)
+			if err != nil {
+				return nil, nil, fmt.Errorf("invalid tuple at index %d: %v", i, err)
+			}
+			tuples = append(tuples, tuple)
 		}
-		tuples = append(tuples, tuple)
 	}
 
-	return tuples, nil
+	var attrs []*entities.Attribute
+	if len(ctx.Attributes) > 0 {
+		attrs = make([]*entities.Attribute, 0, len(ctx.Attributes))
+		for i, protoAttr := range ctx.Attributes {
+			attr, err := protoToAttribute(protoAttr)
+			if err != nil {
+				return nil, nil, fmt.Errorf("invalid attribute at index %d: %v", i, err)
+			}
+			attrs = append(attrs, attr)
+		}
+	}
+
+	return tuples, attrs, nil
+}
+
+func protoContextToTuples(ctx *pb.Context) ([]*entities.RelationTuple, error) {
+	tuples, _, err := protoContextToTuplesAndAttributes(ctx)
+	return tuples, err
 }
 
 func expandNodeToProto(node *authorization.ExpandNode) *pb.Expand {

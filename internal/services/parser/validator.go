@@ -236,49 +236,53 @@ func (v *Validator) validatePermissionRule(entity *EntityAST, permissionName str
 		}
 
 	case *HierarchicalPermissionAST:
-		// Check if relation exists
-		var targetEntity *EntityAST
+		// Check if relation exists and collect all target entity types
+		var targetEntities []*EntityAST
+		foundRelationDef := false
 		for _, relation := range entity.Relations {
 			if relation.Name == r.Relation {
-				// Handle multi-type relations (e.g., "user team#member") - use first type
+				foundRelationDef = true
+				// Handle multi-type relations (e.g., "user team#member") - check ALL types
 				types := strings.Fields(relation.TargetType)
-				if len(types) > 0 {
-					typeName := types[0]
+				for _, typeName := range types {
 					if idx := strings.Index(typeName, "#"); idx >= 0 {
 						typeName = typeName[:idx]
 					}
-					targetEntity = v.entities[typeName]
+					if te, ok := v.entities[typeName]; ok {
+						targetEntities = append(targetEntities, te)
+					}
 				}
 				break
 			}
 		}
-		if targetEntity == nil {
+		if !foundRelationDef || len(targetEntities) == 0 {
 			v.errors = append(v.errors, fmt.Sprintf("entity %s: permission %s references undefined relation: %s", entity.Name, permissionName, r.Relation))
 			return
 		}
 
-		// Check if target entity has the referenced permission or relation
-		// (Permify compatibility: allow both relation and permission references)
-		foundPermission := false
-		for _, perm := range targetEntity.Permissions {
-			if perm.Name == r.Permission {
-				foundPermission = true
-				break
-			}
-		}
-
-		foundRelation := false
-		if !foundPermission {
-			for _, rel := range targetEntity.Relations {
-				if rel.Name == r.Permission {
-					foundRelation = true
+		// Check if ALL target entity types have the referenced permission or relation
+		for _, targetEntity := range targetEntities {
+			foundPermission := false
+			for _, perm := range targetEntity.Permissions {
+				if perm.Name == r.Permission {
+					foundPermission = true
 					break
 				}
 			}
-		}
 
-		if !foundPermission && !foundRelation {
-			v.errors = append(v.errors, fmt.Sprintf("entity %s: permission %s references undefined permission or relation %s in entity %s", entity.Name, permissionName, r.Permission, targetEntity.Name))
+			foundRelation := false
+			if !foundPermission {
+				for _, rel := range targetEntity.Relations {
+					if rel.Name == r.Permission {
+						foundRelation = true
+						break
+					}
+				}
+			}
+
+			if !foundPermission && !foundRelation {
+				v.errors = append(v.errors, fmt.Sprintf("entity %s: permission %s references undefined permission or relation %s in entity %s", entity.Name, permissionName, r.Permission, targetEntity.Name))
+			}
 		}
 
 	case *RuleCallPermissionAST:
@@ -336,6 +340,23 @@ func (v *Validator) validatePermissionRule(entity *EntityAST, permissionName str
 			v.errors = append(v.errors, fmt.Sprintf("entity %s: permission %s calls rule %s with %d arguments, expected %d",
 				entity.Name, permissionName, r.RuleName, len(r.Arguments), len(ruleDef.Parameters)))
 		}
+
+		// Validate that arguments are valid attribute names on the current entity or standard names
+		standardNames := map[string]bool{
+			"resource": true,
+			"subject":  true,
+			"request":  true,
+		}
+		entityAttrs := make(map[string]bool)
+		for _, attr := range entity.Attributes {
+			entityAttrs[attr.Name] = true
+		}
+		for _, arg := range r.Arguments {
+			if !standardNames[arg] && !entityAttrs[arg] {
+				v.errors = append(v.errors, fmt.Sprintf("entity %s: permission %s calls rule %s with invalid argument: %s (must be a valid attribute name or one of 'resource', 'subject', 'request')",
+					entity.Name, permissionName, r.RuleName, arg))
+			}
+		}
 	}
 }
 
@@ -391,11 +412,47 @@ func (v *Validator) checkCircularPermission(entity *EntityAST, permissionName st
 		}
 
 	case *HierarchicalPermissionAST:
-		// Hierarchical permissions traverse to different instances via relations,
-		// so they cannot create circular references at the schema level.
-		// For example, folder.view = parent.view is valid because it references
-		// a different folder instance via the parent relation.
-		// Therefore, we don't check for circular references in hierarchical permissions.
-		return
+		// Check cross-entity cycles: resolve the target entity type(s) from the relation,
+		// then check the permission on those target entities for cycles.
+		// Same-entity hierarchical references (e.g., folder.view = parent.view where parent
+		// targets folder) are valid because they traverse to different instances at runtime.
+		for _, rel := range entity.Relations {
+			if rel.Name == r.Relation {
+				types := strings.Fields(rel.TargetType)
+				for _, typeName := range types {
+					if idx := strings.Index(typeName, "#"); idx >= 0 {
+						typeName = typeName[:idx]
+					}
+					// Skip same-entity hierarchical references - they traverse to
+					// different instances at runtime, not a true cycle
+					if typeName == entity.Name {
+						continue
+					}
+					targetEntity, ok := v.entities[typeName]
+					if !ok {
+						continue
+					}
+					for _, perm := range targetEntity.Permissions {
+						if perm.Name == r.Permission {
+							currentPath := fmt.Sprintf("%s.%s", targetEntity.Name, perm.Name)
+							if visited[currentPath] {
+								cycle := make([]string, len(path)+1)
+								copy(cycle, path)
+								cycle[len(path)] = currentPath
+								v.errors = append(v.errors, fmt.Sprintf("circular permission reference: %s", strings.Join(cycle, " -> ")))
+								return
+							}
+							visited[currentPath] = true
+							newPath := make([]string, len(path)+1)
+							copy(newPath, path)
+							newPath[len(path)] = currentPath
+							v.checkCircularPermission(targetEntity, perm.Name, perm.Rule, visited, newPath)
+							delete(visited, currentPath)
+						}
+					}
+				}
+				break
+			}
+		}
 	}
 }

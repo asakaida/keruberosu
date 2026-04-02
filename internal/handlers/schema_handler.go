@@ -33,7 +33,10 @@ func (h *SchemaHandler) Write(ctx context.Context, req *pb.SchemaWriteRequest) (
 		return nil, status.Error(codes.InvalidArgument, "schema is required")
 	}
 
-	tenantID := "default"
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = "default"
+	}
 
 	version, err := h.schemaService.WriteSchema(ctx, tenantID, req.Schema)
 	if err != nil {
@@ -50,7 +53,10 @@ func (h *SchemaHandler) Write(ctx context.Context, req *pb.SchemaWriteRequest) (
 
 // Read handles the Read RPC
 func (h *SchemaHandler) Read(ctx context.Context, req *pb.SchemaReadRequest) (*pb.SchemaReadResponse, error) {
-	tenantID := "default"
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = "default"
+	}
 
 	var schema *entities.Schema
 	var err error
@@ -83,7 +89,10 @@ func (h *SchemaHandler) Read(ctx context.Context, req *pb.SchemaReadRequest) (*p
 
 // List handles the List RPC
 func (h *SchemaHandler) List(ctx context.Context, req *pb.SchemaListRequest) (*pb.SchemaListResponse, error) {
-	tenantID := "default"
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = "default"
+	}
 
 	pageSize := req.PageSize
 	if pageSize <= 0 {

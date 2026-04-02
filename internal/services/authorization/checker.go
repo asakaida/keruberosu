@@ -29,16 +29,17 @@ type Checker struct {
 
 // CheckRequest contains the parameters for a permission check
 type CheckRequest struct {
-	TenantID         string                    // Tenant ID
-	SchemaVersion    string                    // Schema version (empty = latest)
-	EntityType       string                    // Resource entity type (e.g., "document")
-	EntityID         string                    // Resource entity ID (e.g., "doc1")
-	Permission       string                    // Permission to check (e.g., "view", "edit")
-	SubjectType      string                    // Subject type (e.g., "user")
-	SubjectID        string                    // Subject ID (e.g., "alice")
-	SubjectRelation  string                    // Optional subject relation (e.g., "member" for subject set checks)
-	ContextualTuples []*entities.RelationTuple // Temporary relation tuples for this check
-	SnapshotToken    string                    // Optional snapshot token for cache consistency
+	TenantID              string                    // Tenant ID
+	SchemaVersion         string                    // Schema version (empty = latest)
+	EntityType            string                    // Resource entity type (e.g., "document")
+	EntityID              string                    // Resource entity ID (e.g., "doc1")
+	Permission            string                    // Permission to check (e.g., "view", "edit")
+	SubjectType           string                    // Subject type (e.g., "user")
+	SubjectID             string                    // Subject ID (e.g., "alice")
+	SubjectRelation       string                    // Optional subject relation (e.g., "member" for subject set checks)
+	ContextualTuples      []*entities.RelationTuple // Temporary relation tuples for this check
+	ContextualAttributes  []*entities.Attribute     // Temporary attributes for this check
+	SnapshotToken         string                    // Optional snapshot token for cache consistency
 }
 
 // CheckResponse contains the result of a permission check
@@ -101,8 +102,8 @@ func (c *Checker) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 		return nil, fmt.Errorf("invalid check request: %w", err)
 	}
 
-	// Skip cache if contextual tuples are present (they make the result unique)
-	useCache := c.cache != nil && c.snapshotManager != nil && len(req.ContextualTuples) == 0
+	// Skip cache if contextual tuples or attributes are present (they make the result unique)
+	useCache := c.cache != nil && c.snapshotManager != nil && len(req.ContextualTuples) == 0 && len(req.ContextualAttributes) == 0
 
 	// Get parsed schema (needed for both cache key and evaluation)
 	schema, err := c.schemaService.GetSchemaEntity(ctx, req.TenantID, req.SchemaVersion)
@@ -168,15 +169,16 @@ func (c *Checker) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 	// Use the resolved schema version (not the requested one, which may be empty)
 	// to ensure consistent schema usage throughout the evaluation.
 	evalReq := &EvaluationRequest{
-		TenantID:         req.TenantID,
-		SchemaVersion:    schema.Version,
-		EntityType:       req.EntityType,
-		EntityID:         req.EntityID,
-		SubjectType:      req.SubjectType,
-		SubjectID:        req.SubjectID,
-		SubjectRelation:  req.SubjectRelation,
-		ContextualTuples: req.ContextualTuples,
-		Depth:            0, // Start at depth 0
+		TenantID:             req.TenantID,
+		SchemaVersion:        schema.Version,
+		EntityType:           req.EntityType,
+		EntityID:             req.EntityID,
+		SubjectType:          req.SubjectType,
+		SubjectID:            req.SubjectID,
+		SubjectRelation:      req.SubjectRelation,
+		ContextualTuples:     req.ContextualTuples,
+		ContextualAttributes: req.ContextualAttributes,
+		Depth:                0, // Start at depth 0
 	}
 
 	// Evaluate the permission rule
@@ -225,16 +227,17 @@ func (c *Checker) CheckMultiple(ctx context.Context, req *CheckRequest, permissi
 
 	for _, permission := range permissions {
 		checkReq := &CheckRequest{
-			TenantID:         req.TenantID,
-			SchemaVersion:    req.SchemaVersion,
-			EntityType:       req.EntityType,
-			EntityID:         req.EntityID,
-			Permission:       permission,
-			SubjectType:      req.SubjectType,
-			SubjectID:        req.SubjectID,
-			SubjectRelation:  req.SubjectRelation,
-			ContextualTuples: req.ContextualTuples,
-			SnapshotToken:    req.SnapshotToken,
+			TenantID:             req.TenantID,
+			SchemaVersion:        req.SchemaVersion,
+			EntityType:           req.EntityType,
+			EntityID:             req.EntityID,
+			Permission:           permission,
+			SubjectType:          req.SubjectType,
+			SubjectID:            req.SubjectID,
+			SubjectRelation:      req.SubjectRelation,
+			ContextualTuples:     req.ContextualTuples,
+			ContextualAttributes: req.ContextualAttributes,
+			SnapshotToken:        req.SnapshotToken,
 		}
 
 		resp, err := c.Check(ctx, checkReq)

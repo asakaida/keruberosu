@@ -32,16 +32,18 @@ type Lookup struct {
 
 // LookupEntityRequest contains the parameters for looking up entities
 type LookupEntityRequest struct {
-	TenantID         string
-	SchemaVersion    string
-	EntityType       string
-	Permission       string
-	SubjectType      string
-	SubjectID        string
-	ContextualTuples []*entities.RelationTuple
-	SnapshotToken    string
-	PageSize         int
-	PageToken        string
+	TenantID             string
+	SchemaVersion        string
+	EntityType           string
+	Permission           string
+	SubjectType          string
+	SubjectID            string
+	SubjectRelation      string // optional: for subject set lookups (e.g., "member")
+	ContextualTuples     []*entities.RelationTuple
+	ContextualAttributes []*entities.Attribute
+	SnapshotToken        string
+	PageSize             int
+	PageToken            string
 }
 
 // LookupEntityResponse contains the list of entities
@@ -52,17 +54,18 @@ type LookupEntityResponse struct {
 
 // LookupSubjectRequest contains the parameters for looking up subjects
 type LookupSubjectRequest struct {
-	TenantID         string
-	SchemaVersion    string
-	EntityType       string
-	EntityID         string
-	Permission       string
-	SubjectType      string
-	SubjectRelation  string // optional: for computed userset lookups (e.g., "member")
-	ContextualTuples []*entities.RelationTuple
-	SnapshotToken    string
-	PageSize         int
-	PageToken        string
+	TenantID             string
+	SchemaVersion        string
+	EntityType           string
+	EntityID             string
+	Permission           string
+	SubjectType          string
+	SubjectRelation      string // optional: for computed userset lookups (e.g., "member")
+	ContextualTuples     []*entities.RelationTuple
+	ContextualAttributes []*entities.Attribute
+	SnapshotToken        string
+	PageSize             int
+	PageToken            string
 }
 
 // LookupSubjectResponse contains the list of subjects
@@ -142,7 +145,9 @@ func (l *Lookup) LookupEntity(ctx context.Context, req *LookupEntityRequest) (*L
 	}
 
 	if useOptimized {
-		// Optimized path: pure ReBAC with or without hierarchy
+		// Optimized path: pure ReBAC with or without hierarchy.
+		// SQL results are used as candidates and verified with Check() to ensure
+		// correctness (the SQL approximation may over-include in edge cases).
 		entityIDs, err := l.relationRepo.LookupAccessibleEntitiesComplex(
 			ctx, req.TenantID,
 			req.EntityType, relations, parentRelations,
@@ -152,28 +157,15 @@ func (l *Lookup) LookupEntity(ctx context.Context, req *LookupEntityRequest) (*L
 			return nil, fmt.Errorf("failed to lookup accessible entities: %w", err)
 		}
 
-		// If contextual tuples present, merge candidates from contextual tuples
-		// and verify each result with Check.
-		// Filter contextual tuple IDs by page cursor to prevent duplicates across pages.
 		if len(req.ContextualTuples) > 0 {
 			ctxIDs := extractEntityIDsFromContextualTuples(req.ContextualTuples, req.EntityType)
 			if req.PageToken != "" {
 				ctxIDs = filterIDsAfterCursor(ctxIDs, req.PageToken)
 			}
-			merged := mergeSortedUnique(entityIDs, ctxIDs, len(entityIDs)+len(ctxIDs))
-			return l.verifyEntitiesAndPaginate(ctx, req, merged, limit)
+			entityIDs = mergeSortedUnique(entityIDs, ctxIDs, len(entityIDs)+len(ctxIDs))
 		}
 
-		nextPageToken := ""
-		if len(entityIDs) > limit {
-			entityIDs = entityIDs[:limit]
-			nextPageToken = entityIDs[len(entityIDs)-1]
-		}
-
-		return &LookupEntityResponse{
-			EntityIDs:     entityIDs,
-			NextPageToken: nextPageToken,
-		}, nil
+		return l.verifyEntitiesAndPaginate(ctx, req, entityIDs, limit)
 	}
 
 	// Fallback path: batched sorted entity IDs + Check loop
@@ -245,20 +237,10 @@ func (l *Lookup) LookupSubject(ctx context.Context, req *LookupSubjectRequest) (
 			if req.PageToken != "" {
 				ctxIDs = filterIDsAfterCursor(ctxIDs, req.PageToken)
 			}
-			merged := mergeSortedUnique(subjectIDs, ctxIDs, len(subjectIDs)+len(ctxIDs))
-			return l.verifySubjectsAndPaginate(ctx, req, merged, limit)
+			subjectIDs = mergeSortedUnique(subjectIDs, ctxIDs, len(subjectIDs)+len(ctxIDs))
 		}
 
-		nextPageToken := ""
-		if len(subjectIDs) > limit {
-			subjectIDs = subjectIDs[:limit]
-			nextPageToken = subjectIDs[len(subjectIDs)-1]
-		}
-
-		return &LookupSubjectResponse{
-			SubjectIDs:    subjectIDs,
-			NextPageToken: nextPageToken,
-		}, nil
+		return l.verifySubjectsAndPaginate(ctx, req, subjectIDs, limit)
 	}
 
 	// Fallback path
@@ -306,15 +288,17 @@ func (l *Lookup) lookupEntityFallback(ctx context.Context, req *LookupEntityRequ
 		for _, entityID := range candidates {
 			lastCandidate = entityID
 			resp, err := l.checker.Check(ctx, &CheckRequest{
-				TenantID:         req.TenantID,
-				SchemaVersion:    req.SchemaVersion,
-				EntityType:       req.EntityType,
-				EntityID:         entityID,
-				Permission:       req.Permission,
-				SubjectType:      req.SubjectType,
-				SubjectID:        req.SubjectID,
-				ContextualTuples: req.ContextualTuples,
-				SnapshotToken:    req.SnapshotToken,
+				TenantID:             req.TenantID,
+				SchemaVersion:        req.SchemaVersion,
+				EntityType:           req.EntityType,
+				EntityID:             entityID,
+				Permission:           req.Permission,
+				SubjectType:          req.SubjectType,
+				SubjectID:            req.SubjectID,
+				SubjectRelation:      req.SubjectRelation,
+				ContextualTuples:     req.ContextualTuples,
+				ContextualAttributes: req.ContextualAttributes,
+				SnapshotToken:        req.SnapshotToken,
 			})
 			if err != nil {
 				log.Printf("WARNING: Check failed for entity %s:%s: %v", req.EntityType, entityID, err)
@@ -413,16 +397,17 @@ func (l *Lookup) lookupSubjectFallback(ctx context.Context, req *LookupSubjectRe
 		for _, subjectID := range candidates {
 			lastCandidate = subjectID
 			resp, err := l.checker.Check(ctx, &CheckRequest{
-				TenantID:         req.TenantID,
-				SchemaVersion:    req.SchemaVersion,
-				EntityType:       req.EntityType,
-				EntityID:         req.EntityID,
-				Permission:       req.Permission,
-				SubjectType:      req.SubjectType,
-				SubjectID:        subjectID,
-				SubjectRelation:  req.SubjectRelation,
-				ContextualTuples: req.ContextualTuples,
-				SnapshotToken:    req.SnapshotToken,
+				TenantID:             req.TenantID,
+				SchemaVersion:        req.SchemaVersion,
+				EntityType:           req.EntityType,
+				EntityID:             req.EntityID,
+				Permission:           req.Permission,
+				SubjectType:          req.SubjectType,
+				SubjectID:            subjectID,
+				SubjectRelation:      req.SubjectRelation,
+				ContextualTuples:     req.ContextualTuples,
+				ContextualAttributes: req.ContextualAttributes,
+				SnapshotToken:        req.SnapshotToken,
 			})
 			if err != nil {
 				log.Printf("WARNING: Check failed for subject %s:%s: %v", req.SubjectType, subjectID, err)
@@ -482,18 +467,24 @@ func (l *Lookup) getMergedSubjectCandidates(ctx context.Context, tenantID, subje
 
 // verifyEntitiesAndPaginate verifies candidate entity IDs with Check and applies pagination
 func (l *Lookup) verifyEntitiesAndPaginate(ctx context.Context, req *LookupEntityRequest, candidates []string, limit int) (*LookupEntityResponse, error) {
+	// Track whether more candidates may exist beyond what we checked
+	hasMoreCandidates := len(candidates) > limit
 	var allowedIDs []string
+	var lastChecked string
 	for _, entityID := range candidates {
+		lastChecked = entityID
 		resp, err := l.checker.Check(ctx, &CheckRequest{
-			TenantID:         req.TenantID,
-			SchemaVersion:    req.SchemaVersion,
-			EntityType:       req.EntityType,
-			EntityID:         entityID,
-			Permission:       req.Permission,
-			SubjectType:      req.SubjectType,
-			SubjectID:        req.SubjectID,
-			ContextualTuples: req.ContextualTuples,
-			SnapshotToken:    req.SnapshotToken,
+			TenantID:             req.TenantID,
+			SchemaVersion:        req.SchemaVersion,
+			EntityType:           req.EntityType,
+			EntityID:             entityID,
+			Permission:           req.Permission,
+			SubjectType:          req.SubjectType,
+			SubjectID:            req.SubjectID,
+			SubjectRelation:      req.SubjectRelation,
+			ContextualTuples:     req.ContextualTuples,
+			ContextualAttributes: req.ContextualAttributes,
+			SnapshotToken:        req.SnapshotToken,
 		})
 		if err != nil {
 			continue
@@ -509,6 +500,10 @@ func (l *Lookup) verifyEntitiesAndPaginate(ctx context.Context, req *LookupEntit
 	nextPageToken := ""
 	if len(allowedIDs) >= limit {
 		nextPageToken = allowedIDs[len(allowedIDs)-1]
+	} else if hasMoreCandidates && lastChecked != "" {
+		// More candidates exist in the DB but not enough passed Check in this batch.
+		// Set the token to the last checked candidate so the next page continues from there.
+		nextPageToken = lastChecked
 	}
 
 	return &LookupEntityResponse{
@@ -519,19 +514,23 @@ func (l *Lookup) verifyEntitiesAndPaginate(ctx context.Context, req *LookupEntit
 
 // verifySubjectsAndPaginate verifies candidate subject IDs with Check and applies pagination
 func (l *Lookup) verifySubjectsAndPaginate(ctx context.Context, req *LookupSubjectRequest, candidates []string, limit int) (*LookupSubjectResponse, error) {
+	hasMoreCandidates := len(candidates) > limit
 	var allowedIDs []string
+	var lastChecked string
 	for _, subjectID := range candidates {
+		lastChecked = subjectID
 		resp, err := l.checker.Check(ctx, &CheckRequest{
-			TenantID:         req.TenantID,
-			SchemaVersion:    req.SchemaVersion,
-			EntityType:       req.EntityType,
-			EntityID:         req.EntityID,
-			Permission:       req.Permission,
-			SubjectType:      req.SubjectType,
-			SubjectID:        subjectID,
-			SubjectRelation:  req.SubjectRelation,
-			ContextualTuples: req.ContextualTuples,
-			SnapshotToken:    req.SnapshotToken,
+			TenantID:             req.TenantID,
+			SchemaVersion:        req.SchemaVersion,
+			EntityType:           req.EntityType,
+			EntityID:             req.EntityID,
+			Permission:           req.Permission,
+			SubjectType:          req.SubjectType,
+			SubjectID:            subjectID,
+			SubjectRelation:      req.SubjectRelation,
+			ContextualTuples:     req.ContextualTuples,
+			ContextualAttributes: req.ContextualAttributes,
+			SnapshotToken:        req.SnapshotToken,
 		})
 		if err != nil {
 			continue
@@ -547,6 +546,8 @@ func (l *Lookup) verifySubjectsAndPaginate(ctx context.Context, req *LookupSubje
 	nextPageToken := ""
 	if len(allowedIDs) >= limit {
 		nextPageToken = allowedIDs[len(allowedIDs)-1]
+	} else if hasMoreCandidates && lastChecked != "" {
+		nextPageToken = lastChecked
 	}
 
 	return &LookupSubjectResponse{

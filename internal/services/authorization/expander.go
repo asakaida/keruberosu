@@ -30,11 +30,13 @@ type Expander struct {
 
 // ExpandRequest contains the parameters for expanding a permission tree
 type ExpandRequest struct {
-	TenantID      string // Tenant ID
-	SchemaVersion string // Schema version (empty = latest)
-	EntityType    string // Resource entity type (e.g., "document")
-	EntityID      string // Resource entity ID (e.g., "doc1")
-	Permission    string // Permission to expand (e.g., "view")
+	TenantID         string                    // Tenant ID
+	SchemaVersion    string                    // Schema version (empty = latest)
+	EntityType       string                    // Resource entity type (e.g., "document")
+	EntityID         string                    // Resource entity ID (e.g., "doc1")
+	Permission       string                    // Permission to expand (e.g., "view")
+	ContextualTuples []*entities.RelationTuple // Temporary tuples for this request
+	SnapshotToken    string                    // Snapshot token for consistency
 }
 
 // ExpandResponse contains the resulting permission tree
@@ -89,7 +91,7 @@ func (e *Expander) Expand(ctx context.Context, req *ExpandRequest) (*ExpandRespo
 
 	// Build the tree
 	entityRef := fmt.Sprintf("%s:%s", req.EntityType, req.EntityID)
-	tree, err := e.expandRule(ctx, req.TenantID, schema, entityRef, permission.Rule, 0)
+	tree, err := e.expandRule(ctx, req.TenantID, schema, entityRef, permission.Rule, 0, req.ContextualTuples)
 	if err != nil {
 		return nil, fmt.Errorf("failed to expand permission: %w", err)
 	}
@@ -107,6 +109,7 @@ func (e *Expander) expandRule(
 	entityRef string,
 	rule entities.PermissionRule,
 	depth int,
+	contextualTuples []*entities.RelationTuple,
 ) (*ExpandNode, error) {
 	// Check depth limit
 	if depth >= MaxDepth {
@@ -115,13 +118,13 @@ func (e *Expander) expandRule(
 
 	switch r := rule.(type) {
 	case *entities.RelationRule:
-		return e.expandRelation(ctx, tenantID, schema, entityRef, r, depth)
+		return e.expandRelation(ctx, tenantID, schema, entityRef, r, depth, contextualTuples)
 
 	case *entities.LogicalRule:
-		return e.expandLogical(ctx, tenantID, schema, entityRef, r, depth)
+		return e.expandLogical(ctx, tenantID, schema, entityRef, r, depth, contextualTuples)
 
 	case *entities.HierarchicalRule:
-		return e.expandHierarchical(ctx, tenantID, schema, entityRef, r, depth)
+		return e.expandHierarchical(ctx, tenantID, schema, entityRef, r, depth, contextualTuples)
 
 	case *entities.ABACRule:
 		// ABAC rules can't be expanded into a tree since they depend on runtime attributes
@@ -163,6 +166,7 @@ func (e *Expander) expandRelation(
 	entityRef string,
 	rule *entities.RelationRule,
 	depth int,
+	contextualTuples []*entities.RelationTuple,
 ) (*ExpandNode, error) {
 	// Parse entity reference
 	entityType, entityID, err := parseEntityRef(entityRef)
@@ -176,7 +180,7 @@ func (e *Expander) expandRelation(
 		isRelation := entity.GetRelation(rule.Relation) != nil
 		if !isRelation {
 			if perm := entity.GetPermission(rule.Relation); perm != nil {
-				return e.expandRule(ctx, tenantID, schema, entityRef, perm.Rule, depth+1)
+				return e.expandRule(ctx, tenantID, schema, entityRef, perm.Rule, depth+1, contextualTuples)
 			}
 		}
 	}
@@ -191,6 +195,15 @@ func (e *Expander) expandRelation(
 	tuples, err := e.relationRepo.Read(ctx, tenantID, filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read relations: %w", err)
+	}
+
+	// Add matching contextual tuples
+	for _, ct := range contextualTuples {
+		if ct.EntityType == entityType &&
+			ct.EntityID == entityID &&
+			ct.Relation == rule.Relation {
+			tuples = append(tuples, ct)
+		}
 	}
 
 	// Create a union node with all subjects
@@ -225,6 +238,7 @@ func (e *Expander) expandLogical(
 	entityRef string,
 	rule *entities.LogicalRule,
 	depth int,
+	contextualTuples []*entities.RelationTuple,
 ) (*ExpandNode, error) {
 	var nodeType string
 	switch rule.Operator {
@@ -246,7 +260,7 @@ func (e *Expander) expandLogical(
 	}
 
 	// Expand left side
-	leftNode, err := e.expandRule(ctx, tenantID, schema, entityRef, rule.Left, depth+1)
+	leftNode, err := e.expandRule(ctx, tenantID, schema, entityRef, rule.Left, depth+1, contextualTuples)
 	if err != nil {
 		return nil, fmt.Errorf("failed to expand left side of %s: %w", rule.Operator, err)
 	}
@@ -254,7 +268,7 @@ func (e *Expander) expandLogical(
 
 	// Expand right side (if exists)
 	if rule.Right != nil {
-		rightNode, err := e.expandRule(ctx, tenantID, schema, entityRef, rule.Right, depth+1)
+		rightNode, err := e.expandRule(ctx, tenantID, schema, entityRef, rule.Right, depth+1, contextualTuples)
 		if err != nil {
 			return nil, fmt.Errorf("failed to expand right side of %s: %w", rule.Operator, err)
 		}
@@ -272,6 +286,7 @@ func (e *Expander) expandHierarchical(
 	entityRef string,
 	rule *entities.HierarchicalRule,
 	depth int,
+	contextualTuples []*entities.RelationTuple,
 ) (*ExpandNode, error) {
 	// Parse entity reference
 	entityType, entityID, err := parseEntityRef(entityRef)
@@ -291,6 +306,15 @@ func (e *Expander) expandHierarchical(
 		return nil, fmt.Errorf("failed to read relations: %w", err)
 	}
 
+	// Add matching contextual tuples
+	for _, ct := range contextualTuples {
+		if ct.EntityType == entityType &&
+			ct.EntityID == entityID &&
+			ct.Relation == rule.Relation {
+			tuples = append(tuples, ct)
+		}
+	}
+
 	// Create a union node with all parent permissions
 	node := &ExpandNode{
 		Type:     "union",
@@ -300,13 +324,17 @@ func (e *Expander) expandHierarchical(
 	}
 
 	for _, tuple := range tuples {
+		// Skip subject set tuples - they reference a subject set, not a direct parent entity
+		if tuple.SubjectRelation != "" {
+			continue
+		}
 		parentRef := fmt.Sprintf("%s:%s", tuple.SubjectType, tuple.SubjectID)
 
 		// First, check if it's a permission on the parent entity
 		parentPermission := schema.GetPermission(tuple.SubjectType, rule.Permission)
 		if parentPermission != nil {
 			// Recursively expand the parent permission
-			parentNode, err := e.expandRule(ctx, tenantID, schema, parentRef, parentPermission.Rule, depth+1)
+			parentNode, err := e.expandRule(ctx, tenantID, schema, parentRef, parentPermission.Rule, depth+1, contextualTuples)
 			if err != nil {
 				return nil, fmt.Errorf("failed to expand hierarchical permission: %w", err)
 			}
@@ -318,7 +346,7 @@ func (e *Expander) expandHierarchical(
 		parentEntity := schema.GetEntity(tuple.SubjectType)
 		if parentEntity != nil && parentEntity.GetRelation(rule.Permission) != nil {
 			relationNode, err := e.expandRelation(ctx, tenantID, schema, parentRef,
-				&entities.RelationRule{Relation: rule.Permission}, depth+1)
+				&entities.RelationRule{Relation: rule.Permission}, depth+1, contextualTuples)
 			if err != nil {
 				return nil, fmt.Errorf("failed to expand hierarchical relation: %w", err)
 			}

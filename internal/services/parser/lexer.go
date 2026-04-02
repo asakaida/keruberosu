@@ -42,6 +42,13 @@ const (
 	TOKEN_PIPE        // |
 	TOKEN_EXCLAMATION // !
 
+	// Arithmetic operators
+	TOKEN_PLUS    // +
+	TOKEN_MINUS   // -
+	TOKEN_STAR    // *
+	TOKEN_SLASH   // /
+	TOKEN_PERCENT // %
+
 	// Delimiters
 	TOKEN_COLON
 	TOKEN_AT     // @ (Permify互換: @user記法用)
@@ -82,6 +89,11 @@ var tokenNames = map[TokenType]string{
 	TOKEN_AMPERSAND:   "&",
 	TOKEN_PIPE:        "|",
 	TOKEN_EXCLAMATION: "!",
+	TOKEN_PLUS:        "+",
+	TOKEN_MINUS:       "-",
+	TOKEN_STAR:        "*",
+	TOKEN_SLASH:       "/",
+	TOKEN_PERCENT:     "%",
 	TOKEN_COLON:       ":",
 	TOKEN_AT:          "@",
 	TOKEN_HASH:        "#",
@@ -212,16 +224,66 @@ func (l *Lexer) readNumber() string {
 	return l.input[position:l.position]
 }
 
-// readString reads a string literal enclosed in quotes
+// readString reads a double-quoted string literal with escape sequence support
 func (l *Lexer) readString() string {
-	position := l.position + 1 // Skip opening quote
+	var result []byte
 	for {
 		l.readChar()
 		if l.ch == '"' || l.ch == 0 {
 			break
 		}
+		if l.ch == '\\' {
+			l.readChar()
+			switch l.ch {
+			case '"':
+				result = append(result, '"')
+			case '\\':
+				result = append(result, '\\')
+			case 'n':
+				result = append(result, '\n')
+			case 't':
+				result = append(result, '\t')
+			case 'r':
+				result = append(result, '\r')
+			default:
+				result = append(result, '\\', l.ch)
+			}
+		} else {
+			result = append(result, l.ch)
+		}
 	}
-	return l.input[position:l.position]
+	return string(result)
+}
+
+// readStringSingleQuote reads a single-quoted string literal with escape sequence support
+func (l *Lexer) readStringSingleQuote() string {
+	var result []byte
+	for {
+		l.readChar()
+		if l.ch == '\'' || l.ch == 0 {
+			break
+		}
+		if l.ch == '\\' {
+			l.readChar()
+			switch l.ch {
+			case '\'':
+				result = append(result, '\'')
+			case '\\':
+				result = append(result, '\\')
+			case 'n':
+				result = append(result, '\n')
+			case 't':
+				result = append(result, '\t')
+			case 'r':
+				result = append(result, '\r')
+			default:
+				result = append(result, '\\', l.ch)
+			}
+		} else {
+			result = append(result, l.ch)
+		}
+	}
+	return string(result)
 }
 
 // NextToken returns the next token
@@ -295,6 +357,21 @@ func (l *Lexer) NextToken() (*Token, error) {
 			tok = &Token{Type: TOKEN_PIPE, Value: "|", Line: line, Column: column}
 			l.readChar()
 		}
+	case '+':
+		tok = &Token{Type: TOKEN_PLUS, Value: "+", Line: line, Column: column}
+		l.readChar()
+	case '-':
+		tok = &Token{Type: TOKEN_MINUS, Value: "-", Line: line, Column: column}
+		l.readChar()
+	case '*':
+		tok = &Token{Type: TOKEN_STAR, Value: "*", Line: line, Column: column}
+		l.readChar()
+	case '/':
+		tok = &Token{Type: TOKEN_SLASH, Value: "/", Line: line, Column: column}
+		l.readChar()
+	case '%':
+		tok = &Token{Type: TOKEN_PERCENT, Value: "%", Line: line, Column: column}
+		l.readChar()
 	case ':':
 		tok = &Token{Type: TOKEN_COLON, Value: ":", Line: line, Column: column}
 		l.readChar()
@@ -330,6 +407,10 @@ func (l *Lexer) NextToken() (*Token, error) {
 		l.readChar()
 	case '"':
 		value := l.readString()
+		tok = &Token{Type: TOKEN_STRING, Value: value, Line: line, Column: column}
+		l.readChar() // Skip closing quote
+	case '\'':
+		value := l.readStringSingleQuote()
 		tok = &Token{Type: TOKEN_STRING, Value: value, Line: line, Column: column}
 		l.readChar() // Skip closing quote
 	case 0:

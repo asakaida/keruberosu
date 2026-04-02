@@ -70,15 +70,16 @@ type Evaluator struct {
 
 // EvaluationRequest contains all the context needed for rule evaluation
 type EvaluationRequest struct {
-	TenantID         string                    // Tenant ID
-	SchemaVersion    string                    // Schema version (empty = latest)
-	EntityType       string                    // Resource entity type
-	EntityID         string                    // Resource entity ID
-	SubjectType      string                    // Subject type
-	SubjectID        string                    // Subject ID
-	SubjectRelation  string                    // Optional subject relation for subject set checks
-	ContextualTuples []*entities.RelationTuple // Temporary tuples for this request
-	Depth            int                       // Current recursion depth
+	TenantID             string                    // Tenant ID
+	SchemaVersion        string                    // Schema version (empty = latest)
+	EntityType           string                    // Resource entity type
+	EntityID             string                    // Resource entity ID
+	SubjectType          string                    // Subject type
+	SubjectID            string                    // Subject ID
+	SubjectRelation      string                    // Optional subject relation for subject set checks
+	ContextualTuples     []*entities.RelationTuple // Temporary tuples for this request
+	ContextualAttributes []*entities.Attribute     // Temporary attributes for this request
+	Depth                int                       // Current recursion depth
 }
 
 // NewEvaluator creates a new Evaluator
@@ -150,15 +151,16 @@ func (e *Evaluator) evaluateRelation(
 		if !isRelation {
 			if perm := entity.GetPermission(rule.Relation); perm != nil {
 				return e.EvaluateRule(ctx, &EvaluationRequest{
-					TenantID:         req.TenantID,
-					SchemaVersion:    req.SchemaVersion,
-					EntityType:       req.EntityType,
-					EntityID:         req.EntityID,
-					SubjectType:      req.SubjectType,
-					SubjectID:        req.SubjectID,
-					SubjectRelation:  req.SubjectRelation,
-					ContextualTuples: req.ContextualTuples,
-					Depth:            req.Depth + 1,
+					TenantID:             req.TenantID,
+					SchemaVersion:        req.SchemaVersion,
+					EntityType:           req.EntityType,
+					EntityID:             req.EntityID,
+					SubjectType:          req.SubjectType,
+					SubjectID:            req.SubjectID,
+					SubjectRelation:      req.SubjectRelation,
+					ContextualTuples:     req.ContextualTuples,
+					ContextualAttributes: req.ContextualAttributes,
+					Depth:                req.Depth + 1,
 				}, perm.Rule)
 			}
 		}
@@ -242,14 +244,15 @@ func (e *Evaluator) evaluateRelation(
 		// e.g., team#member → group#member → user
 		if tuple.SubjectRelation != "" {
 			subjectReq := &EvaluationRequest{
-				TenantID:         req.TenantID,
-				SchemaVersion:    req.SchemaVersion,
-				EntityType:       tuple.SubjectType,
-				EntityID:         tuple.SubjectID,
-				SubjectType:      req.SubjectType,
-				SubjectID:        req.SubjectID,
-				ContextualTuples: req.ContextualTuples,
-				Depth:            req.Depth + 1,
+				TenantID:             req.TenantID,
+				SchemaVersion:        req.SchemaVersion,
+				EntityType:           tuple.SubjectType,
+				EntityID:             tuple.SubjectID,
+				SubjectType:          req.SubjectType,
+				SubjectID:            req.SubjectID,
+				ContextualTuples:     req.ContextualTuples,
+				ContextualAttributes: req.ContextualAttributes,
+				Depth:                req.Depth + 1,
 			}
 			result, err := e.evaluateRelation(ctx, subjectReq, &entities.RelationRule{Relation: tuple.SubjectRelation})
 			if err != nil {
@@ -383,15 +386,16 @@ func (e *Evaluator) evaluateHierarchical(
 		if parentPermission != nil {
 			// Create a new request for the parent entity
 			parentReq := &EvaluationRequest{
-				TenantID:         req.TenantID,
-				SchemaVersion:    req.SchemaVersion,
-				EntityType:       tuple.SubjectType,
-				EntityID:         tuple.SubjectID,
-				SubjectType:      req.SubjectType,
-				SubjectID:        req.SubjectID,
-				SubjectRelation:  req.SubjectRelation,
-				ContextualTuples: req.ContextualTuples,
-				Depth:            req.Depth + 1, // Increment depth
+				TenantID:             req.TenantID,
+				SchemaVersion:        req.SchemaVersion,
+				EntityType:           tuple.SubjectType,
+				EntityID:             tuple.SubjectID,
+				SubjectType:          req.SubjectType,
+				SubjectID:            req.SubjectID,
+				SubjectRelation:      req.SubjectRelation,
+				ContextualTuples:     req.ContextualTuples,
+				ContextualAttributes: req.ContextualAttributes,
+				Depth:                req.Depth + 1, // Increment depth
 			}
 
 			// Recursively evaluate the parent permission
@@ -409,15 +413,16 @@ func (e *Evaluator) evaluateHierarchical(
 			parentEntityDef := schema.GetEntity(tuple.SubjectType)
 			if parentEntityDef != nil && parentEntityDef.GetRelation(rule.Permission) != nil {
 				parentReq := &EvaluationRequest{
-					TenantID:         req.TenantID,
-					SchemaVersion:    req.SchemaVersion,
-					EntityType:       tuple.SubjectType,
-					EntityID:         tuple.SubjectID,
-					SubjectType:      req.SubjectType,
-					SubjectID:        req.SubjectID,
-					SubjectRelation:  req.SubjectRelation,
-					ContextualTuples: req.ContextualTuples,
-					Depth:            req.Depth + 1,
+					TenantID:             req.TenantID,
+					SchemaVersion:        req.SchemaVersion,
+					EntityType:           tuple.SubjectType,
+					EntityID:             tuple.SubjectID,
+					SubjectType:          req.SubjectType,
+					SubjectID:            req.SubjectID,
+					SubjectRelation:      req.SubjectRelation,
+					ContextualTuples:     req.ContextualTuples,
+					ContextualAttributes: req.ContextualAttributes,
+					Depth:                req.Depth + 1,
 				}
 				relResult, err := e.evaluateRelation(ctx, parentReq, &entities.RelationRule{Relation: rule.Permission})
 				if err != nil {
@@ -445,6 +450,9 @@ func (e *Evaluator) evaluateABAC(
 		return false, fmt.Errorf("failed to read resource attributes: %w", err)
 	}
 	resourceAttrs = normalizeJSONNumbers(resourceAttrs)
+	if len(req.ContextualAttributes) > 0 {
+		resourceAttrs = mergeContextualAttributes(resourceAttrs, req.ContextualAttributes, req.EntityType, req.EntityID)
+	}
 
 	// Get subject attributes
 	subjectAttrs, err := e.attributeRepo.Read(ctx, req.TenantID, req.SubjectType, req.SubjectID)
@@ -452,6 +460,9 @@ func (e *Evaluator) evaluateABAC(
 		return false, fmt.Errorf("failed to read subject attributes: %w", err)
 	}
 	subjectAttrs = normalizeJSONNumbers(subjectAttrs)
+	if len(req.ContextualAttributes) > 0 {
+		subjectAttrs = mergeContextualAttributes(subjectAttrs, req.ContextualAttributes, req.SubjectType, req.SubjectID)
+	}
 
 	// Prepare CEL evaluation context
 	evalContext := &EvaluationContext{
@@ -499,6 +510,9 @@ func (e *Evaluator) evaluateRuleCall(
 		return false, fmt.Errorf("failed to read resource attributes: %w", err)
 	}
 	resourceAttrs = normalizeJSONNumbers(resourceAttrs)
+	if len(req.ContextualAttributes) > 0 {
+		resourceAttrs = mergeContextualAttributes(resourceAttrs, req.ContextualAttributes, req.EntityType, req.EntityID)
+	}
 
 	// Get subject attributes
 	subjectAttrs, err := e.attributeRepo.Read(ctx, req.TenantID, req.SubjectType, req.SubjectID)
@@ -506,6 +520,9 @@ func (e *Evaluator) evaluateRuleCall(
 		return false, fmt.Errorf("failed to read subject attributes: %w", err)
 	}
 	subjectAttrs = normalizeJSONNumbers(subjectAttrs)
+	if len(req.ContextualAttributes) > 0 {
+		subjectAttrs = mergeContextualAttributes(subjectAttrs, req.ContextualAttributes, req.SubjectType, req.SubjectID)
+	}
 
 	// Map argument names to their context data
 	argContexts := map[string]map[string]interface{}{
@@ -547,12 +564,7 @@ func (e *Evaluator) evaluateHierarchicalRuleCall(
 	}
 
 	// Get parent entities via the relation
-	filter := &repositories.RelationFilter{
-		EntityType: req.EntityType,
-		EntityID:   req.EntityID,
-		Relation:   rule.Relation,
-	}
-	tuples, err := e.relationRepo.Read(ctx, req.TenantID, filter)
+	tuples, err := e.relationRepo.FindByEntityWithRelation(ctx, req.TenantID, req.EntityType, req.EntityID, rule.Relation, MaxTuplesPerQuery)
 	if err != nil {
 		return false, fmt.Errorf("failed to read parent relations: %w", err)
 	}
@@ -572,6 +584,9 @@ func (e *Evaluator) evaluateHierarchicalRuleCall(
 		return false, fmt.Errorf("failed to read current entity attributes: %w", err)
 	}
 	currentAttrs = normalizeJSONNumbers(currentAttrs)
+	if len(req.ContextualAttributes) > 0 {
+		currentAttrs = mergeContextualAttributes(currentAttrs, req.ContextualAttributes, req.EntityType, req.EntityID)
+	}
 
 	for _, tuple := range tuples {
 		// Skip subject set tuples (e.g., @team#member) - they reference a subject set,
@@ -589,12 +604,21 @@ func (e *Evaluator) evaluateHierarchicalRuleCall(
 			return false, fmt.Errorf("rule %s not found", rule.RuleName)
 		}
 
+		// Validate argument count
+		if len(rule.Arguments) != len(ruleDef.Parameters) {
+			return false, fmt.Errorf("rule %s expects %d arguments, got %d",
+				rule.RuleName, len(ruleDef.Parameters), len(rule.Arguments))
+		}
+
 		// Get parent entity's attributes → these become "this" context
 		parentAttrs, err := e.attributeRepo.Read(ctx, req.TenantID, tuple.SubjectType, tuple.SubjectID)
 		if err != nil {
 			return false, fmt.Errorf("failed to read parent attributes: %w", err)
 		}
 		parentAttrs = normalizeJSONNumbers(parentAttrs)
+		if len(req.ContextualAttributes) > 0 {
+			parentAttrs = mergeContextualAttributes(parentAttrs, req.ContextualAttributes, tuple.SubjectType, tuple.SubjectID)
+		}
 
 		// Build parameter values: map rule parameter names → current entity attribute values
 		paramMap := make(map[string]interface{})
@@ -618,6 +642,21 @@ func (e *Evaluator) evaluateHierarchicalRuleCall(
 	}
 
 	return false, nil
+}
+
+// mergeContextualAttributes merges contextual attributes into DB attributes.
+// Contextual attributes override DB attributes for matching entity type/id/attribute name.
+func mergeContextualAttributes(dbAttrs map[string]interface{}, ctxAttrs []*entities.Attribute, entityType, entityID string) map[string]interface{} {
+	result := make(map[string]interface{}, len(dbAttrs))
+	for k, v := range dbAttrs {
+		result[k] = v
+	}
+	for _, attr := range ctxAttrs {
+		if attr.EntityType == entityType && attr.EntityID == entityID {
+			result[attr.Name] = attr.Value
+		}
+	}
+	return result
 }
 
 // normalizeJSONNumbers converts json.Number values in a map to int64 or float64.

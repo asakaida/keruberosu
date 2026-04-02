@@ -26,6 +26,7 @@ service Data {
 
 // Permify互換: tuples と attributes を同時に書き込み可能
 message DataWriteRequest {
+  string tenant_id = 4;
   DataWriteRequestMetadata metadata = 1;
   repeated Tuple tuples = 2;
   repeated Attribute attributes = 3;
@@ -41,6 +42,7 @@ message DataWriteResponse {
 
 // Permify互換: フィルター形式で削除
 message DataDeleteRequest {
+  string tenant_id = 2;
   TupleFilter filter = 1 [(buf.validate.field).required = true];
 }
 
@@ -50,6 +52,7 @@ message DataDeleteResponse {
 
 // Permify互換: フィルター + ページネーションで読み取り
 message DataReadRequest {
+  string tenant_id = 5;
   PermissionCheckMetadata metadata = 1;
   TupleFilter filter = 2;
   int32 page_size = 3 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
@@ -62,6 +65,7 @@ message DataReadResponse {
 }
 
 message AttributeReadRequest {
+  string tenant_id = 5;
   PermissionCheckMetadata metadata = 1;
   AttributeFilter filter = 2;
   int32 page_size = 3;

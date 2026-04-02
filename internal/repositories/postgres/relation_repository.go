@@ -65,7 +65,7 @@ func (r *PostgresRelationRepository) Write(ctx context.Context, tenantID string,
 		return fmt.Errorf("failed to write relation: %w", err)
 	}
 
-	if !r.closureExcludedRelations[tuple.Relation] {
+	if !r.closureExcludedRelations[tuple.Relation] && tuple.SubjectRelation == "" {
 		if err := r.updateClosureOnAdd(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID); err != nil {
 			return fmt.Errorf("failed to update closure table: %w", err)
 		}
@@ -358,10 +358,11 @@ func (r *PostgresRelationRepository) RebuildClosure(ctx context.Context, tenantI
 		return fmt.Errorf("failed to clear closure table: %w", err)
 	}
 
-	// Read all relations for this tenant
+	// Read all relations for this tenant (exclude subject_relation tuples -
+	// computed usersets are not hierarchical parents and should not be in the closure table)
 	rows, err := tx.QueryContext(ctx, `
 		SELECT entity_type, entity_id, relation, subject_type, subject_id
-		FROM relations WHERE tenant_id = $1
+		FROM relations WHERE tenant_id = $1 AND COALESCE(subject_relation, '') = ''
 	`, tenantID)
 	if err != nil {
 		return fmt.Errorf("failed to read relations: %w", err)
@@ -465,7 +466,7 @@ func (r *PostgresRelationRepository) BatchWrite(ctx context.Context, tenantID st
 			return fmt.Errorf("failed to write relation: %w", err)
 		}
 
-		if !r.closureExcludedRelations[tuple.Relation] {
+		if !r.closureExcludedRelations[tuple.Relation] && tuple.SubjectRelation == "" {
 			if err := r.updateClosureOnAdd(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID); err != nil {
 				return fmt.Errorf("failed to update closure table: %w", err)
 			}
@@ -505,7 +506,7 @@ func (r *PostgresRelationRepository) BatchWriteInTx(ctx context.Context, tx *sql
 		if err != nil {
 			return fmt.Errorf("failed to write relation: %w", err)
 		}
-		if !r.closureExcludedRelations[tuple.Relation] {
+		if !r.closureExcludedRelations[tuple.Relation] && tuple.SubjectRelation == "" {
 			if err := r.updateClosureOnAdd(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID); err != nil {
 				return fmt.Errorf("failed to update closure table: %w", err)
 			}
@@ -820,7 +821,7 @@ func (r *PostgresRelationRepository) WriteWithClosure(ctx context.Context, tenan
 		return "", fmt.Errorf("failed to write relation: %w", err)
 	}
 
-	if !r.closureExcludedRelations[tuple.Relation] {
+	if !r.closureExcludedRelations[tuple.Relation] && tuple.SubjectRelation == "" {
 		err = r.updateClosureOnAdd(ctx, tx, tenantID, tuple.EntityType, tuple.EntityID, tuple.SubjectType, tuple.SubjectID)
 		if err != nil {
 			return "", fmt.Errorf("failed to update closure: %w", err)
@@ -1254,44 +1255,102 @@ func (r *PostgresRelationRepository) LookupAccessibleEntitiesComplex(ctx context
 	}
 
 	if len(parentRelations) > 0 {
-		// Parse parentRelations to extract target relations
-		// e.g., ["parent.owner", "parent.editor"] -> targetRelations = ["owner", "editor"]
-		targetRelations := make([]string, 0, len(parentRelations))
+		// Parse parentRelations to extract hierarchy relations and target relations.
+		// e.g., ["parent.owner", "parent.editor"] -> hierarchyRelations = ["parent"], targetRelations = ["owner", "editor"]
+		// The hierarchy relation name is used to filter closure paths to only those
+		// established through the correct relation (e.g., "parent" not "reference").
+		type hierPair struct{ hierRel, targetRel string }
+		var pairs []hierPair
+		hierRelSet := make(map[string]bool)
+		targetRelSet := make(map[string]bool)
 		for _, pr := range parentRelations {
 			parts := strings.SplitN(pr, ".", 2)
 			if len(parts) == 2 {
-				targetRelations = append(targetRelations, parts[1])
+				pairs = append(pairs, hierPair{parts[0], parts[1]})
+				hierRelSet[parts[0]] = true
+				targetRelSet[parts[1]] = true
 			}
 		}
 
+		hierRelations := make([]string, 0, len(hierRelSet))
+		for r := range hierRelSet {
+			hierRelations = append(hierRelations, r)
+		}
+		targetRelations := make([]string, 0, len(targetRelSet))
+		for r := range targetRelSet {
+			targetRelations = append(targetRelations, r)
+		}
+
 		if len(targetRelations) > 0 {
+			pHierRelations := addArg(pq.Array(hierRelations))
 			pTargetRelations := addArg(pq.Array(targetRelations))
 			pMaxDepth := addArg(maxDepth)
 
 			// Sub-query 3: Hierarchical direct
+			// Uses a recursive CTE on the relations table filtered by the hierarchy
+			// relation name (e.g., "parent") instead of the unfiltered closure table,
+			// ensuring only ancestors reachable through the correct relation are found.
 			subQueries = append(subQueries, fmt.Sprintf(`
-				SELECT DISTINCT c.descendant_id AS entity_id
-				FROM entity_closure c
+				SELECT DISTINCT hier.ancestor_id AS entity_id
+				FROM (
+				  WITH RECURSIVE hier_walk AS (
+				    SELECT entity_id AS descendant_id, subject_type AS ancestor_type, subject_id AS ancestor_id, 1 AS depth
+				    FROM relations
+				    WHERE tenant_id = %s AND entity_type = %s
+				      AND relation = ANY(%s)
+				      AND COALESCE(subject_relation, '') = ''
+				    UNION ALL
+				    SELECT hw.descendant_id, r.subject_type, r.subject_id, hw.depth + 1
+				    FROM hier_walk hw
+				    INNER JOIN relations r
+				      ON r.tenant_id = %s
+				      AND r.entity_type = hw.ancestor_type
+				      AND r.entity_id = hw.ancestor_id
+				      AND r.relation = ANY(%s)
+				      AND COALESCE(r.subject_relation, '') = ''
+				    WHERE hw.depth < %s
+				  )
+				  SELECT descendant_id, ancestor_type, ancestor_id FROM hier_walk
+				) hier
 				INNER JOIN relations r
-				  ON r.tenant_id = c.tenant_id
-				  AND r.entity_type = c.ancestor_type
-				  AND r.entity_id = c.ancestor_id
+				  ON r.entity_type = hier.ancestor_type
+				  AND r.entity_id = hier.ancestor_id
+				  AND r.tenant_id = %s
 				  AND r.relation = ANY(%s)
 				  AND r.subject_type = %s AND r.subject_id = %s
 				  AND COALESCE(r.subject_relation, '') = ''
-				WHERE c.tenant_id = %s AND c.descendant_type = %s
-				  AND c.depth <= %s
-			`, pTargetRelations, pSubjectType, pSubjectID, pTenantID, pEntityType, pMaxDepth))
+			`, pTenantID, pEntityType, pHierRelations,
+				pTenantID, pHierRelations, pMaxDepth,
+				pTenantID, pTargetRelations, pSubjectType, pSubjectID))
 
-			// Sub-query 4: Hierarchical computed usersets (recursive CTE)
+			// Sub-query 4: Hierarchical computed usersets
 			pHierUsersetDepth := addArg(maxUsersetDepth)
 			subQueries = append(subQueries, fmt.Sprintf(`
-				SELECT DISTINCT c.descendant_id AS entity_id
-				FROM entity_closure c
+				SELECT DISTINCT hier.descendant_id AS entity_id
+				FROM (
+				  WITH RECURSIVE hier_walk AS (
+				    SELECT entity_id AS descendant_id, subject_type AS ancestor_type, subject_id AS ancestor_id, 1 AS depth
+				    FROM relations
+				    WHERE tenant_id = %s AND entity_type = %s
+				      AND relation = ANY(%s)
+				      AND COALESCE(subject_relation, '') = ''
+				    UNION ALL
+				    SELECT hw.descendant_id, r.subject_type, r.subject_id, hw.depth + 1
+				    FROM hier_walk hw
+				    INNER JOIN relations r
+				      ON r.tenant_id = %s
+				      AND r.entity_type = hw.ancestor_type
+				      AND r.entity_id = hw.ancestor_id
+				      AND r.relation = ANY(%s)
+				      AND COALESCE(r.subject_relation, '') = ''
+				    WHERE hw.depth < %s
+				  )
+				  SELECT descendant_id, ancestor_type, ancestor_id FROM hier_walk
+				) hier
 				INNER JOIN relations r
-				  ON r.tenant_id = c.tenant_id
-				  AND r.entity_type = c.ancestor_type
-				  AND r.entity_id = c.ancestor_id
+				  ON r.entity_type = hier.ancestor_type
+				  AND r.entity_id = hier.ancestor_id
+				  AND r.tenant_id = %s
 				  AND r.relation = ANY(%s)
 				  AND r.subject_relation IS NOT NULL AND r.subject_relation != ''
 				INNER JOIN LATERAL (
@@ -1319,9 +1378,11 @@ func (r *PostgresRelationRepository) LookupAccessibleEntitiesComplex(ctx context
 				    AND COALESCE(leaf.subject_relation, '') = ''
 				  LIMIT 1
 				) userset_match ON true
-				WHERE c.tenant_id = %s AND c.descendant_type = %s
-				  AND c.depth <= %s
-			`, pTargetRelations, pTenantID, pHierUsersetDepth, pTenantID, pSubjectType, pSubjectID, pTenantID, pEntityType, pMaxDepth))
+			`, pTenantID, pEntityType, pHierRelations,
+				pTenantID, pHierRelations, pMaxDepth,
+				pTenantID, pTargetRelations,
+				pTenantID, pHierUsersetDepth,
+				pTenantID, pSubjectType, pSubjectID))
 		}
 	}
 
@@ -1433,43 +1494,93 @@ func (r *PostgresRelationRepository) LookupAccessibleSubjectsComplex(ctx context
 	}
 
 	if len(parentRelations) > 0 {
-		// Parse parentRelations to extract target relations
-		targetRelations := make([]string, 0, len(parentRelations))
+		// Parse parentRelations to extract hierarchy relations and target relations.
+		hierRelSet := make(map[string]bool)
+		targetRelSet := make(map[string]bool)
 		for _, pr := range parentRelations {
 			parts := strings.SplitN(pr, ".", 2)
 			if len(parts) == 2 {
-				targetRelations = append(targetRelations, parts[1])
+				hierRelSet[parts[0]] = true
+				targetRelSet[parts[1]] = true
 			}
 		}
 
+		hierRelations := make([]string, 0, len(hierRelSet))
+		for r := range hierRelSet {
+			hierRelations = append(hierRelations, r)
+		}
+		targetRelations := make([]string, 0, len(targetRelSet))
+		for r := range targetRelSet {
+			targetRelations = append(targetRelations, r)
+		}
+
 		if len(targetRelations) > 0 {
+			pHierRelations := addArg(pq.Array(hierRelations))
 			pTargetRelations := addArg(pq.Array(targetRelations))
 			pMaxDepth := addArg(maxDepth)
 
-			// Sub-query 3: Hierarchical direct
+			// Sub-query 3: Hierarchical direct (uses recursive CTE filtered by hierarchy relation)
 			subQueries = append(subQueries, fmt.Sprintf(`
 				SELECT DISTINCT r.subject_id
-				FROM entity_closure c
+				FROM (
+				  WITH RECURSIVE hier_walk AS (
+				    SELECT subject_type AS ancestor_type, subject_id AS ancestor_id, 1 AS depth
+				    FROM relations
+				    WHERE tenant_id = %s AND entity_type = %s AND entity_id = %s
+				      AND relation = ANY(%s)
+				      AND COALESCE(subject_relation, '') = ''
+				    UNION ALL
+				    SELECT rel.subject_type, rel.subject_id, hw.depth + 1
+				    FROM hier_walk hw
+				    INNER JOIN relations rel
+				      ON rel.tenant_id = %s
+				      AND rel.entity_type = hw.ancestor_type
+				      AND rel.entity_id = hw.ancestor_id
+				      AND rel.relation = ANY(%s)
+				      AND COALESCE(rel.subject_relation, '') = ''
+				    WHERE hw.depth < %s
+				  )
+				  SELECT ancestor_type, ancestor_id FROM hier_walk
+				) hier
 				INNER JOIN relations r
-				  ON r.tenant_id = c.tenant_id
-				  AND r.entity_type = c.ancestor_type
-				  AND r.entity_id = c.ancestor_id
+				  ON r.entity_type = hier.ancestor_type
+				  AND r.entity_id = hier.ancestor_id
+				  AND r.tenant_id = %s
 				  AND r.relation = ANY(%s)
 				  AND r.subject_type = %s
 				  AND COALESCE(r.subject_relation, '') = ''
-				WHERE c.tenant_id = %s AND c.descendant_type = %s AND c.descendant_id = %s
-				  AND c.depth <= %s
-			`, pTargetRelations, pSubjectType, pTenantID, pEntityType, pEntityID, pMaxDepth))
+			`, pTenantID, pEntityType, pEntityID, pHierRelations,
+				pTenantID, pHierRelations, pMaxDepth,
+				pTenantID, pTargetRelations, pSubjectType))
 
-			// Sub-query 4: Hierarchical computed usersets (recursive CTE)
+			// Sub-query 4: Hierarchical computed usersets
 			pHierUsersetDepth := addArg(maxUsersetDepth)
 			subQueries = append(subQueries, fmt.Sprintf(`
 				SELECT DISTINCT leaf.subject_id
-				FROM entity_closure c
+				FROM (
+				  WITH RECURSIVE hier_walk AS (
+				    SELECT subject_type AS ancestor_type, subject_id AS ancestor_id, 1 AS depth
+				    FROM relations
+				    WHERE tenant_id = %s AND entity_type = %s AND entity_id = %s
+				      AND relation = ANY(%s)
+				      AND COALESCE(subject_relation, '') = ''
+				    UNION ALL
+				    SELECT rel.subject_type, rel.subject_id, hw.depth + 1
+				    FROM hier_walk hw
+				    INNER JOIN relations rel
+				      ON rel.tenant_id = %s
+				      AND rel.entity_type = hw.ancestor_type
+				      AND rel.entity_id = hw.ancestor_id
+				      AND rel.relation = ANY(%s)
+				      AND COALESCE(rel.subject_relation, '') = ''
+				    WHERE hw.depth < %s
+				  )
+				  SELECT ancestor_type, ancestor_id FROM hier_walk
+				) hier
 				INNER JOIN relations r
-				  ON r.tenant_id = c.tenant_id
-				  AND r.entity_type = c.ancestor_type
-				  AND r.entity_id = c.ancestor_id
+				  ON r.entity_type = hier.ancestor_type
+				  AND r.entity_id = hier.ancestor_id
+				  AND r.tenant_id = %s
 				  AND r.relation = ANY(%s)
 				  AND r.subject_relation IS NOT NULL AND r.subject_relation != ''
 				INNER JOIN LATERAL (
@@ -1496,9 +1607,11 @@ func (r *PostgresRelationRepository) LookupAccessibleSubjectsComplex(ctx context
 				    AND leaf_r.subject_type = %s
 				    AND COALESCE(leaf_r.subject_relation, '') = ''
 				) leaf ON true
-				WHERE c.tenant_id = %s AND c.descendant_type = %s AND c.descendant_id = %s
-				  AND c.depth <= %s
-			`, pTargetRelations, pTenantID, pHierUsersetDepth, pTenantID, pSubjectType, pTenantID, pEntityType, pEntityID, pMaxDepth))
+			`, pTenantID, pEntityType, pEntityID, pHierRelations,
+				pTenantID, pHierRelations, pMaxDepth,
+				pTenantID, pTargetRelations,
+				pTenantID, pHierUsersetDepth,
+				pTenantID, pSubjectType))
 		}
 	}
 
