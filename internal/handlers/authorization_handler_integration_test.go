@@ -73,7 +73,7 @@ func setupIntegrationTest(t *testing.T) (*HandlerSet, *sql.DB) {
 	evaluator := authorization.NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
 	checker := authorization.NewChecker(schemaService, evaluator)
 	expander := authorization.NewExpander(schemaService, relationRepo)
-	lookup := authorization.NewLookup(checker, schemaService, relationRepo)
+	lookup := authorization.NewLookup(checker, schemaService, relationRepo, attributeRepo)
 
 	// Initialize new handlers
 	handlers := &HandlerSet{
@@ -478,6 +478,127 @@ entity document {
 		}
 		if resp.Can != pb.CheckResult_CHECK_RESULT_DENIED {
 			t.Errorf("Expected DENIED for private document, got %v", resp.Can)
+		}
+	})
+}
+
+// TestHandlers_Integration_SubjectRelationComposition tests that SubjectRelation
+// is correctly propagated through permission composition and hierarchical rules.
+func TestHandlers_Integration_SubjectRelationComposition(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	handlers, rawDB := setupIntegrationTest(t)
+	ctx := context.Background()
+	defer cleanupIntegrationTest(t, rawDB)
+
+	schemaDSL := `
+entity user {}
+
+entity team {
+    relation member @user
+}
+
+entity folder {
+    relation viewer @user @team#member
+
+    permission view = viewer
+}
+
+entity document {
+    relation parent @folder
+    relation viewer @user @team#member
+
+    permission view = viewer or parent.view
+    permission edit = viewer
+    permission manage = edit
+}
+`
+
+	// Step 1: Write schema
+	t.Run("WriteSchema", func(t *testing.T) {
+		resp, err := handlers.Schema.Write(ctx, &pb.SchemaWriteRequest{
+			Schema: schemaDSL,
+		})
+		if err != nil {
+			t.Fatalf("WriteSchema failed: %v", err)
+		}
+		t.Logf("Schema version: %s", resp.SchemaVersion)
+	})
+
+	// Step 2: Write tuples
+	t.Run("WriteData", func(t *testing.T) {
+		_, err := handlers.Data.Write(ctx, &pb.DataWriteRequest{
+			Tuples: []*pb.Tuple{
+				{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "parent", Subject: &pb.Subject{Type: "folder", Id: "f1"}},
+				{Entity: &pb.Entity{Type: "folder", Id: "f1"}, Relation: "viewer", Subject: &pb.Subject{Type: "team", Id: "eng", Relation: "member"}},
+				{Entity: &pb.Entity{Type: "team", Id: "eng"}, Relation: "member", Subject: &pb.Subject{Type: "user", Id: "alice"}},
+				{Entity: &pb.Entity{Type: "document", Id: "doc2"}, Relation: "viewer", Subject: &pb.Subject{Type: "team", Id: "eng", Relation: "member"}},
+			},
+		})
+		if err != nil {
+			t.Fatalf("WriteData failed: %v", err)
+		}
+	})
+
+	// Step 3: Check SubjectRelation through permission composition (manage → edit → viewer)
+	t.Run("Check_SubjectRelation_PermissionComposition", func(t *testing.T) {
+		resp, err := handlers.Permission.Check(ctx, &pb.PermissionCheckRequest{
+			Entity:     &pb.Entity{Type: "document", Id: "doc2"},
+			Permission: "manage",
+			Subject:    &pb.Subject{Type: "team", Id: "eng", Relation: "member"},
+		})
+		if err != nil {
+			t.Fatalf("Check failed: %v", err)
+		}
+		if resp.Can != pb.CheckResult_CHECK_RESULT_ALLOWED {
+			t.Errorf("Expected ALLOWED for team:eng#member manage doc2 (via manage→edit→viewer composition), got %v", resp.Can)
+		}
+	})
+
+	// Step 4: Check SubjectRelation through hierarchical rule (parent.view)
+	t.Run("Check_SubjectRelation_Hierarchical", func(t *testing.T) {
+		resp, err := handlers.Permission.Check(ctx, &pb.PermissionCheckRequest{
+			Entity:     &pb.Entity{Type: "document", Id: "doc1"},
+			Permission: "view",
+			Subject:    &pb.Subject{Type: "team", Id: "eng", Relation: "member"},
+		})
+		if err != nil {
+			t.Fatalf("Check failed: %v", err)
+		}
+		if resp.Can != pb.CheckResult_CHECK_RESULT_ALLOWED {
+			t.Errorf("Expected ALLOWED for team:eng#member view doc1 (via parent.view), got %v", resp.Can)
+		}
+	})
+
+	// Step 5: user:alice should have access through computed userset expansion
+	t.Run("Check_ComputedUserset_ThroughHierarchy", func(t *testing.T) {
+		resp, err := handlers.Permission.Check(ctx, &pb.PermissionCheckRequest{
+			Entity:     &pb.Entity{Type: "document", Id: "doc1"},
+			Permission: "view",
+			Subject:    &pb.Subject{Type: "user", Id: "alice"},
+		})
+		if err != nil {
+			t.Fatalf("Check failed: %v", err)
+		}
+		if resp.Can != pb.CheckResult_CHECK_RESULT_ALLOWED {
+			t.Errorf("Expected ALLOWED for user:alice view doc1 (via team:eng#member → parent.view), got %v", resp.Can)
+		}
+	})
+
+	// Step 6: user:bob should NOT have access
+	t.Run("Check_Denied_UserNotInTeam", func(t *testing.T) {
+		resp, err := handlers.Permission.Check(ctx, &pb.PermissionCheckRequest{
+			Entity:     &pb.Entity{Type: "document", Id: "doc1"},
+			Permission: "view",
+			Subject:    &pb.Subject{Type: "user", Id: "bob"},
+		})
+		if err != nil {
+			t.Fatalf("Check failed: %v", err)
+		}
+		if resp.Can != pb.CheckResult_CHECK_RESULT_DENIED {
+			t.Errorf("Expected DENIED for user:bob view doc1, got %v", resp.Can)
 		}
 	})
 }

@@ -24,4 +24,7 @@ type AttributeRepository interface {
 
 	// WriteInTx creates or updates an attribute within an existing transaction
 	WriteInTx(ctx context.Context, tx *sql.Tx, tenantID string, attr *entities.Attribute) error
+
+	// GetSortedEntityIDs returns sorted unique entity IDs from the attributes table with cursor-based pagination.
+	GetSortedEntityIDs(ctx context.Context, tenantID string, entityType string, cursor string, limit int) ([]string, error)
 }

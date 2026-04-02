@@ -43,7 +43,9 @@ func (m *mockSchemaRepository) GetSchemaEntity(ctx context.Context, tenantID str
 }
 
 type mockRelationRepository struct {
-	tuples []*entities.RelationTuple
+	tuples                                 []*entities.RelationTuple
+	lookupAccessibleEntitiesComplexFunc    func(ctx context.Context, tenantID string, entityType string, relations []string, parentRelations []string, subjectType string, subjectID string, maxDepth int, cursor string, limit int) ([]string, error)
+	lookupAccessibleSubjectsComplexFunc    func(ctx context.Context, tenantID string, entityType string, entityID string, relations []string, parentRelations []string, subjectType string, maxDepth int, cursor string, limit int) ([]string, error)
 }
 
 func (m *mockRelationRepository) Write(ctx context.Context, tenantID string, tuple *entities.RelationTuple) error {
@@ -203,10 +205,16 @@ func (m *mockRelationRepository) GetSortedSubjectIDs(ctx context.Context, tenant
 }
 
 func (m *mockRelationRepository) LookupAccessibleEntitiesComplex(ctx context.Context, tenantID string, entityType string, relations []string, parentRelations []string, subjectType string, subjectID string, maxDepth int, cursor string, limit int) ([]string, error) {
+	if m.lookupAccessibleEntitiesComplexFunc != nil {
+		return m.lookupAccessibleEntitiesComplexFunc(ctx, tenantID, entityType, relations, parentRelations, subjectType, subjectID, maxDepth, cursor, limit)
+	}
 	return nil, nil
 }
 
 func (m *mockRelationRepository) LookupAccessibleSubjectsComplex(ctx context.Context, tenantID string, entityType string, entityID string, relations []string, parentRelations []string, subjectType string, maxDepth int, cursor string, limit int) ([]string, error) {
+	if m.lookupAccessibleSubjectsComplexFunc != nil {
+		return m.lookupAccessibleSubjectsComplexFunc(ctx, tenantID, entityType, entityID, relations, parentRelations, subjectType, maxDepth, cursor, limit)
+	}
 	return nil, nil
 }
 
@@ -260,6 +268,35 @@ func (m *mockAttributeRepository) GetValue(ctx context.Context, tenantID string,
 
 func (m *mockAttributeRepository) WriteInTx(ctx context.Context, tx *sql.Tx, tenantID string, attr *entities.Attribute) error {
 	return m.Write(ctx, tenantID, attr)
+}
+
+func (m *mockAttributeRepository) GetSortedEntityIDs(ctx context.Context, tenantID string, entityType string, cursor string, limit int) ([]string, error) {
+	seen := make(map[string]bool)
+	var ids []string
+	for key := range m.attributes {
+		parts := splitKey(key)
+		if len(parts) == 2 && parts[0] == entityType {
+			id := parts[1]
+			if !seen[id] && (cursor == "" || id > cursor) {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		}
+	}
+	sort.Strings(ids)
+	if len(ids) > limit {
+		ids = ids[:limit]
+	}
+	return ids, nil
+}
+
+func splitKey(key string) []string {
+	for i := 0; i < len(key); i++ {
+		if key[i] == ':' {
+			return []string{key[:i], key[i+1:]}
+		}
+	}
+	return []string{key}
 }
 
 // Test helper functions
@@ -1301,5 +1338,252 @@ func TestEvaluator_EvaluateRelation_SubjectRelation_NoMatch(t *testing.T) {
 	}
 	if result {
 		t.Error("expected false (subject relation 'admin' does not match 'member'), got true")
+	}
+}
+
+// --- Bug fix regression tests ---
+
+// TestBugfix_SubjectRelationPreservedInPermissionComposition verifies that
+// SubjectRelation is propagated through permission composition chains.
+// Bug: "permission manage = edit" dropped SubjectRelation when recursing into "edit".
+func TestBugfix_SubjectRelationPreservedInPermissionComposition(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "team"},
+			{Name: "user"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "viewer", TargetType: "user team#member"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "edit",
+						Rule: &entities.RelationRule{Relation: "viewer"},
+					},
+					{
+						Name: "manage",
+						Rule: &entities.RelationRule{Relation: "edit"}, // composition: manage → edit → viewer
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{
+				EntityType:      "document",
+				EntityID:        "doc1",
+				Relation:        "viewer",
+				SubjectType:     "team",
+				SubjectID:       "eng",
+				SubjectRelation: "member",
+			},
+		},
+	}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+
+	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
+
+	// Check that team:eng#member has manage permission through the composition chain
+	req := &EvaluationRequest{
+		TenantID:        "test-tenant",
+		EntityType:      "document",
+		EntityID:        "doc1",
+		SubjectType:     "team",
+		SubjectID:       "eng",
+		SubjectRelation: "member",
+	}
+
+	result, err := evaluator.EvaluateRule(context.Background(), req,
+		schema.GetPermission("document", "manage").Rule)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result {
+		t.Error("expected true: SubjectRelation 'member' should be preserved through permission composition manage → edit → viewer")
+	}
+}
+
+// TestBugfix_SubjectRelationPreservedInHierarchicalEvaluation verifies that
+// SubjectRelation is propagated when evaluating hierarchical permissions on parent entities.
+func TestBugfix_SubjectRelationPreservedInHierarchicalEvaluation(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "team"},
+			{Name: "user"},
+			{
+				Name: "folder",
+				Relations: []*entities.Relation{
+					{Name: "viewer", TargetType: "user team#member"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.RelationRule{Relation: "viewer"},
+					},
+				},
+			},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "parent", TargetType: "folder"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.HierarchicalRule{Relation: "parent", Permission: "view"},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{
+				EntityType:  "document",
+				EntityID:    "doc1",
+				Relation:    "parent",
+				SubjectType: "folder",
+				SubjectID:   "f1",
+			},
+			{
+				EntityType:      "folder",
+				EntityID:        "f1",
+				Relation:        "viewer",
+				SubjectType:     "team",
+				SubjectID:       "eng",
+				SubjectRelation: "member",
+			},
+		},
+	}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+
+	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
+
+	req := &EvaluationRequest{
+		TenantID:        "test-tenant",
+		EntityType:      "document",
+		EntityID:        "doc1",
+		SubjectType:     "team",
+		SubjectID:       "eng",
+		SubjectRelation: "member",
+	}
+
+	result, err := evaluator.EvaluateRule(context.Background(), req,
+		schema.GetPermission("document", "view").Rule)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result {
+		t.Error("expected true: SubjectRelation 'member' should be preserved through hierarchical permission parent.view")
+	}
+}
+
+// TestBugfix_HierarchicalRelationExpandsComputedUsersets verifies that
+// when a hierarchical rule targets a parent's RELATION (not permission),
+// computed usersets (subject_relation) are properly expanded.
+func TestBugfix_HierarchicalRelationExpandsComputedUsersets(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "group",
+				Relations: []*entities.Relation{
+					{Name: "member", TargetType: "user"},
+				},
+			},
+			{
+				Name: "folder",
+				Relations: []*entities.Relation{
+					{Name: "viewer", TargetType: "user group#member"},
+				},
+			},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "parent", TargetType: "folder"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						// Directly references parent's RELATION (not permission)
+						Rule: &entities.HierarchicalRule{Relation: "parent", Permission: "viewer"},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{
+				EntityType:  "document",
+				EntityID:    "doc1",
+				Relation:    "parent",
+				SubjectType: "folder",
+				SubjectID:   "f1",
+			},
+			{
+				EntityType:      "folder",
+				EntityID:        "f1",
+				Relation:        "viewer",
+				SubjectType:     "group",
+				SubjectID:       "eng",
+				SubjectRelation: "member",
+			},
+			{
+				EntityType:  "group",
+				EntityID:    "eng",
+				Relation:    "member",
+				SubjectType: "user",
+				SubjectID:   "alice",
+			},
+		},
+	}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+
+	evaluator := NewEvaluator(&mockSchemaRepository{schema}, relationRepo, attributeRepo, celEngine)
+
+	req := &EvaluationRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		EntityID:    "doc1",
+		SubjectType: "user",
+		SubjectID:   "alice",
+	}
+
+	result, err := evaluator.EvaluateRule(context.Background(), req,
+		schema.GetPermission("document", "view").Rule)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result {
+		t.Error("expected true: user:alice should have view through parent.viewer → group:eng#member expansion")
+	}
+
+	// user:bob should NOT have access
+	reqBob := &EvaluationRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		EntityID:    "doc1",
+		SubjectType: "user",
+		SubjectID:   "bob",
+	}
+	resultBob, err := evaluator.EvaluateRule(context.Background(), reqBob,
+		schema.GetPermission("document", "view").Rule)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resultBob {
+		t.Error("expected false: user:bob is not a member of group:eng")
 	}
 }

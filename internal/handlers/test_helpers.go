@@ -161,6 +161,10 @@ func (m *mockAttributeRepository) WriteInTx(ctx context.Context, tx *sql.Tx, ten
 	return nil
 }
 
+func (m *mockAttributeRepository) GetSortedEntityIDs(ctx context.Context, tenantID string, entityType string, cursor string, limit int) ([]string, error) {
+	return nil, nil
+}
+
 // Mock Checker - implements authorization.CheckerInterface
 type mockChecker struct {
 	checkFunc func(ctx context.Context, req *authorization.CheckRequest) (*authorization.CheckResponse, error)

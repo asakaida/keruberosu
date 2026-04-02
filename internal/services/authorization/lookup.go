@@ -3,6 +3,8 @@ package authorization
 import (
 	"context"
 	"fmt"
+	"log"
+	"sort"
 
 	"github.com/asakaida/keruberosu/internal/entities"
 	"github.com/asakaida/keruberosu/internal/repositories"
@@ -25,6 +27,7 @@ type Lookup struct {
 	checker       CheckerInterface
 	schemaService SchemaServiceInterface
 	relationRepo  repositories.RelationRepository
+	attributeRepo repositories.AttributeRepository
 }
 
 // LookupEntityRequest contains the parameters for looking up entities
@@ -66,17 +69,24 @@ type LookupSubjectResponse struct {
 	NextPageToken string
 }
 
-// NewLookup creates a new Lookup
+// NewLookup creates a new Lookup.
+// attributeRepo is optional; if nil, entities accessible only through attributes
+// will not appear in fallback lookup results.
 func NewLookup(
 	checker CheckerInterface,
 	schemaService SchemaServiceInterface,
 	relationRepo repositories.RelationRepository,
+	attributeRepo ...repositories.AttributeRepository,
 ) *Lookup {
-	return &Lookup{
+	l := &Lookup{
 		checker:       checker,
 		schemaService: schemaService,
 		relationRepo:  relationRepo,
 	}
+	if len(attributeRepo) > 0 {
+		l.attributeRepo = attributeRepo[0]
+	}
+	return l
 }
 
 // LookupEntity finds all entities of a given type that a subject has permission on.
@@ -123,9 +133,12 @@ func (l *Lookup) LookupEntity(ctx context.Context, req *LookupEntityRequest) (*L
 			return nil, fmt.Errorf("failed to lookup accessible entities: %w", err)
 		}
 
-		// If contextual tuples present, verify each result with Check
+		// If contextual tuples present, merge candidates from contextual tuples
+		// and verify each result with Check
 		if len(req.ContextualTuples) > 0 {
-			return l.verifyEntitiesAndPaginate(ctx, req, entityIDs, limit)
+			ctxIDs := extractEntityIDsFromContextualTuples(req.ContextualTuples, req.EntityType)
+			merged := mergeSortedUnique(entityIDs, ctxIDs, len(entityIDs)+len(ctxIDs))
+			return l.verifyEntitiesAndPaginate(ctx, req, merged, limit)
 		}
 
 		nextPageToken := ""
@@ -188,7 +201,9 @@ func (l *Lookup) LookupSubject(ctx context.Context, req *LookupSubjectRequest) (
 		}
 
 		if len(req.ContextualTuples) > 0 {
-			return l.verifySubjectsAndPaginate(ctx, req, subjectIDs, limit)
+			ctxIDs := extractSubjectIDsFromContextualTuples(req.ContextualTuples, req.EntityType, req.EntityID, req.SubjectType)
+			merged := mergeSortedUnique(subjectIDs, ctxIDs, len(subjectIDs)+len(ctxIDs))
+			return l.verifySubjectsAndPaginate(ctx, req, merged, limit)
 		}
 
 		nextPageToken := ""
@@ -207,7 +222,9 @@ func (l *Lookup) LookupSubject(ctx context.Context, req *LookupSubjectRequest) (
 	return l.lookupSubjectFallback(ctx, req, limit)
 }
 
-// lookupEntityFallback uses batched GetSortedEntityIDs + Check loop
+// lookupEntityFallback uses batched GetSortedEntityIDs + Check loop.
+// Merges candidates from both relations and attributes tables to ensure
+// entities accessible only through attributes (ABAC) are also found.
 func (l *Lookup) lookupEntityFallback(ctx context.Context, req *LookupEntityRequest, limit int) (*LookupEntityResponse, error) {
 	batchSize := limit * 3
 	if batchSize < defaultBatchSize {
@@ -221,10 +238,7 @@ func (l *Lookup) lookupEntityFallback(ctx context.Context, req *LookupEntityRequ
 	var allowedIDs []string
 
 	for {
-		candidates, err := l.relationRepo.GetSortedEntityIDs(ctx, req.TenantID, req.EntityType, cursor, batchSize)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get sorted entity IDs: %w", err)
-		}
+		candidates := l.getMergedEntityCandidates(ctx, req.TenantID, req.EntityType, cursor, batchSize)
 
 		if len(candidates) == 0 {
 			break
@@ -244,6 +258,7 @@ func (l *Lookup) lookupEntityFallback(ctx context.Context, req *LookupEntityRequ
 				ContextualTuples: req.ContextualTuples,
 			})
 			if err != nil {
+				log.Printf("WARNING: Check failed for entity %s:%s: %v", req.EntityType, entityID, err)
 				continue
 			}
 			if resp.Allowed {
@@ -274,6 +289,28 @@ func (l *Lookup) lookupEntityFallback(ctx context.Context, req *LookupEntityRequ
 		EntityIDs:     allowedIDs,
 		NextPageToken: nextPageToken,
 	}, nil
+}
+
+// getMergedEntityCandidates returns sorted unique entity IDs from both
+// relations and attributes tables.
+func (l *Lookup) getMergedEntityCandidates(ctx context.Context, tenantID, entityType, cursor string, batchSize int) []string {
+	relCandidates, err := l.relationRepo.GetSortedEntityIDs(ctx, tenantID, entityType, cursor, batchSize)
+	if err != nil {
+		log.Printf("WARNING: failed to get entity IDs from relations: %v", err)
+		relCandidates = nil
+	}
+
+	if l.attributeRepo == nil {
+		return relCandidates
+	}
+
+	attrCandidates, err := l.attributeRepo.GetSortedEntityIDs(ctx, tenantID, entityType, cursor, batchSize)
+	if err != nil {
+		log.Printf("WARNING: failed to get entity IDs from attributes: %v", err)
+		attrCandidates = nil
+	}
+
+	return mergeSortedUnique(relCandidates, attrCandidates, batchSize)
 }
 
 // lookupSubjectFallback uses batched GetSortedSubjectIDs + Check loop
@@ -313,6 +350,7 @@ func (l *Lookup) lookupSubjectFallback(ctx context.Context, req *LookupSubjectRe
 				ContextualTuples: req.ContextualTuples,
 			})
 			if err != nil {
+				log.Printf("WARNING: Check failed for subject %s:%s: %v", req.SubjectType, subjectID, err)
 				continue
 			}
 			if resp.Allowed {
@@ -580,6 +618,65 @@ func (l *Lookup) validateLookupSubjectRequest(req *LookupSubjectRequest) error {
 		return fmt.Errorf("subject type is required")
 	}
 	return nil
+}
+
+// mergeSortedUnique merges two sorted string slices into a single sorted slice
+// with unique values, limited to maxLen elements.
+func mergeSortedUnique(a, b []string, maxLen int) []string {
+	result := make([]string, 0, len(a)+len(b))
+	i, j := 0, 0
+	for i < len(a) && j < len(b) && len(result) < maxLen {
+		if a[i] < b[j] {
+			result = append(result, a[i])
+			i++
+		} else if a[i] > b[j] {
+			result = append(result, b[j])
+			j++
+		} else {
+			result = append(result, a[i])
+			i++
+			j++
+		}
+	}
+	for i < len(a) && len(result) < maxLen {
+		result = append(result, a[i])
+		i++
+	}
+	for j < len(b) && len(result) < maxLen {
+		result = append(result, b[j])
+		j++
+	}
+	return result
+}
+
+// extractEntityIDsFromContextualTuples extracts sorted unique entity IDs
+// from contextual tuples matching the given entity type.
+func extractEntityIDsFromContextualTuples(tuples []*entities.RelationTuple, entityType string) []string {
+	seen := make(map[string]bool)
+	var ids []string
+	for _, t := range tuples {
+		if t.EntityType == entityType && !seen[t.EntityID] {
+			seen[t.EntityID] = true
+			ids = append(ids, t.EntityID)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// extractSubjectIDsFromContextualTuples extracts sorted unique subject IDs
+// from contextual tuples matching the given entity and subject type.
+func extractSubjectIDsFromContextualTuples(tuples []*entities.RelationTuple, entityType, entityID, subjectType string) []string {
+	seen := make(map[string]bool)
+	var ids []string
+	for _, t := range tuples {
+		if t.EntityType == entityType && t.EntityID == entityID && t.SubjectType == subjectType && !seen[t.SubjectID] {
+			seen[t.SubjectID] = true
+			ids = append(ids, t.SubjectID)
+		}
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 // extractBaseType is defined in evaluator.go - reused via package scope.

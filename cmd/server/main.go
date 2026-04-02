@@ -145,7 +145,7 @@ func runServer(cmd *cobra.Command, args []string) {
 	}
 
 	expander := authorization.NewExpander(schemaService, relationRepo)
-	lookup := authorization.NewLookup(checker, schemaService, relationRepo)
+	lookup := authorization.NewLookup(checker, schemaService, relationRepo, attributeRepo)
 
 	// Initialize metrics collector and Prometheus exporter
 	metricsCollector := metrics.NewCollector()

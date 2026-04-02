@@ -81,7 +81,7 @@ func SetupE2ETest(t *testing.T) *E2ETestServer {
 	evaluator := authorization.NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
 	checker := authorization.NewChecker(schemaService, evaluator)
 	expander := authorization.NewExpander(schemaService, relationRepo)
-	lookup := authorization.NewLookup(checker, schemaService, relationRepo)
+	lookup := authorization.NewLookup(checker, schemaService, relationRepo, attributeRepo)
 
 	// Initialize handlers for the three separate services
 	permissionHandler := handlers.NewPermissionHandler(

@@ -535,3 +535,248 @@ entity document {
 
 	t.Log("Bug8: Check API correctly handles relation names")
 }
+
+// TestScenario_Bugfix_SubjectRelationPermissionComposition tests that SubjectRelation
+// is preserved through permission composition chains (manage → edit → viewer).
+func TestScenario_Bugfix_SubjectRelationPermissionComposition(t *testing.T) {
+	testServer := SetupE2ETest(t)
+	defer testServer.Teardown(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	schema := `
+entity user {}
+
+entity team {
+    relation member @user
+}
+
+entity document {
+    relation viewer @user @team#member
+
+    permission edit = viewer
+    permission manage = edit
+}
+`
+	_, err := testServer.SchemaClient.Write(ctx, &pb.SchemaWriteRequest{Schema: schema})
+	if err != nil {
+		t.Fatalf("WriteSchema failed: %v", err)
+	}
+
+	_, err = testServer.DataClient.Write(ctx, &pb.DataWriteRequest{
+		Tuples: []*pb.Tuple{
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "viewer", Subject: &pb.Subject{Type: "team", Id: "eng", Relation: "member"}},
+			{Entity: &pb.Entity{Type: "team", Id: "eng"}, Relation: "member", Subject: &pb.Subject{Type: "user", Id: "alice"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteData failed: %v", err)
+	}
+
+	// SubjectRelation through permission composition: manage → edit → viewer
+	check, err := testServer.PermissionClient.Check(ctx, &pb.PermissionCheckRequest{
+		Entity:     &pb.Entity{Type: "document", Id: "doc1"},
+		Permission: "manage",
+		Subject:    &pb.Subject{Type: "team", Id: "eng", Relation: "member"},
+	})
+	if err != nil {
+		t.Fatalf("Check failed: %v", err)
+	}
+	if check.Can != pb.CheckResult_CHECK_RESULT_ALLOWED {
+		t.Error("expected team:eng#member to have manage permission via composition manage→edit→viewer")
+	}
+
+	// user:alice should also have manage via computed userset expansion
+	checkAlice, err := testServer.PermissionClient.Check(ctx, &pb.PermissionCheckRequest{
+		Entity:     &pb.Entity{Type: "document", Id: "doc1"},
+		Permission: "manage",
+		Subject:    &pb.Subject{Type: "user", Id: "alice"},
+	})
+	if err != nil {
+		t.Fatalf("Check alice failed: %v", err)
+	}
+	if checkAlice.Can != pb.CheckResult_CHECK_RESULT_ALLOWED {
+		t.Error("expected user:alice to have manage permission via team:eng#member userset expansion")
+	}
+
+	t.Log("SubjectRelation correctly preserved through permission composition")
+}
+
+// TestScenario_Bugfix_SubjectRelationHierarchical tests that SubjectRelation
+// is preserved through hierarchical permission evaluation (parent.view).
+func TestScenario_Bugfix_SubjectRelationHierarchical(t *testing.T) {
+	testServer := SetupE2ETest(t)
+	defer testServer.Teardown(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	schema := `
+entity user {}
+
+entity team {
+    relation member @user
+}
+
+entity folder {
+    relation viewer @user @team#member
+
+    permission view = viewer
+}
+
+entity document {
+    relation parent @folder
+
+    permission view = parent.view
+}
+`
+	_, err := testServer.SchemaClient.Write(ctx, &pb.SchemaWriteRequest{Schema: schema})
+	if err != nil {
+		t.Fatalf("WriteSchema failed: %v", err)
+	}
+
+	_, err = testServer.DataClient.Write(ctx, &pb.DataWriteRequest{
+		Tuples: []*pb.Tuple{
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "parent", Subject: &pb.Subject{Type: "folder", Id: "f1"}},
+			{Entity: &pb.Entity{Type: "folder", Id: "f1"}, Relation: "viewer", Subject: &pb.Subject{Type: "team", Id: "eng", Relation: "member"}},
+			{Entity: &pb.Entity{Type: "team", Id: "eng"}, Relation: "member", Subject: &pb.Subject{Type: "user", Id: "alice"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteData failed: %v", err)
+	}
+
+	// SubjectRelation through hierarchical: parent.view
+	check, err := testServer.PermissionClient.Check(ctx, &pb.PermissionCheckRequest{
+		Entity:     &pb.Entity{Type: "document", Id: "doc1"},
+		Permission: "view",
+		Subject:    &pb.Subject{Type: "team", Id: "eng", Relation: "member"},
+	})
+	if err != nil {
+		t.Fatalf("Check failed: %v", err)
+	}
+	if check.Can != pb.CheckResult_CHECK_RESULT_ALLOWED {
+		t.Error("expected team:eng#member to have view on doc1 via parent.view")
+	}
+
+	// user:alice should have access through both hierarchy and userset
+	checkAlice, err := testServer.PermissionClient.Check(ctx, &pb.PermissionCheckRequest{
+		Entity:     &pb.Entity{Type: "document", Id: "doc1"},
+		Permission: "view",
+		Subject:    &pb.Subject{Type: "user", Id: "alice"},
+	})
+	if err != nil {
+		t.Fatalf("Check alice failed: %v", err)
+	}
+	if checkAlice.Can != pb.CheckResult_CHECK_RESULT_ALLOWED {
+		t.Error("expected user:alice to have view on doc1 via team:eng#member → parent.view")
+	}
+
+	// user:bob should NOT have access
+	checkBob, err := testServer.PermissionClient.Check(ctx, &pb.PermissionCheckRequest{
+		Entity:     &pb.Entity{Type: "document", Id: "doc1"},
+		Permission: "view",
+		Subject:    &pb.Subject{Type: "user", Id: "bob"},
+	})
+	if err != nil {
+		t.Fatalf("Check bob failed: %v", err)
+	}
+	if checkBob.Can != pb.CheckResult_CHECK_RESULT_DENIED {
+		t.Error("expected user:bob to be denied view on doc1")
+	}
+
+	// LookupEntity should find doc1 for alice
+	lookupResp, err := testServer.PermissionClient.LookupEntity(ctx, &pb.PermissionLookupEntityRequest{
+		EntityType: "document",
+		Permission: "view",
+		Subject:    &pb.Subject{Type: "user", Id: "alice"},
+	})
+	if err != nil {
+		t.Fatalf("LookupEntity failed: %v", err)
+	}
+
+	foundDoc1 := false
+	for _, id := range lookupResp.EntityIds {
+		if id == "doc1" {
+			foundDoc1 = true
+		}
+	}
+	if !foundDoc1 {
+		t.Errorf("expected doc1 in LookupEntity results for alice, got: %v", lookupResp.EntityIds)
+	}
+
+	t.Log("SubjectRelation correctly preserved through hierarchical evaluation")
+}
+
+// TestScenario_Bugfix_HierarchicalRelationComputedUserset tests that when a
+// hierarchical rule targets a parent's RELATION (not permission), computed
+// usersets are properly expanded.
+func TestScenario_Bugfix_HierarchicalRelationComputedUserset(t *testing.T) {
+	testServer := SetupE2ETest(t)
+	defer testServer.Teardown(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	schema := `
+entity user {}
+
+entity group {
+    relation member @user
+}
+
+entity folder {
+    relation viewer @user @group#member
+}
+
+entity document {
+    relation parent @folder
+
+    permission view = parent.viewer
+}
+`
+	_, err := testServer.SchemaClient.Write(ctx, &pb.SchemaWriteRequest{Schema: schema})
+	if err != nil {
+		t.Fatalf("WriteSchema failed: %v", err)
+	}
+
+	_, err = testServer.DataClient.Write(ctx, &pb.DataWriteRequest{
+		Tuples: []*pb.Tuple{
+			{Entity: &pb.Entity{Type: "document", Id: "doc1"}, Relation: "parent", Subject: &pb.Subject{Type: "folder", Id: "f1"}},
+			{Entity: &pb.Entity{Type: "folder", Id: "f1"}, Relation: "viewer", Subject: &pb.Subject{Type: "group", Id: "eng", Relation: "member"}},
+			{Entity: &pb.Entity{Type: "group", Id: "eng"}, Relation: "member", Subject: &pb.Subject{Type: "user", Id: "alice"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteData failed: %v", err)
+	}
+
+	// parent.viewer (relation, not permission) with computed userset
+	check, err := testServer.PermissionClient.Check(ctx, &pb.PermissionCheckRequest{
+		Entity:     &pb.Entity{Type: "document", Id: "doc1"},
+		Permission: "view",
+		Subject:    &pb.Subject{Type: "user", Id: "alice"},
+	})
+	if err != nil {
+		t.Fatalf("Check failed: %v", err)
+	}
+	if check.Can != pb.CheckResult_CHECK_RESULT_ALLOWED {
+		t.Error("expected user:alice to have view via parent.viewer → group:eng#member expansion")
+	}
+
+	// bob should NOT have access
+	checkBob, err := testServer.PermissionClient.Check(ctx, &pb.PermissionCheckRequest{
+		Entity:     &pb.Entity{Type: "document", Id: "doc1"},
+		Permission: "view",
+		Subject:    &pb.Subject{Type: "user", Id: "bob"},
+	})
+	if err != nil {
+		t.Fatalf("Check bob failed: %v", err)
+	}
+	if checkBob.Can != pb.CheckResult_CHECK_RESULT_DENIED {
+		t.Error("expected user:bob to be denied view on doc1")
+	}
+
+	t.Log("Hierarchical relation correctly expands computed usersets")
+}

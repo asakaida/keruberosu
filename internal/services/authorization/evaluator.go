@@ -135,6 +135,7 @@ func (e *Evaluator) evaluateRelation(
 					EntityID:         req.EntityID,
 					SubjectType:      req.SubjectType,
 					SubjectID:        req.SubjectID,
+					SubjectRelation:  req.SubjectRelation,
 					ContextualTuples: req.ContextualTuples,
 					Depth:            req.Depth + 1,
 				}, perm.Rule)
@@ -371,6 +372,7 @@ func (e *Evaluator) evaluateHierarchical(
 				EntityID:         tuple.SubjectID,
 				SubjectType:      req.SubjectType,
 				SubjectID:        req.SubjectID,
+				SubjectRelation:  req.SubjectRelation,
 				ContextualTuples: req.ContextualTuples,
 				Depth:            req.Depth + 1, // Increment depth
 			}
@@ -384,32 +386,27 @@ func (e *Evaluator) evaluateHierarchical(
 				return true, nil // Found at least one parent that grants permission
 			}
 		} else {
-			// If not a permission, check if it's a relation (Permify compatibility)
+			// If not a permission, check if it's a relation (Permify compatibility).
+			// Use EvaluateRule with a synthetic RelationRule to get full relation
+			// evaluation including computed userset expansion and SubjectRelation propagation.
 			parentEntityDef := schema.GetEntity(tuple.SubjectType)
 			if parentEntityDef != nil && parentEntityDef.GetRelation(rule.Permission) != nil {
-				// Check contextual tuples first
-				for _, ctxTuple := range req.ContextualTuples {
-					if ctxTuple.EntityType == tuple.SubjectType &&
-						ctxTuple.EntityID == tuple.SubjectID &&
-						ctxTuple.Relation == rule.Permission &&
-						ctxTuple.SubjectType == req.SubjectType &&
-						ctxTuple.SubjectID == req.SubjectID {
-						return true, nil
-					}
+				parentReq := &EvaluationRequest{
+					TenantID:         req.TenantID,
+					SchemaVersion:    req.SchemaVersion,
+					EntityType:       tuple.SubjectType,
+					EntityID:         tuple.SubjectID,
+					SubjectType:      req.SubjectType,
+					SubjectID:        req.SubjectID,
+					SubjectRelation:  req.SubjectRelation,
+					ContextualTuples: req.ContextualTuples,
+					Depth:            req.Depth + 1,
 				}
-
-				// Use Exists for efficient single-row check
-				relExists, err := e.relationRepo.Exists(ctx, req.TenantID, &entities.RelationTuple{
-					EntityType:  tuple.SubjectType,
-					EntityID:    tuple.SubjectID,
-					Relation:    rule.Permission,
-					SubjectType: req.SubjectType,
-					SubjectID:   req.SubjectID,
-				})
+				relResult, err := e.evaluateRelation(ctx, parentReq, &entities.RelationRule{Relation: rule.Permission})
 				if err != nil {
-					return false, fmt.Errorf("failed to check parent relation existence: %w", err)
+					return false, fmt.Errorf("failed to evaluate parent relation: %w", err)
 				}
-				if relExists {
+				if relResult {
 					return true, nil
 				}
 			}

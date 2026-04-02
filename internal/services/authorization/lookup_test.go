@@ -1284,3 +1284,239 @@ func TestLookup_LookupEntity_ANDPermission_FallbackPath(t *testing.T) {
 			len(respBob.EntityIDs), respBob.EntityIDs)
 	}
 }
+
+// --- Bug fix regression tests ---
+
+// TestBugfix_LookupEntityFallback_AttributeOnlyEntities verifies that
+// the fallback path finds entities accessible only through attributes (ABAC)
+// when they have no relation tuples.
+func TestBugfix_LookupEntityFallback_AttributeOnlyEntities(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "owner", TargetType: "user"},
+				},
+				AttributeSchemas: []*entities.AttributeSchema{
+					{Name: "is_public", Type: "boolean"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.LogicalRule{
+							Operator: "or",
+							Left:     &entities.RelationRule{Relation: "owner"},
+							Right:    &entities.ABACRule{Expression: "resource.is_public == true"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{
+				EntityType:  "document",
+				EntityID:    "doc1",
+				Relation:    "owner",
+				SubjectType: "user",
+				SubjectID:   "alice",
+			},
+		},
+	}
+	attributeRepo := newMockAttributeRepository()
+	// doc2 is accessible via ABAC only (no relation tuples)
+	_ = attributeRepo.Write(context.Background(), "test-tenant", &entities.Attribute{
+		EntityType: "document",
+		EntityID:   "doc2",
+		Name:       "is_public",
+		Value:      true,
+	})
+
+	celEngine, _ := NewCELEngine()
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo, attributeRepo)
+
+	req := &LookupEntityRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		Permission:  "view",
+		SubjectType: "user",
+		SubjectID:   "bob", // bob has no relation tuples, but doc2 is public
+	}
+
+	resp, err := lookup.LookupEntity(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	found := false
+	for _, id := range resp.EntityIDs {
+		if id == "doc2" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected doc2 (attribute-only entity) in results, got: %v", resp.EntityIDs)
+	}
+}
+
+// TestBugfix_LookupEntityContextualTupleOnlyEntities verifies that entities
+// accessible only through contextual tuples are included in lookup results.
+// Uses AND rule to force fallback path where contextual tuple candidates are merged.
+func TestBugfix_LookupEntityContextualTupleOnlyEntities(t *testing.T) {
+	schema := &entities.Schema{
+		TenantID: "test-tenant",
+		Entities: []*entities.Entity{
+			{Name: "user"},
+			{
+				Name: "document",
+				Relations: []*entities.Relation{
+					{Name: "viewer", TargetType: "user"},
+				},
+				Permissions: []*entities.Permission{
+					{
+						Name: "view",
+						Rule: &entities.RelationRule{Relation: "viewer"},
+					},
+				},
+			},
+		},
+	}
+
+	relationRepo := &mockRelationRepository{
+		tuples: []*entities.RelationTuple{
+			{
+				EntityType:  "document",
+				EntityID:    "doc1",
+				Relation:    "viewer",
+				SubjectType: "user",
+				SubjectID:   "alice",
+			},
+		},
+		// LookupAccessibleEntitiesComplex returns doc1 from SQL
+		lookupAccessibleEntitiesComplexFunc: func(ctx context.Context, tenantID string,
+			entityType string, relations []string, parentRelations []string,
+			subjectType string, subjectID string,
+			maxDepth int, cursor string, limit int) ([]string, error) {
+			if subjectID == "alice" {
+				return []string{"doc1"}, nil
+			}
+			return nil, nil
+		},
+	}
+	attributeRepo := newMockAttributeRepository()
+	celEngine, _ := NewCELEngine()
+	schemaService := &mockSchemaRepository{schema}
+	evaluator := NewEvaluator(schemaService, relationRepo, attributeRepo, celEngine)
+	checker := NewChecker(schemaService, evaluator)
+	lookup := NewLookup(checker, schemaService, relationRepo, attributeRepo)
+
+	// doc-secret exists only in contextual tuples
+	req := &LookupEntityRequest{
+		TenantID:    "test-tenant",
+		EntityType:  "document",
+		Permission:  "view",
+		SubjectType: "user",
+		SubjectID:   "alice",
+		ContextualTuples: []*entities.RelationTuple{
+			{
+				EntityType:  "document",
+				EntityID:    "doc-secret",
+				Relation:    "viewer",
+				SubjectType: "user",
+				SubjectID:   "alice",
+			},
+		},
+	}
+
+	resp, err := lookup.LookupEntity(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	foundDoc1 := false
+	foundDocSecret := false
+	for _, id := range resp.EntityIDs {
+		if id == "doc1" {
+			foundDoc1 = true
+		}
+		if id == "doc-secret" {
+			foundDocSecret = true
+		}
+	}
+
+	if !foundDoc1 {
+		t.Errorf("expected doc1 in results, got: %v", resp.EntityIDs)
+	}
+	if !foundDocSecret {
+		t.Errorf("expected doc-secret (contextual tuple only) in results, got: %v", resp.EntityIDs)
+	}
+}
+
+func TestMergeSortedUnique(t *testing.T) {
+	tests := []struct {
+		name     string
+		a        []string
+		b        []string
+		maxLen   int
+		expected []string
+	}{
+		{
+			name:     "both empty",
+			a:        nil,
+			b:        nil,
+			maxLen:   10,
+			expected: []string{},
+		},
+		{
+			name:     "a only",
+			a:        []string{"a", "b", "c"},
+			b:        nil,
+			maxLen:   10,
+			expected: []string{"a", "b", "c"},
+		},
+		{
+			name:     "b only",
+			a:        nil,
+			b:        []string{"x", "y"},
+			maxLen:   10,
+			expected: []string{"x", "y"},
+		},
+		{
+			name:     "merge with duplicates",
+			a:        []string{"a", "c", "e"},
+			b:        []string{"b", "c", "d"},
+			maxLen:   10,
+			expected: []string{"a", "b", "c", "d", "e"},
+		},
+		{
+			name:     "truncated by maxLen",
+			a:        []string{"a", "b", "c"},
+			b:        []string{"d", "e"},
+			maxLen:   3,
+			expected: []string{"a", "b", "c"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := mergeSortedUnique(tt.a, tt.b, tt.maxLen)
+			if len(result) != len(tt.expected) {
+				t.Fatalf("expected %d elements, got %d: %v", len(tt.expected), len(result), result)
+			}
+			for i, v := range result {
+				if v != tt.expected[i] {
+					t.Errorf("element %d: expected %s, got %s", i, tt.expected[i], v)
+				}
+			}
+		})
+	}
+}

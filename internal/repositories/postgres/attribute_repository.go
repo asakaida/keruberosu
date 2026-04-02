@@ -190,5 +190,40 @@ func normalizeJSONValue(v interface{}) interface{} {
 	}
 }
 
+// GetSortedEntityIDs returns sorted unique entity IDs from the attributes table with cursor-based pagination.
+func (r *PostgresAttributeRepository) GetSortedEntityIDs(ctx context.Context, tenantID string,
+	entityType string, cursor string, limit int) ([]string, error) {
+	query := `SELECT DISTINCT entity_id FROM attributes WHERE tenant_id = $1 AND entity_type = $2`
+	args := []interface{}{tenantID, entityType}
+	argIdx := 3
+
+	if cursor != "" {
+		query += fmt.Sprintf(" AND entity_id > $%d", argIdx)
+		args = append(args, cursor)
+		argIdx++
+	}
+
+	query += " ORDER BY entity_id"
+	query += fmt.Sprintf(" LIMIT $%d", argIdx)
+	args = append(args, limit)
+
+	db := r.cluster.ReaderFor(tenantID)
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sorted entity IDs from attributes: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan entity ID: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // ensure interface compliance
 var _ repositories.AttributeRepository = (*PostgresAttributeRepository)(nil)
