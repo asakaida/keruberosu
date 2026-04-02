@@ -31,6 +31,8 @@ const (
 	MaxDepth = 100
 	// MaxTuplesPerQuery is the maximum number of tuples returned per query
 	MaxTuplesPerQuery = 10000
+	// MaxUsersetDepth is the maximum recursion depth for computed userset expansion in SQL
+	MaxUsersetDepth = 10
 )
 
 // SchemaServiceInterface defines the interface for schema operations
@@ -214,38 +216,28 @@ func (e *Evaluator) evaluateRelation(
 			continue
 		}
 
-		// If this tuple has a subject relation, expand it
+		// If this tuple has a subject relation, expand it recursively.
+		// Example: tuple is "repository:backend-api#contributor@team:backend-team#member"
+		// We need to check if "user:frank" has relation "member" with "team:backend-team".
+		// Using recursive evaluateRelation handles nested computed usersets:
+		// e.g., team#member → group#member → user
 		if tuple.SubjectRelation != "" {
-			// Check if the current subject has the subject relation
-			// Example: tuple is "repository:backend-api#contributor@team:backend-team#member"
-			// We need to check if "user:frank" has relation "member" with "team:backend-team"
-			subjectRelationFilter := &repositories.RelationFilter{
-				EntityType:  tuple.SubjectType,
-				EntityID:    tuple.SubjectID,
-				Relation:    tuple.SubjectRelation,
-				SubjectType: req.SubjectType,
-				SubjectID:   req.SubjectID,
+			subjectReq := &EvaluationRequest{
+				TenantID:         req.TenantID,
+				SchemaVersion:    req.SchemaVersion,
+				EntityType:       tuple.SubjectType,
+				EntityID:         tuple.SubjectID,
+				SubjectType:      req.SubjectType,
+				SubjectID:        req.SubjectID,
+				ContextualTuples: req.ContextualTuples,
+				Depth:            req.Depth + 1,
 			}
-
-			subjectTuples, err := e.relationRepo.Read(ctx, req.TenantID, subjectRelationFilter)
+			result, err := e.evaluateRelation(ctx, subjectReq, &entities.RelationRule{Relation: tuple.SubjectRelation})
 			if err != nil {
-				return false, fmt.Errorf("failed to read subject relations: %w", err)
+				return false, fmt.Errorf("failed to evaluate subject relation: %w", err)
 			}
-
-			// Check contextual tuples as well
-			for _, ctxTuple := range req.ContextualTuples {
-				if ctxTuple.EntityType == tuple.SubjectType &&
-					ctxTuple.EntityID == tuple.SubjectID &&
-					ctxTuple.Relation == tuple.SubjectRelation &&
-					ctxTuple.SubjectType == req.SubjectType &&
-					ctxTuple.SubjectID == req.SubjectID &&
-					ctxTuple.SubjectRelation == "" {
-					subjectTuples = append(subjectTuples, ctxTuple)
-				}
-			}
-
-			if len(subjectTuples) > 0 {
-				return true, nil // Subject has the relation via subject relation
+			if result {
+				return true, nil
 			}
 		}
 	}

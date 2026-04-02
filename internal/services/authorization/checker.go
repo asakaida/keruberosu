@@ -71,12 +71,15 @@ func NewCheckerWithCache(
 	}
 }
 
-// generateCacheKey generates a cache key for the check request
-func (c *Checker) generateCacheKey(req *CheckRequest, snapshotToken string) string {
-	// Create a key from the request parameters and snapshot token
+// generateCacheKey generates a cache key for the check request.
+// schemaVersion is the resolved schema version (not the requested one, which may be empty).
+func (c *Checker) generateCacheKey(req *CheckRequest, snapshotToken string, schemaVersion string) string {
+	// Create a key from the request parameters, snapshot token, and resolved schema version.
+	// Using the resolved schemaVersion ensures that schema changes invalidate cached results
+	// even when no data writes have occurred.
 	keyData := fmt.Sprintf("%s:%s:%s:%s:%s:%s:%s:%s:%s",
 		req.TenantID,
-		req.SchemaVersion,
+		schemaVersion,
 		req.EntityType,
 		req.EntityID,
 		req.Permission,
@@ -101,6 +104,12 @@ func (c *Checker) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 	// Skip cache if contextual tuples are present (they make the result unique)
 	useCache := c.cache != nil && c.snapshotManager != nil && len(req.ContextualTuples) == 0
 
+	// Get parsed schema (needed for both cache key and evaluation)
+	schema, err := c.schemaService.GetSchemaEntity(ctx, req.TenantID, req.SchemaVersion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get schema: %w", err)
+	}
+
 	var snapshotToken string
 	var cacheKey string
 
@@ -119,7 +128,10 @@ func (c *Checker) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 		}
 
 		if useCache {
-			cacheKey = c.generateCacheKey(req, snapshotToken)
+			// Include the resolved schema version in the cache key so that
+			// schema changes invalidate cached results even when no data
+			// writes (which update the snapshot token) have occurred.
+			cacheKey = c.generateCacheKey(req, snapshotToken, schema.Version)
 
 			// Try to get from cache
 			if cached, found := c.cache.Get(ctx, cacheKey); found {
@@ -128,12 +140,6 @@ func (c *Checker) Check(ctx context.Context, req *CheckRequest) (*CheckResponse,
 				}
 			}
 		}
-	}
-
-	// Get parsed schema
-	schema, err := c.schemaService.GetSchemaEntity(ctx, req.TenantID, req.SchemaVersion)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}
 
 	// Get entity definition

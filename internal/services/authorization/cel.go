@@ -1,18 +1,14 @@
 package authorization
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 )
-
-const celEvalTimeout = 5 * time.Second
 
 // CELEngine provides CEL expression evaluation for ABAC rules
 type CELEngine struct {
@@ -67,7 +63,11 @@ func (e *CELEngine) getOrCompileProgram(expression string) (cel.Program, error) 
 	return program, nil
 }
 
-// Evaluate evaluates a CEL expression with the given context
+// Evaluate evaluates a CEL expression with the given context.
+// CEL expressions are evaluated synchronously. Timeout protection is provided
+// by the caller's context (e.g., gRPC deadline). This avoids goroutine leaks
+// that occur with the goroutine+select timeout pattern, since CEL's Eval does
+// not accept a context and cannot be cancelled.
 func (e *CELEngine) Evaluate(expression string, evalCtx *EvaluationContext) (bool, error) {
 	program, err := e.getOrCompileProgram(expression)
 	if err != nil {
@@ -92,33 +92,17 @@ func (e *CELEngine) Evaluate(expression string, evalCtx *EvaluationContext) (boo
 		vars["request"] = map[string]interface{}{}
 	}
 
-	// Evaluate with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), celEvalTimeout)
-	defer cancel()
-
-	resultCh := make(chan ref.Val, 1)
-	errCh := make(chan error, 1)
-	go func() {
-		result, _, err := program.Eval(vars)
-		if err != nil {
-			errCh <- err
-		} else {
-			resultCh <- result
-		}
-	}()
-
-	select {
-	case result := <-resultCh:
-		boolResult, ok := result.Value().(bool)
-		if !ok {
-			return false, fmt.Errorf("CEL expression did not evaluate to boolean, got: %T", result.Value())
-		}
-		return boolResult, nil
-	case err := <-errCh:
+	// Evaluate synchronously
+	result, _, err := program.Eval(vars)
+	if err != nil {
 		return false, fmt.Errorf("failed to evaluate CEL expression: %w", err)
-	case <-ctx.Done():
-		return false, fmt.Errorf("CEL expression evaluation timed out after %v", celEvalTimeout)
 	}
+
+	boolResult, ok := result.Value().(bool)
+	if !ok {
+		return false, fmt.Errorf("CEL expression did not evaluate to boolean, got: %T", result.Value())
+	}
+	return boolResult, nil
 }
 
 // ValidateExpression validates a CEL expression without evaluating it

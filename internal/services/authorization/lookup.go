@@ -189,7 +189,9 @@ func (l *Lookup) LookupSubject(ctx context.Context, req *LookupSubjectRequest) (
 	relations, parentRelations, hasUnresolvable := extractRelationsFromRuleWithContext(
 		schema, req.EntityType, permission.Rule, visited)
 
-	if !hasUnresolvable && (len(relations) > 0 || len(parentRelations) > 0) {
+	// When SubjectRelation is set, the optimized SQL path doesn't support
+	// filtering by subject_relation, so always use the fallback Check loop.
+	if req.SubjectRelation == "" && !hasUnresolvable && (len(relations) > 0 || len(parentRelations) > 0) {
 		// Optimized path
 		subjectIDs, err := l.relationRepo.LookupAccessibleSubjectsComplex(
 			ctx, req.TenantID,
@@ -347,6 +349,7 @@ func (l *Lookup) lookupSubjectFallback(ctx context.Context, req *LookupSubjectRe
 				Permission:       req.Permission,
 				SubjectType:      req.SubjectType,
 				SubjectID:        subjectID,
+				SubjectRelation:  req.SubjectRelation,
 				ContextualTuples: req.ContextualTuples,
 			})
 			if err != nil {
@@ -431,6 +434,7 @@ func (l *Lookup) verifySubjectsAndPaginate(ctx context.Context, req *LookupSubje
 			Permission:       req.Permission,
 			SubjectType:      req.SubjectType,
 			SubjectID:        subjectID,
+			SubjectRelation:  req.SubjectRelation,
 			ContextualTuples: req.ContextualTuples,
 		})
 		if err != nil {

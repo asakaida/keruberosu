@@ -13,6 +13,11 @@ import (
 	"github.com/lib/pq"
 )
 
+const (
+	// maxUsersetDepth is the maximum recursion depth for computed userset expansion in SQL queries.
+	maxUsersetDepth = 10
+)
+
 // PostgresRelationRepository implements RelationRepository using PostgreSQL
 type PostgresRelationRepository struct {
 	cluster                  *database.DBCluster
@@ -1211,20 +1216,41 @@ func (r *PostgresRelationRepository) LookupAccessibleEntitiesComplex(ctx context
 			  AND COALESCE(r.subject_relation, '') = ''
 		`, pTenantID, pEntityType, pRelations, pSubjectType, pSubjectID))
 
-		// Sub-query 2: Computed usersets
+		// Sub-query 2: Computed usersets (recursive CTE for nested expansion)
+		// Handles chains like: entity#rel@team#member -> team#member@group#member -> group#member@user
+		pUsersetDepth := addArg(maxUsersetDepth)
 		subQueries = append(subQueries, fmt.Sprintf(`
-			SELECT DISTINCT r.entity_id
-			FROM relations r
-			INNER JOIN relations sr
-			  ON sr.tenant_id = r.tenant_id
-			  AND sr.entity_type = r.subject_type
-			  AND sr.entity_id = r.subject_id
-			  AND sr.relation = r.subject_relation
-			  AND sr.subject_type = %s AND sr.subject_id = %s
-			WHERE r.tenant_id = %s AND r.entity_type = %s
-			  AND r.relation = ANY(%s)
-			  AND r.subject_relation IS NOT NULL AND r.subject_relation != ''
-		`, pSubjectType, pSubjectID, pTenantID, pEntityType, pRelations))
+			SELECT DISTINCT outer_r.entity_id
+			FROM relations outer_r
+			INNER JOIN LATERAL (
+			  WITH RECURSIVE userset_chain AS (
+			    SELECT outer_r.subject_type AS cur_type, outer_r.subject_id AS cur_id,
+			           outer_r.subject_relation AS cur_rel, 1 AS depth
+			    UNION ALL
+			    SELECT nr.subject_type, nr.subject_id, nr.subject_relation, uc.depth + 1
+			    FROM userset_chain uc
+			    INNER JOIN relations nr
+			      ON nr.tenant_id = %s
+			      AND nr.entity_type = uc.cur_type
+			      AND nr.entity_id = uc.cur_id
+			      AND nr.relation = uc.cur_rel
+			      AND nr.subject_relation IS NOT NULL AND nr.subject_relation != ''
+			    WHERE uc.depth < %s
+			  )
+			  SELECT 1 FROM userset_chain uc2
+			  INNER JOIN relations leaf
+			    ON leaf.tenant_id = %s
+			    AND leaf.entity_type = uc2.cur_type
+			    AND leaf.entity_id = uc2.cur_id
+			    AND leaf.relation = uc2.cur_rel
+			    AND leaf.subject_type = %s AND leaf.subject_id = %s
+			    AND COALESCE(leaf.subject_relation, '') = ''
+			  LIMIT 1
+			) userset_match ON true
+			WHERE outer_r.tenant_id = %s AND outer_r.entity_type = %s
+			  AND outer_r.relation = ANY(%s)
+			  AND outer_r.subject_relation IS NOT NULL AND outer_r.subject_relation != ''
+		`, pTenantID, pUsersetDepth, pTenantID, pSubjectType, pSubjectID, pTenantID, pEntityType, pRelations))
 	}
 
 	if len(parentRelations) > 0 {
@@ -1257,7 +1283,8 @@ func (r *PostgresRelationRepository) LookupAccessibleEntitiesComplex(ctx context
 				  AND c.depth <= %s
 			`, pTargetRelations, pSubjectType, pSubjectID, pTenantID, pEntityType, pMaxDepth))
 
-			// Sub-query 4: Hierarchical computed usersets
+			// Sub-query 4: Hierarchical computed usersets (recursive CTE)
+			pHierUsersetDepth := addArg(maxUsersetDepth)
 			subQueries = append(subQueries, fmt.Sprintf(`
 				SELECT DISTINCT c.descendant_id AS entity_id
 				FROM entity_closure c
@@ -1267,15 +1294,34 @@ func (r *PostgresRelationRepository) LookupAccessibleEntitiesComplex(ctx context
 				  AND r.entity_id = c.ancestor_id
 				  AND r.relation = ANY(%s)
 				  AND r.subject_relation IS NOT NULL AND r.subject_relation != ''
-				INNER JOIN relations sr
-				  ON sr.tenant_id = r.tenant_id
-				  AND sr.entity_type = r.subject_type
-				  AND sr.entity_id = r.subject_id
-				  AND sr.relation = r.subject_relation
-				  AND sr.subject_type = %s AND sr.subject_id = %s
+				INNER JOIN LATERAL (
+				  WITH RECURSIVE userset_chain AS (
+				    SELECT r.subject_type AS cur_type, r.subject_id AS cur_id,
+				           r.subject_relation AS cur_rel, 1 AS depth
+				    UNION ALL
+				    SELECT nr.subject_type, nr.subject_id, nr.subject_relation, uc.depth + 1
+				    FROM userset_chain uc
+				    INNER JOIN relations nr
+				      ON nr.tenant_id = %s
+				      AND nr.entity_type = uc.cur_type
+				      AND nr.entity_id = uc.cur_id
+				      AND nr.relation = uc.cur_rel
+				      AND nr.subject_relation IS NOT NULL AND nr.subject_relation != ''
+				    WHERE uc.depth < %s
+				  )
+				  SELECT 1 FROM userset_chain uc2
+				  INNER JOIN relations leaf
+				    ON leaf.tenant_id = %s
+				    AND leaf.entity_type = uc2.cur_type
+				    AND leaf.entity_id = uc2.cur_id
+				    AND leaf.relation = uc2.cur_rel
+				    AND leaf.subject_type = %s AND leaf.subject_id = %s
+				    AND COALESCE(leaf.subject_relation, '') = ''
+				  LIMIT 1
+				) userset_match ON true
 				WHERE c.tenant_id = %s AND c.descendant_type = %s
 				  AND c.depth <= %s
-			`, pTargetRelations, pSubjectType, pSubjectID, pTenantID, pEntityType, pMaxDepth))
+			`, pTargetRelations, pTenantID, pHierUsersetDepth, pTenantID, pSubjectType, pSubjectID, pTenantID, pEntityType, pMaxDepth))
 		}
 	}
 
@@ -1351,20 +1397,39 @@ func (r *PostgresRelationRepository) LookupAccessibleSubjectsComplex(ctx context
 			  AND COALESCE(r.subject_relation, '') = ''
 		`, pTenantID, pEntityType, pEntityID, pRelations, pSubjectType))
 
-		// Sub-query 2: Computed usersets
+		// Sub-query 2: Computed usersets (recursive CTE for nested expansion)
+		pUsersetDepth := addArg(maxUsersetDepth)
 		subQueries = append(subQueries, fmt.Sprintf(`
-			SELECT DISTINCT sr.subject_id
-			FROM relations r
-			INNER JOIN relations sr
-			  ON sr.tenant_id = r.tenant_id
-			  AND sr.entity_type = r.subject_type
-			  AND sr.entity_id = r.subject_id
-			  AND sr.relation = r.subject_relation
-			  AND sr.subject_type = %s
-			WHERE r.tenant_id = %s AND r.entity_type = %s AND r.entity_id = %s
-			  AND r.relation = ANY(%s)
-			  AND r.subject_relation IS NOT NULL AND r.subject_relation != ''
-		`, pSubjectType, pTenantID, pEntityType, pEntityID, pRelations))
+			SELECT DISTINCT leaf.subject_id
+			FROM relations outer_r
+			INNER JOIN LATERAL (
+			  WITH RECURSIVE userset_chain AS (
+			    SELECT outer_r.subject_type AS cur_type, outer_r.subject_id AS cur_id,
+			           outer_r.subject_relation AS cur_rel, 1 AS depth
+			    UNION ALL
+			    SELECT nr.subject_type, nr.subject_id, nr.subject_relation, uc.depth + 1
+			    FROM userset_chain uc
+			    INNER JOIN relations nr
+			      ON nr.tenant_id = %s
+			      AND nr.entity_type = uc.cur_type
+			      AND nr.entity_id = uc.cur_id
+			      AND nr.relation = uc.cur_rel
+			      AND nr.subject_relation IS NOT NULL AND nr.subject_relation != ''
+			    WHERE uc.depth < %s
+			  )
+			  SELECT leaf_r.subject_id FROM userset_chain uc2
+			  INNER JOIN relations leaf_r
+			    ON leaf_r.tenant_id = %s
+			    AND leaf_r.entity_type = uc2.cur_type
+			    AND leaf_r.entity_id = uc2.cur_id
+			    AND leaf_r.relation = uc2.cur_rel
+			    AND leaf_r.subject_type = %s
+			    AND COALESCE(leaf_r.subject_relation, '') = ''
+			) leaf ON true
+			WHERE outer_r.tenant_id = %s AND outer_r.entity_type = %s AND outer_r.entity_id = %s
+			  AND outer_r.relation = ANY(%s)
+			  AND outer_r.subject_relation IS NOT NULL AND outer_r.subject_relation != ''
+		`, pTenantID, pUsersetDepth, pTenantID, pSubjectType, pTenantID, pEntityType, pEntityID, pRelations))
 	}
 
 	if len(parentRelations) > 0 {
@@ -1396,9 +1461,10 @@ func (r *PostgresRelationRepository) LookupAccessibleSubjectsComplex(ctx context
 				  AND c.depth <= %s
 			`, pTargetRelations, pSubjectType, pTenantID, pEntityType, pEntityID, pMaxDepth))
 
-			// Sub-query 4: Hierarchical computed usersets
+			// Sub-query 4: Hierarchical computed usersets (recursive CTE)
+			pHierUsersetDepth := addArg(maxUsersetDepth)
 			subQueries = append(subQueries, fmt.Sprintf(`
-				SELECT DISTINCT r.subject_id
+				SELECT DISTINCT leaf.subject_id
 				FROM entity_closure c
 				INNER JOIN relations r
 				  ON r.tenant_id = c.tenant_id
@@ -1406,15 +1472,33 @@ func (r *PostgresRelationRepository) LookupAccessibleSubjectsComplex(ctx context
 				  AND r.entity_id = c.ancestor_id
 				  AND r.relation = ANY(%s)
 				  AND r.subject_relation IS NOT NULL AND r.subject_relation != ''
-				INNER JOIN relations sr
-				  ON sr.tenant_id = r.tenant_id
-				  AND sr.entity_type = r.subject_type
-				  AND sr.entity_id = r.subject_id
-				  AND sr.relation = r.subject_relation
-				  AND sr.subject_type = %s
+				INNER JOIN LATERAL (
+				  WITH RECURSIVE userset_chain AS (
+				    SELECT r.subject_type AS cur_type, r.subject_id AS cur_id,
+				           r.subject_relation AS cur_rel, 1 AS depth
+				    UNION ALL
+				    SELECT nr.subject_type, nr.subject_id, nr.subject_relation, uc.depth + 1
+				    FROM userset_chain uc
+				    INNER JOIN relations nr
+				      ON nr.tenant_id = %s
+				      AND nr.entity_type = uc.cur_type
+				      AND nr.entity_id = uc.cur_id
+				      AND nr.relation = uc.cur_rel
+				      AND nr.subject_relation IS NOT NULL AND nr.subject_relation != ''
+				    WHERE uc.depth < %s
+				  )
+				  SELECT leaf_r.subject_id FROM userset_chain uc2
+				  INNER JOIN relations leaf_r
+				    ON leaf_r.tenant_id = %s
+				    AND leaf_r.entity_type = uc2.cur_type
+				    AND leaf_r.entity_id = uc2.cur_id
+				    AND leaf_r.relation = uc2.cur_rel
+				    AND leaf_r.subject_type = %s
+				    AND COALESCE(leaf_r.subject_relation, '') = ''
+				) leaf ON true
 				WHERE c.tenant_id = %s AND c.descendant_type = %s AND c.descendant_id = %s
 				  AND c.depth <= %s
-			`, pTargetRelations, pSubjectType, pTenantID, pEntityType, pEntityID, pMaxDepth))
+			`, pTargetRelations, pTenantID, pHierUsersetDepth, pTenantID, pSubjectType, pTenantID, pEntityType, pEntityID, pMaxDepth))
 		}
 	}
 
