@@ -84,16 +84,21 @@ func (h *DataHandler) Write(ctx context.Context, req *pb.DataWriteRequest) (*pb.
 		}
 	}
 
-	// Use transaction when writing both tuples and attributes atomically
-	if hasTuples && hasAttributes && h.db != nil {
+	// Use transaction when writing multiple items atomically.
+	// Covers: tuples+attributes, tuples-only (handled by BatchWrite), and
+	// multiple attributes (to prevent partial writes).
+	needsTx := h.db != nil && ((hasTuples && hasAttributes) || (hasAttributes && len(attrs) > 1))
+	if needsTx {
 		tx, err := h.db.BeginTx(ctx, nil)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
 		}
 		defer tx.Rollback()
 
-		if err := h.relationRepo.BatchWriteInTx(ctx, tx, tenantID, tuples); err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to write relations: %v", err)
+		if hasTuples {
+			if err := h.relationRepo.BatchWriteInTx(ctx, tx, tenantID, tuples); err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to write relations: %v", err)
+			}
 		}
 
 		for _, attr := range attrs {

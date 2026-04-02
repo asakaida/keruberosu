@@ -43,11 +43,12 @@ func expandNodeToProto(node *authorization.ExpandNode) *pb.Expand {
 		}
 
 		if node.Subject != "" {
-			// Subjectを解析（例: "user:alice" -> type="user", id="alice"）
-			subjectType, subjectID := parseSubjectRef(node.Subject)
+			// Subjectを解析（例: "user:alice" -> type="user", id="alice"、"team:eng#member" -> type="team", id="eng", relation="member"）
+			subjectType, subjectID, subjectRelation := parseSubjectRef(node.Subject)
 			subjects.Subjects = append(subjects.Subjects, &pb.Subject{
-				Type: subjectType,
-				Id:   subjectID,
+				Type:     subjectType,
+				Id:       subjectID,
+				Relation: subjectRelation,
 			})
 		}
 
@@ -91,17 +92,32 @@ func expandNodeToProto(node *authorization.ExpandNode) *pb.Expand {
 	}
 }
 
-// parseSubjectRef parses a subject reference like "user:alice" into type and ID
-func parseSubjectRef(ref string) (string, string) {
+// parseSubjectRef parses a subject reference like "user:alice" or "team:eng#member"
+// into type, ID, and relation.
+func parseSubjectRef(ref string) (string, string, string) {
+	colonIdx := -1
 	for i := 0; i < len(ref); i++ {
 		if ref[i] == ':' {
-			if i == 0 || i == len(ref)-1 {
-				return ref, ""
-			}
-			return ref[:i], ref[i+1:]
+			colonIdx = i
+			break
 		}
 	}
-	return ref, ""
+	if colonIdx <= 0 || colonIdx == len(ref)-1 {
+		return ref, "", ""
+	}
+	subjectType := ref[:colonIdx]
+	rest := ref[colonIdx+1:]
+
+	// Check for #relation suffix (e.g., "eng#member")
+	for i := 0; i < len(rest); i++ {
+		if rest[i] == '#' {
+			if i == 0 || i == len(rest)-1 {
+				return subjectType, rest, ""
+			}
+			return subjectType, rest[:i], rest[i+1:]
+		}
+	}
+	return subjectType, rest, ""
 }
 
 // protoToRelationTuple converts pb.Tuple to domain entity

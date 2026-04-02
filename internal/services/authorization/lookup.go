@@ -39,6 +39,7 @@ type LookupEntityRequest struct {
 	SubjectType      string
 	SubjectID        string
 	ContextualTuples []*entities.RelationTuple
+	SnapshotToken    string
 	PageSize         int
 	PageToken        string
 }
@@ -59,6 +60,7 @@ type LookupSubjectRequest struct {
 	SubjectType      string
 	SubjectRelation  string // optional: for computed userset lookups (e.g., "member")
 	ContextualTuples []*entities.RelationTuple
+	SnapshotToken    string
 	PageSize         int
 	PageToken        string
 }
@@ -130,7 +132,16 @@ func (l *Lookup) LookupEntity(ctx context.Context, req *LookupEntityRequest) (*L
 	relations, parentRelations, hasUnresolvable := extractRelationsFromRuleWithContext(
 		schema, req.EntityType, permission.Rule, visited)
 
-	if !hasUnresolvable && (len(relations) > 0 || len(parentRelations) > 0) {
+	// When contextual tuples are present and the permission involves hierarchical
+	// rules, the optimized SQL path cannot discover entities reachable only through
+	// contextual tuples at the parent level. Fall back to the Check-based loop which
+	// correctly evaluates contextual tuples at every level of the hierarchy.
+	useOptimized := !hasUnresolvable && (len(relations) > 0 || len(parentRelations) > 0)
+	if useOptimized && len(req.ContextualTuples) > 0 && len(parentRelations) > 0 {
+		useOptimized = false
+	}
+
+	if useOptimized {
 		// Optimized path: pure ReBAC with or without hierarchy
 		entityIDs, err := l.relationRepo.LookupAccessibleEntitiesComplex(
 			ctx, req.TenantID,
@@ -211,7 +222,14 @@ func (l *Lookup) LookupSubject(ctx context.Context, req *LookupSubjectRequest) (
 
 	// When SubjectRelation is set, the optimized SQL path doesn't support
 	// filtering by subject_relation, so always use the fallback Check loop.
-	if req.SubjectRelation == "" && !hasUnresolvable && (len(relations) > 0 || len(parentRelations) > 0) {
+	// When contextual tuples are present with hierarchical rules, the SQL path
+	// cannot discover subjects reachable only through contextual parent tuples.
+	useOptimizedSubject := req.SubjectRelation == "" && !hasUnresolvable && (len(relations) > 0 || len(parentRelations) > 0)
+	if useOptimizedSubject && len(req.ContextualTuples) > 0 && len(parentRelations) > 0 {
+		useOptimizedSubject = false
+	}
+
+	if useOptimizedSubject {
 		// Optimized path
 		subjectIDs, err := l.relationRepo.LookupAccessibleSubjectsComplex(
 			ctx, req.TenantID,
@@ -262,8 +280,23 @@ func (l *Lookup) lookupEntityFallback(ctx context.Context, req *LookupEntityRequ
 	cursor := req.PageToken
 	var allowedIDs []string
 
+	// Pre-extract contextual tuple entity IDs so they are included in candidates
+	var ctxEntityIDs []string
+	if len(req.ContextualTuples) > 0 {
+		ctxEntityIDs = extractEntityIDsFromContextualTuples(req.ContextualTuples, req.EntityType)
+	}
+
 	for {
-		candidates := l.getMergedEntityCandidates(ctx, req.TenantID, req.EntityType, cursor, batchSize)
+		dbCandidates := l.getMergedEntityCandidates(ctx, req.TenantID, req.EntityType, cursor, batchSize)
+
+		// Merge contextual tuple entity IDs into candidates
+		var candidates []string
+		if len(ctxEntityIDs) > 0 {
+			filteredCtxIDs := filterIDsAfterCursor(ctxEntityIDs, cursor)
+			candidates = mergeSortedUnique(dbCandidates, filteredCtxIDs, batchSize+len(filteredCtxIDs))
+		} else {
+			candidates = dbCandidates
+		}
 
 		if len(candidates) == 0 {
 			break
@@ -281,6 +314,7 @@ func (l *Lookup) lookupEntityFallback(ctx context.Context, req *LookupEntityRequ
 				SubjectType:      req.SubjectType,
 				SubjectID:        req.SubjectID,
 				ContextualTuples: req.ContextualTuples,
+				SnapshotToken:    req.SnapshotToken,
 			})
 			if err != nil {
 				log.Printf("WARNING: Check failed for entity %s:%s: %v", req.EntityType, entityID, err)
@@ -300,7 +334,7 @@ func (l *Lookup) lookupEntityFallback(ctx context.Context, req *LookupEntityRequ
 			break
 		}
 
-		if len(candidates) < batchSize {
+		if len(dbCandidates) < batchSize {
 			break
 		}
 	}
@@ -353,8 +387,23 @@ func (l *Lookup) lookupSubjectFallback(ctx context.Context, req *LookupSubjectRe
 	cursor := req.PageToken
 	var allowedIDs []string
 
+	// Pre-extract contextual tuple subject IDs so they are included in candidates
+	var ctxSubjectIDs []string
+	if len(req.ContextualTuples) > 0 {
+		ctxSubjectIDs = extractSubjectIDsFromContextualTuples(req.ContextualTuples, req.EntityType, req.EntityID, req.SubjectType)
+	}
+
 	for {
-		candidates := l.getMergedSubjectCandidates(ctx, req.TenantID, req.SubjectType, cursor, batchSize)
+		dbCandidates := l.getMergedSubjectCandidates(ctx, req.TenantID, req.SubjectType, cursor, batchSize)
+
+		// Merge contextual tuple subject IDs into candidates
+		var candidates []string
+		if len(ctxSubjectIDs) > 0 {
+			filteredCtxIDs := filterIDsAfterCursor(ctxSubjectIDs, cursor)
+			candidates = mergeSortedUnique(dbCandidates, filteredCtxIDs, batchSize+len(filteredCtxIDs))
+		} else {
+			candidates = dbCandidates
+		}
 
 		if len(candidates) == 0 {
 			break
@@ -373,6 +422,7 @@ func (l *Lookup) lookupSubjectFallback(ctx context.Context, req *LookupSubjectRe
 				SubjectID:        subjectID,
 				SubjectRelation:  req.SubjectRelation,
 				ContextualTuples: req.ContextualTuples,
+				SnapshotToken:    req.SnapshotToken,
 			})
 			if err != nil {
 				log.Printf("WARNING: Check failed for subject %s:%s: %v", req.SubjectType, subjectID, err)
@@ -392,7 +442,7 @@ func (l *Lookup) lookupSubjectFallback(ctx context.Context, req *LookupSubjectRe
 			break
 		}
 
-		if len(candidates) < batchSize {
+		if len(dbCandidates) < batchSize {
 			break
 		}
 	}
@@ -443,6 +493,7 @@ func (l *Lookup) verifyEntitiesAndPaginate(ctx context.Context, req *LookupEntit
 			SubjectType:      req.SubjectType,
 			SubjectID:        req.SubjectID,
 			ContextualTuples: req.ContextualTuples,
+			SnapshotToken:    req.SnapshotToken,
 		})
 		if err != nil {
 			continue
@@ -480,6 +531,7 @@ func (l *Lookup) verifySubjectsAndPaginate(ctx context.Context, req *LookupSubje
 			SubjectID:        subjectID,
 			SubjectRelation:  req.SubjectRelation,
 			ContextualTuples: req.ContextualTuples,
+			SnapshotToken:    req.SnapshotToken,
 		})
 		if err != nil {
 			continue

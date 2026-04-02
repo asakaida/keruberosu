@@ -54,8 +54,10 @@ func (h *PermissionHandler) Check(ctx context.Context, req *pb.PermissionCheckRe
 	}
 
 	schemaVersion := ""
+	snapToken := ""
 	if req.Metadata != nil {
 		schemaVersion = req.Metadata.SchemaVersion
+		snapToken = req.Metadata.SnapToken
 	}
 
 	contextualTuples, err := protoContextToTuples(req.Context)
@@ -73,6 +75,7 @@ func (h *PermissionHandler) Check(ctx context.Context, req *pb.PermissionCheckRe
 		SubjectID:        req.Subject.Id,
 		SubjectRelation:  req.Subject.GetRelation(),
 		ContextualTuples: contextualTuples,
+		SnapshotToken:    snapToken,
 	}
 
 	checkResp, err := h.checker.Check(ctx, checkReq)
@@ -150,8 +153,10 @@ func (h *PermissionHandler) LookupEntity(ctx context.Context, req *pb.Permission
 	}
 
 	schemaVersion := ""
+	snapToken := ""
 	if req.Metadata != nil {
 		schemaVersion = req.Metadata.SchemaVersion
+		snapToken = req.Metadata.SnapToken
 	}
 
 	contextualTuples, err := protoContextToTuples(req.Context)
@@ -167,6 +172,7 @@ func (h *PermissionHandler) LookupEntity(ctx context.Context, req *pb.Permission
 		SubjectType:      req.Subject.Type,
 		SubjectID:        req.Subject.Id,
 		ContextualTuples: contextualTuples,
+		SnapshotToken:    snapToken,
 		PageSize:         int(req.PageSize),
 		PageToken:        req.ContinuousToken,
 	}
@@ -200,8 +206,10 @@ func (h *PermissionHandler) LookupSubject(ctx context.Context, req *pb.Permissio
 	}
 
 	schemaVersion := ""
+	snapToken := ""
 	if req.Metadata != nil {
 		schemaVersion = req.Metadata.SchemaVersion
+		snapToken = req.Metadata.SnapToken
 	}
 
 	contextualTuples, err := protoContextToTuples(req.Context)
@@ -218,6 +226,7 @@ func (h *PermissionHandler) LookupSubject(ctx context.Context, req *pb.Permissio
 		SubjectType:      req.SubjectReference.Type,
 		SubjectRelation:  req.SubjectReference.Relation,
 		ContextualTuples: contextualTuples,
+		SnapshotToken:    snapToken,
 		PageSize:         int(req.PageSize),
 		PageToken:        req.ContinuousToken,
 	}
@@ -253,8 +262,12 @@ func (h *PermissionHandler) SubjectPermission(ctx context.Context, req *pb.Permi
 	}
 
 	schemaVersion := ""
+	snapToken := ""
+	onlyPermission := false
 	if req.Metadata != nil {
 		schemaVersion = req.Metadata.SchemaVersion
+		snapToken = req.Metadata.SnapToken
+		onlyPermission = req.Metadata.OnlyPermission
 	}
 
 	schema, err := h.schemaService.GetSchemaEntity(ctx, tenantID, schemaVersion)
@@ -289,6 +302,7 @@ func (h *PermissionHandler) SubjectPermission(ctx context.Context, req *pb.Permi
 			SubjectID:        req.Subject.Id,
 			SubjectRelation:  req.Subject.GetRelation(),
 			ContextualTuples: contextualTuples,
+			SnapshotToken:    snapToken,
 		}
 
 		checkResp, err := h.checker.Check(ctx, checkReq)
@@ -305,6 +319,12 @@ func (h *PermissionHandler) SubjectPermission(ctx context.Context, req *pb.Permi
 
 	// Also check all relations (e.g., "owner", "editor") since they represent
 	// direct access grants that clients may want to know about.
+	// Skip when only_permission is set in metadata.
+	if onlyPermission {
+		return &pb.PermissionSubjectPermissionResponse{
+			Results: results,
+		}, nil
+	}
 	for _, relation := range entity.Relations {
 		checkReq := &authorization.CheckRequest{
 			TenantID:         tenantID,
@@ -316,6 +336,7 @@ func (h *PermissionHandler) SubjectPermission(ctx context.Context, req *pb.Permi
 			SubjectID:        req.Subject.Id,
 			SubjectRelation:  req.Subject.GetRelation(),
 			ContextualTuples: contextualTuples,
+			SnapshotToken:    snapToken,
 		}
 
 		checkResp, err := h.checker.Check(ctx, checkReq)

@@ -345,7 +345,7 @@ func (e *Evaluator) evaluateHierarchical(
 	// use CTE-based hierarchical search. This only works when rule.Permission == rule.Relation
 	// on the same entity type, AND there are no contextual tuples to consider.
 	targetType := extractBaseType(relation.TargetType)
-	if targetType == req.EntityType && rule.Permission == rule.Relation && len(req.ContextualTuples) == 0 {
+	if targetType == req.EntityType && rule.Permission == rule.Relation && len(req.ContextualTuples) == 0 && req.SubjectRelation == "" {
 		found, err := e.relationRepo.FindHierarchicalWithSubject(
 			ctx, req.TenantID, req.EntityType, req.EntityID,
 			rule.Relation, req.SubjectType, req.SubjectID, MaxDepth)
@@ -372,6 +372,12 @@ func (e *Evaluator) evaluateHierarchical(
 
 	// For each parent entity, check if the subject has the specified permission or relation
 	for _, tuple := range tuples {
+		// Skip subject set tuples (e.g., @team#member) - they reference a subject set,
+		// not a direct parent entity whose permissions can be evaluated.
+		if tuple.SubjectRelation != "" {
+			continue
+		}
+
 		// First, check if it's a permission
 		parentPermission := schema.GetPermission(tuple.SubjectType, rule.Permission)
 		if parentPermission != nil {
